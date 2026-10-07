@@ -6,8 +6,10 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import com.example.clarity.presentation.auth.register.RegisterScreen
 import com.example.clarity.presentation.main.MainScreen
-
 import com.example.clarity.presentation.auth.login.LoginScreen
+import com.example.clarity.presentation.profile.ProfileScreen
+import com.example.clarity.presentation.setup.SetupScreen
+import com.google.firebase.auth.FirebaseAuth
 
 @Composable
 fun SetupNavGraph(
@@ -21,8 +23,15 @@ fun SetupNavGraph(
         composable(route = Screen.Login.route) {
             LoginScreen(
                 onNavigateToMain = {
-                    navController.navigate(Screen.Main.route) {
-                        popUpTo(Screen.Login.route) { inclusive = true }
+                    val user = FirebaseAuth.getInstance().currentUser
+                    if (user?.displayName.isNullOrBlank()) {
+                        navController.navigate(Screen.Setup.route) {
+                            popUpTo(Screen.Login.route) { inclusive = true }
+                        }
+                    } else {
+                        navController.navigate(Screen.Main.route) {
+                            popUpTo(Screen.Login.route) { inclusive = true }
+                        }
                     }
                 },
                 onNavigateToRegister = {
@@ -33,8 +42,15 @@ fun SetupNavGraph(
         composable(route = Screen.Register.route) {
             RegisterScreen(
                 onNavigateToMain = {
-                    navController.navigate(Screen.Main.route) {
-                        popUpTo(Screen.Register.route) { inclusive = true }
+                    val user = FirebaseAuth.getInstance().currentUser
+                    if (user?.displayName.isNullOrBlank()) {
+                        navController.navigate(Screen.Setup.route) {
+                            popUpTo(Screen.Register.route) { inclusive = true }
+                        }
+                    } else {
+                        navController.navigate(Screen.Main.route) {
+                            popUpTo(Screen.Register.route) { inclusive = true }
+                        }
                     }
                 },
                 onNavigateToLogin = {
@@ -45,7 +61,27 @@ fun SetupNavGraph(
             )
         }
         composable(route = Screen.Main.route) {
-            MainScreen()
+            MainScreen(
+                onNavigateToProfile = {
+                    navController.navigate(Screen.Profile.route)
+                }
+            )
+        }
+        composable(route = Screen.Setup.route) {
+            SetupScreen(
+                onSetupComplete = {
+                    navController.navigate(Screen.Main.route) {
+                        popUpTo(Screen.Setup.route) { inclusive = true }
+                    }
+                }
+            )
+        }
+        composable(route = Screen.Profile.route) {
+            ProfileScreen(
+                onNavigateBack = {
+                    navController.popBackStack()
+                }
+            )
         }
     }
 }

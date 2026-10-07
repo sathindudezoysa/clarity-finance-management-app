@@ -24,8 +24,8 @@ import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 
 @Composable
-@Preview
 fun MainScreen(
+    onNavigateToProfile: () -> Unit = {},
     viewModel: MainViewModel = hiltViewModel()
 ) {
     val state by viewModel.uiState.collectAsState()
@@ -68,6 +68,10 @@ fun MainScreen(
                             textAlign = TextAlign.Center,
                             style = MaterialTheme.typography.bodyMedium
                         )
+                    }
+                    Spacer(modifier = Modifier.height(32.dp))
+                    androidx.compose.material3.Button(onClick = onNavigateToProfile) {
+                        Text("Edit Profile")
                     }
                 }
             }
