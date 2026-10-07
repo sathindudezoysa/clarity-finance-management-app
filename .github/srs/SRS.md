@@ -139,4 +139,3 @@ The mobile application functions as an independent native Android client communi
 | Version | Date | Description | Author |
 | :---- | :---- | :---- | :---- |
 | **1.0** | Sep 27, 2026 | Initial draft created for Platform Based Development module assignment. | [Sathindu Dhanushka De Zoysa](mailto:sathindu.d.zoysa@gmail.com) |
-
