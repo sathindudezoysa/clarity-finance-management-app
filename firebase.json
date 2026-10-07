@@ -1,0 +1,10 @@
+{
+    "auth": {
+        "providers": {
+            "googleSignIn": {
+                "oAuthBrandDisplayName": "Clarity",
+                "supportEmail": "support@example.com"
+            }
+        }
+    }
+}
