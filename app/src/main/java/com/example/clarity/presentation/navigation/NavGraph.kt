@@ -7,18 +7,38 @@ import androidx.navigation.compose.composable
 import com.example.clarity.presentation.auth.register.RegisterScreen
 import com.example.clarity.presentation.main.MainScreen
 
+import com.example.clarity.presentation.auth.login.LoginScreen
+
 @Composable
 fun SetupNavGraph(
-    navController: NavHostController
+    navController: NavHostController,
+    startDestination: String
 ) {
     NavHost(
         navController = navController,
-        startDestination = Screen.Register.route
+        startDestination = startDestination
     ) {
+        composable(route = Screen.Login.route) {
+            LoginScreen(
+                onNavigateToMain = {
+                    navController.navigate(Screen.Main.route) {
+                        popUpTo(Screen.Login.route) { inclusive = true }
+                    }
+                },
+                onNavigateToRegister = {
+                    navController.navigate(Screen.Register.route)
+                }
+            )
+        }
         composable(route = Screen.Register.route) {
             RegisterScreen(
                 onNavigateToMain = {
                     navController.navigate(Screen.Main.route) {
+                        popUpTo(Screen.Register.route) { inclusive = true }
+                    }
+                },
+                onNavigateToLogin = {
+                    navController.navigate(Screen.Login.route) {
                         popUpTo(Screen.Register.route) { inclusive = true }
                     }
                 }
