@@ -1,0 +1,47 @@
+name: Generate issues from SRS
+
+on:
+  workflow_dispatch:
+    inputs:
+      srs_path:
+        description: Path to the SRS markdown file
+        default: .github/srs/SRS.md
+      dry_run:
+        description: Only print the issues, do not create them
+        type: boolean
+        default: true
+      model:
+        description: Copilot model name (leave blank for the default)
+        default: ""
+
+permissions:
+  contents: read
+  issues: write   # create milestones and issues with the built-in GITHUB_TOKEN
+
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Copilot CLI
+        run: npm install -g @github/copilot
+
+      - name: Create issues from SRS
+        env:
+          # Fine-grained PAT with the "Copilot Requests" permission,
+          # stored as a repository secret named COPILOT_PAT.
+          COPILOT_GITHUB_TOKEN: ${{ secrets.COPILOT_PAT }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SRS_PATH: ${{ inputs.srs_path }}
+          DRY_RUN: ${{ inputs.dry_run }}
+          MODEL: ${{ inputs.model }}
+        run: python .github/scripts/srs_to_issues.py
