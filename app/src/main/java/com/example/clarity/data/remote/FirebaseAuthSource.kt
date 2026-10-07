@@ -30,6 +30,10 @@ class FirebaseAuthSource @Inject constructor(
         return result.user
     }
 
+    suspend fun sendPasswordResetEmail(email: String) {
+        firebaseAuth.sendPasswordResetEmail(email).await()
+    }
+
     fun signOut() {
         firebaseAuth.signOut()
     }
