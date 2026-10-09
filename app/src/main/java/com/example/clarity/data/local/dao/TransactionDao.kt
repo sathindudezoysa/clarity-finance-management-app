@@ -42,7 +42,8 @@ abstract class TransactionDao {
         userId: String,
         remote: List<TransactionEntity>,
         remoteIds: Set<String>,
-        authoritative: Boolean
+        authoritative: Boolean,
+        confirmedDeletes: Set<String> = emptySet()
     ) {
         val replacements = remote.mapNotNull { incoming ->
             val local = getById(incoming.id)
@@ -51,10 +52,14 @@ abstract class TransactionDao {
                 local != null && local.userId != userId -> null
                 local?.isDeleted == true -> null
                 local?.pendingSync == true -> {
-                    // Only a matching, server-confirmed snapshot acknowledges a local write.
-                    if (authoritative && local.copy(pendingSync = false) == incoming) incoming else null
+                    // A newer server edit wins; equal timestamps also prefer the server.
+                    // Cached data cannot acknowledge or overwrite any pending local edit.
+                    if (authoritative && incoming.updatedAt >= local.updatedAt) incoming else null
                 }
-                local != null && local.updatedAt > incoming.updatedAt -> null
+                local != null && local.updatedAt > incoming.updatedAt -> {
+                    // Repair an older remote overwrite instead of leaving the stores divergent.
+                    if (authoritative) local.copy(pendingSync = true) else null
+                }
                 else -> incoming
             }
         }
@@ -63,7 +68,9 @@ abstract class TransactionDao {
         if (authoritative) {
             (getIdsForUser(userId) - remoteIds).forEach { id ->
                 val local = getById(id)
-                if (local != null && !local.pendingSync) {
+                // A pending edit wins a remote deletion and is retried as a recreation.
+                // Tombstones need both a delete acknowledgement and fresh server absence.
+                if (local != null && (!local.pendingSync || (local.isDeleted && id in confirmedDeletes))) {
                     deleteById(id, userId)
                 }
             }

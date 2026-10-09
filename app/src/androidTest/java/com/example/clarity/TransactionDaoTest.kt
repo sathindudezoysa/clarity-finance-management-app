@@ -94,6 +94,13 @@ class TransactionDaoTest {
         assertTrue(dao.getById("pending")!!.pendingSync)
         dao.reconcileRemote("user-a", listOf(confirmed), setOf("pending"), authoritative = true)
         assertEquals(confirmed, dao.getById("pending"))
+        dao.upsert(pending)
+        val newerRemote = confirmed.copy(amountMinor = 4000L, updatedAt = 30L)
+        dao.reconcileRemote("user-a", listOf(newerRemote), setOf("pending"), authoritative = true)
+        assertEquals(newerRemote, dao.getById("pending"))
+        // An older remote overwrite is repaired by resubmitting the newer Room version.
+        dao.reconcileRemote("user-a", listOf(confirmed), setOf("pending"), authoritative = true)
+        assertEquals(newerRemote.copy(pendingSync = true), dao.getById("pending"))
         assertEquals(other, dao.getById("other"))
         assertTrue(dao.getPendingForUser("user-b").isEmpty())
     }
@@ -111,7 +118,15 @@ class TransactionDaoTest {
         assertNull(dao.getById("synced"))
         dao.reconcileRemote("user-a", emptyList(), emptySet(), authoritative = true)
         assertEquals(tombstone, dao.getById("deleted"))
-        dao.deleteById("deleted", "user-a")
+        dao.reconcileRemote(
+            "user-a", emptyList(), emptySet(), authoritative = false,
+            confirmedDeletes = setOf("deleted")
+        )
+        assertEquals(tombstone, dao.getById("deleted"))
+        dao.reconcileRemote(
+            "user-a", emptyList(), emptySet(), authoritative = true,
+            confirmedDeletes = setOf("deleted")
+        )
         assertNull(dao.getById("deleted"))
     }
 }
