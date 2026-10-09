@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.room.Room
 import com.example.clarity.data.local.ClarityDatabase
 import com.example.clarity.data.local.dao.SampleDao
+import com.example.clarity.data.local.dao.TransactionDao
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -32,4 +33,8 @@ object DatabaseModule {
     fun provideSampleDao(database: ClarityDatabase): SampleDao {
         return database.sampleDao
     }
+
+    @Provides
+    @Singleton
+    fun provideTransactionDao(database: ClarityDatabase): TransactionDao = database.transactionDao
 }
