@@ -4,6 +4,8 @@ import com.example.clarity.data.repository.AuthRepositoryImpl
 import com.example.clarity.data.repository.SampleRepositoryImpl
 import com.example.clarity.domain.repository.AuthRepository
 import com.example.clarity.domain.repository.SampleRepository
+import com.example.clarity.data.repository.TransactionRepositoryImpl
+import com.example.clarity.domain.repository.TransactionRepository
 import dagger.Binds
 import dagger.Module
 import dagger.hilt.InstallIn
@@ -25,4 +27,8 @@ abstract class RepositoryModule {
     abstract fun bindAuthRepository(
         impl: AuthRepositoryImpl
     ): AuthRepository
+
+    @Binds
+    @Singleton
+    abstract fun bindTransactionRepository(impl: TransactionRepositoryImpl): TransactionRepository
 }

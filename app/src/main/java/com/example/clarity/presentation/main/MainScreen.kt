@@ -11,6 +11,9 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.Button
+import androidx.compose.ui.res.stringResource
+import com.example.clarity.R
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -26,7 +29,8 @@ import androidx.hilt.navigation.compose.hiltViewModel
 @Composable
 @Preview
 fun MainScreen(
-    viewModel: MainViewModel = hiltViewModel()
+    viewModel: MainViewModel = hiltViewModel(),
+    onNavigateToTransactions: () -> Unit = {}
 ) {
     val state by viewModel.uiState.collectAsState()
 
@@ -45,6 +49,10 @@ fun MainScreen(
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.Center
                 ) {
+                    Button(onClick = onNavigateToTransactions) {
+                        Text(stringResource(R.string.transactions_title))
+                    }
+                    Spacer(modifier = Modifier.height(12.dp))
                     Text(
                         text = state.title,
                         style = MaterialTheme.typography.titleLarge,
