@@ -1,0 +1,60 @@
+rules_version = '2';
+
+// Data model: users/{uid}/transactions/{transactionId} (owner-private).
+// Required fields: id and userId (strings, immutable, 1..128 characters);
+// type (INCOME or EXPENSE); amountMinor (positive int, minor units);
+// category (string, 1..100); note (string, 0..2000);
+// dateEpochMillis (epoch-millisecond int); createdAt/updatedAt (non-negative ints).
+// createdAt is immutable. Client timestamps permit delayed offline writes;
+// they are not proof of server time. No parent user document is required.
+// Room-only pendingSync/isDeleted fields are excluded from the remote schema.
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function uidUnchanged(data) {
+      return data.userId == request.auth.uid;
+    }
+
+    function uidNotModified(data) {
+      return data.userId == resource.data.userId;
+    }
+
+    function isValidTransaction(data, transactionId) {
+      let fields = ['id', 'userId', 'type', 'amountMinor', 'category', 'note',
+                    'dateEpochMillis', 'createdAt', 'updatedAt'];
+      return data.keys().hasAll(fields) && data.keys().hasOnly(fields)
+        && data.id is string && data.id.size() > 0 && data.id.size() <= 128
+        && data.id == transactionId
+        && data.userId is string && data.userId.size() > 0 && data.userId.size() <= 128
+        && uidUnchanged(data)
+        && data.type is string && data.type.size() <= 7 && data.type in ['INCOME', 'EXPENSE']
+        && data.amountMinor is int && data.amountMinor > 0
+        && data.category is string && data.category.size() > 0 && data.category.size() <= 100
+        && data.note is string && data.note.size() <= 2000
+        && data.dateEpochMillis is int
+        && data.createdAt is int && data.createdAt >= 0
+        && data.updatedAt is int && data.updatedAt >= data.createdAt;
+    }
+
+    match /users/{userId}/transactions/{transactionId} {
+      allow read, delete: if isOwner(userId);
+      allow create: if isOwner(userId) && isValidTransaction(request.resource.data, transactionId);
+      allow update: if isOwner(userId)
+        && isValidTransaction(request.resource.data, transactionId)
+        && uidNotModified(request.resource.data)
+        && request.resource.data.id == resource.data.id
+        && request.resource.data.createdAt == resource.data.createdAt;
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
