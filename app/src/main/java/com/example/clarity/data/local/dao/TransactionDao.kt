@@ -6,6 +6,7 @@ import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import androidx.room.Transaction
 import com.example.clarity.data.local.entity.TransactionEntity
+import com.example.clarity.data.local.entity.TransactionTagEntity
 import kotlinx.coroutines.flow.Flow
 
 @Dao
@@ -21,6 +22,16 @@ abstract class TransactionDao {
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     abstract suspend fun upsertAll(entities: List<TransactionEntity>)
+
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    abstract suspend fun insertTag(entity: TransactionTagEntity)
+
+    // A single save creates both the transaction and its reusable tag, including offline.
+    @Transaction
+    open suspend fun upsertWithTag(entity: TransactionEntity) {
+        upsert(entity)
+        insertTag(TransactionTagEntity(entity.userId, entity.category))
+    }
 
     @Query("DELETE FROM transactions WHERE id = :id AND userId = :userId")
     abstract suspend fun deleteById(id: String, userId: String)

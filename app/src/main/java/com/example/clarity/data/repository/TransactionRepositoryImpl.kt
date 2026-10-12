@@ -185,7 +185,7 @@ class TransactionRepositoryImpl @Inject constructor(
         val now = System.currentTimeMillis()
         val entity = t.copy(userId = uid, createdAt = now, updatedAt = now).toEntity()
             .copy(pendingSync = true)
-        dao.upsert(entity)
+        dao.upsertWithTag(entity)
         enqueueRemote(entity)
     }
 
@@ -199,7 +199,7 @@ class TransactionRepositoryImpl @Inject constructor(
             userId = uid, createdAt = existing.createdAt,
             updatedAt = maxOf(System.currentTimeMillis(), existing.updatedAt + 1)
         ).toEntity().copy(pendingSync = true)
-        dao.upsert(entity)
+        dao.upsertWithTag(entity)
         enqueueRemote(entity)
     }
 

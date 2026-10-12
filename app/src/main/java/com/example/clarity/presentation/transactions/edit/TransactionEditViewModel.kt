@@ -8,6 +8,7 @@ import com.example.clarity.domain.model.Transaction
 import com.example.clarity.domain.model.TransactionType
 import com.example.clarity.domain.usecase.transaction.AddTransactionUseCase
 import com.example.clarity.domain.usecase.transaction.GetTransactionUseCase
+import com.example.clarity.domain.usecase.transaction.GetTransactionTagsUseCase
 import com.example.clarity.domain.usecase.transaction.UpdateTransactionUseCase
 import com.example.clarity.domain.util.MoneyUtils
 import com.example.clarity.domain.util.Resource
@@ -23,13 +24,17 @@ class TransactionEditViewModel @Inject constructor(
     savedStateHandle: SavedStateHandle,
     private val getTransaction: GetTransactionUseCase,
     private val addTransaction: AddTransactionUseCase,
-    private val updateTransaction: UpdateTransactionUseCase
+    private val updateTransaction: UpdateTransactionUseCase,
+    private val getTransactionTags: GetTransactionTagsUseCase
 ) : ViewModel() {
     private val id: String? = savedStateHandle["id"]
     private val _uiState = MutableStateFlow(TransactionEditState(isEditMode = id != null, isLoading = id != null))
     val uiState = _uiState.asStateFlow()
 
     init {
+        viewModelScope.launch {
+            getTransactionTags().collect { tags -> _uiState.update { it.copy(tags = tags) } }
+        }
         if (id != null) viewModelScope.launch {
             getTransaction(id).collect { result ->
                 _uiState.update {
@@ -59,8 +64,8 @@ class TransactionEditViewModel @Inject constructor(
             amount <= 0 -> R.string.transactions_amount_positive
             else -> null
         }
-        val categoryError = if (category.trim().length > 100) R.string.transactions_category_long else null
-        val noteError = if (note.trim().length > 2000) R.string.transactions_note_long else null
+        val categoryError = if (category.trim().length > 100) R.string.transactions_tag_long else null
+        val noteError = if (note.trim().length > 2000) R.string.transactions_description_long else null
         _uiState.update { it.copy(amountError = amountError, categoryError = categoryError, noteError = noteError, error = null) }
         if (amountError != null || categoryError != null || noteError != null) return
         if (id != null && state.transaction == null) {

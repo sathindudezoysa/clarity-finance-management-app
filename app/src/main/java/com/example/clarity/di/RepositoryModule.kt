@@ -6,6 +6,8 @@ import com.example.clarity.domain.repository.AuthRepository
 import com.example.clarity.domain.repository.SampleRepository
 import com.example.clarity.data.repository.TransactionRepositoryImpl
 import com.example.clarity.domain.repository.TransactionRepository
+import com.example.clarity.data.repository.TransactionTagRepositoryImpl
+import com.example.clarity.domain.repository.TransactionTagRepository
 import dagger.Binds
 import dagger.Module
 import dagger.hilt.InstallIn
@@ -31,4 +33,8 @@ abstract class RepositoryModule {
     @Binds
     @Singleton
     abstract fun bindTransactionRepository(impl: TransactionRepositoryImpl): TransactionRepository
+
+    @Binds
+    @Singleton
+    abstract fun bindTransactionTagRepository(impl: TransactionTagRepositoryImpl): TransactionTagRepository
 }
