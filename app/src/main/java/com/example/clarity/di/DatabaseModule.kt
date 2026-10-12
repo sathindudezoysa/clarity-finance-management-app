@@ -5,6 +5,8 @@ import androidx.room.Room
 import com.example.clarity.data.local.ClarityDatabase
 import com.example.clarity.data.local.dao.SampleDao
 import com.example.clarity.data.local.dao.TransactionDao
+import com.example.clarity.data.local.TransactionTagMigration
+import com.example.clarity.data.local.dao.TransactionTagDao
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -25,7 +27,7 @@ object DatabaseModule {
             context,
             ClarityDatabase::class.java,
             ClarityDatabase.DATABASE_NAME
-        ).fallbackToDestructiveMigration().build()
+        ).addMigrations(TransactionTagMigration).fallbackToDestructiveMigration().build()
     }
 
     @Provides
@@ -37,4 +39,8 @@ object DatabaseModule {
     @Provides
     @Singleton
     fun provideTransactionDao(database: ClarityDatabase): TransactionDao = database.transactionDao
+
+    @Provides
+    @Singleton
+    fun provideTransactionTagDao(database: ClarityDatabase): TransactionTagDao = database.transactionTagDao
 }

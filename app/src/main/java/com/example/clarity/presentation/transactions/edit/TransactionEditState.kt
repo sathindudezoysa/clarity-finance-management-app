@@ -1,6 +1,7 @@
 package com.example.clarity.presentation.transactions.edit
 
 import com.example.clarity.domain.model.Transaction
+import com.example.clarity.domain.model.TransactionTags
 
 data class TransactionEditState(
     val isEditMode: Boolean = false,
@@ -11,5 +12,6 @@ data class TransactionEditState(
     val error: Int? = null,
     val amountError: Int? = null,
     val categoryError: Int? = null,
-    val noteError: Int? = null
+    val noteError: Int? = null,
+    val tags: List<String> = TransactionTags.predefined
 )

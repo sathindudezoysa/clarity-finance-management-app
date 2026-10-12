@@ -134,17 +134,14 @@ private fun TransactionEditContent(
                     enabled = !state.isSaving, singleLine = true,
                     modifier = Modifier.fillMaxWidth().focusRequester(amountFocus)
                 )
-                OutlinedTextField(
-                    value = category, onValueChange = { category = it },
-                    label = { Text(stringResource(R.string.transactions_category)) },
-                    placeholder = { Text(stringResource(R.string.transactions_general)) },
-                    isError = state.categoryError != null,
-                    supportingText = { state.categoryError?.let { Text(stringResource(it)) } },
-                    enabled = !state.isSaving, singleLine = true, modifier = Modifier.fillMaxWidth()
+                TransactionTagField(
+                    value = category, tags = state.tags, onValueChange = { category = it },
+                    error = state.categoryError, enabled = !state.isSaving,
+                    modifier = Modifier.fillMaxWidth()
                 )
                 OutlinedTextField(
                     value = note, onValueChange = { note = it },
-                    label = { Text(stringResource(R.string.transactions_note)) },
+                    label = { Text(stringResource(R.string.transactions_description)) },
                     isError = state.noteError != null,
                     supportingText = { state.noteError?.let { Text(stringResource(it)) } },
                     enabled = !state.isSaving, modifier = Modifier.fillMaxWidth()

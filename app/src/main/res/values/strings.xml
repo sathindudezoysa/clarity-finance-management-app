@@ -17,6 +17,12 @@
     <string name="transactions_amount">Amount</string>
     <string name="transactions_category">Category (optional)</string>
     <string name="transactions_note">Note (optional)</string>
+    <string name="transactions_tag">Tag</string>
+    <string name="transactions_tag_input">Tag or custom tag (optional)</string>
+    <string name="transactions_tag_hint">Tap a tag or type a new one. New tags are saved with this transaction.</string>
+    <string name="transactions_description">Description (optional)</string>
+    <string name="transactions_tag_long">Tag must be at most 100 characters.</string>
+    <string name="transactions_description_long">Description must be at most 2000 characters.</string>
     <string name="transactions_general">General</string>
     <string name="transactions_date">Date</string>
     <string name="transactions_date_value">Date: %1$s</string>
