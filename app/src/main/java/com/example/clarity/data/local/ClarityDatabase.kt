@@ -10,14 +10,19 @@ import com.example.clarity.data.local.dao.TransactionTagDao
 import com.example.clarity.data.local.entity.TransactionTagEntity
 
 @Database(
-    entities = [SampleEntity::class, TransactionEntity::class, TransactionTagEntity::class],
-    version = 3,
+    entities = [SampleEntity::class, TransactionEntity::class, TransactionTagEntity::class,
+        com.example.clarity.data.local.entity.WalletBankAccountEntity::class,
+        com.example.clarity.data.local.entity.WalletTopUpEntity::class,
+        com.example.clarity.data.local.entity.WalletCashLinkEntity::class,
+        com.example.clarity.data.local.entity.WalletTopUpOptionEntity::class],
+    version = 4,
     exportSchema = false
 )
 abstract class ClarityDatabase : RoomDatabase() {
     abstract val sampleDao: SampleDao
     abstract val transactionDao: TransactionDao
     abstract val transactionTagDao: TransactionTagDao
+    abstract val cashWalletDao: com.example.clarity.data.local.dao.CashWalletDao
 
     companion object {
         const val DATABASE_NAME = "clarity_db"

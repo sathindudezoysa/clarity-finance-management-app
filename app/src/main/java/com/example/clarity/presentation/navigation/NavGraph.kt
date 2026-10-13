@@ -51,7 +51,16 @@ fun SetupNavGraph(
             )
         }
         composable(route = Screen.Main.route) {
-            MainScreen(onNavigateToTransactions = { navController.navigate(Screen.TransactionList.route) })
+            MainScreen(
+                onNavigateToTransactions = { navController.navigate(Screen.TransactionList.route) },
+                onNavigateToCashWallet = { navController.navigate(Screen.CashWallet.route) }
+            )
+        }
+        composable(route = Screen.CashWallet.route) {
+            com.example.clarity.presentation.wallet.CashWalletScreen(
+                onBack = { navController.popBackStack() },
+                onOpenTransaction = { id -> navController.navigate(Screen.TransactionDetail.createRoute(id)) }
+            )
         }
         composable(route = Screen.TransactionList.route) {
             TransactionListScreen(

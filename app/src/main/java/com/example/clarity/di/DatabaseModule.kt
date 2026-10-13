@@ -27,7 +27,7 @@ object DatabaseModule {
             context,
             ClarityDatabase::class.java,
             ClarityDatabase.DATABASE_NAME
-        ).addMigrations(TransactionTagMigration).fallbackToDestructiveMigration().build()
+        ).addMigrations(TransactionTagMigration, com.example.clarity.data.local.CashWalletMigration).fallbackToDestructiveMigration().build()
     }
 
     @Provides

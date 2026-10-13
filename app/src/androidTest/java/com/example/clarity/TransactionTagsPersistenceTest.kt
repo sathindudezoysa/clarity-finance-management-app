@@ -33,7 +33,7 @@ class TransactionTagsPersistenceTest {
 
     private fun openDatabase(): ClarityDatabase = Room.databaseBuilder(
         context, ClarityDatabase::class.java, databaseName
-    ).addMigrations(TransactionTagMigration).build().also { database = it }
+    ).addMigrations(TransactionTagMigration, com.example.clarity.data.local.CashWalletMigration).build().also { database = it }
 
     private fun row(id: String, tag: String, description: String = "", user: String = "user-a") =
         TransactionEntity(id, user, "EXPENSE", 1250, tag, description, 100, 1, 10, pendingSync = true)

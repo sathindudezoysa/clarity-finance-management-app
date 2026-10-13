@@ -1,0 +1,29 @@
+<resources>
+    <string name="wallet_title">Cash wallet</string>
+    <string name="wallet_back">Back</string>
+    <string name="wallet_available_balance">Available cash balance</string>
+    <string name="wallet_cash_expense">Cash expense</string>
+    <string name="wallet_cash_income">Cash income</string>
+    <string name="wallet_top_up">Top up</string>
+    <string name="wallet_automatic">Auto top-up</string>
+    <string name="wallet_automatic_active">Automatic top-up enabled</string>
+    <string name="wallet_amount">Amount</string>
+    <string name="wallet_category_optional">Category (optional)</string>
+    <string name="wallet_note_optional">Note (optional)</string>
+    <string name="wallet_add_bank">Add bank account</string>
+    <string name="wallet_select_bank">Select bank account</string>
+    <string name="wallet_transfer_explanation">A top-up records a bank withdrawal and adds the same amount to cash. Transfers are excluded from income and expense totals. All balances use your primary currency.</string>
+    <string name="wallet_enable_automatic">Enable automatic top-up</string>
+    <string name="wallet_automatic_explanation">When recording a cash expense here would leave cash below the threshold, record one withdrawal of the top-up amount from the selected bank account. This records cash you withdraw; it does not move money at your bank.</string>
+    <string name="wallet_threshold">Cash threshold</string>
+    <string name="wallet_top_up_amount">Top-up amount</string>
+    <string name="wallet_save">Save</string>
+    <string name="wallet_saving">Saving…</string>
+    <string name="wallet_cancel">Cancel</string>
+    <string name="wallet_bank_name">Bank account name</string>
+    <string name="wallet_opening_balance">Opening bank balance</string>
+    <string name="wallet_bank_balances">Bank balances after withdrawals</string>
+    <string name="wallet_activity">Wallet activity</string>
+    <string name="wallet_no_activity">No activity yet. Record cash income or top up to get started.</string>
+    <string name="wallet_withdrawal_record">Bank withdrawal → cash wallet</string>
+</resources>
