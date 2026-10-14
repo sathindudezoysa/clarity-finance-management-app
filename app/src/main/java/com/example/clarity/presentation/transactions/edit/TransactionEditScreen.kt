@@ -28,11 +28,12 @@ import java.time.ZoneOffset
 @Composable
 fun TransactionEditScreen(
     onBack: () -> Unit,
+    onCreateAccount: () -> Unit = {},
     viewModel: TransactionEditViewModel = hiltViewModel()
 ) {
     val state by viewModel.uiState.collectAsState()
     LaunchedEffect(state.isSuccess) { if (state.isSuccess) onBack() }
-    TransactionEditContent(state, onBack, viewModel::save)
+    TransactionEditContent(state, onBack, viewModel::save, viewModel::onAccountSelected, onCreateAccount)
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -40,7 +41,9 @@ fun TransactionEditScreen(
 private fun TransactionEditContent(
     state: TransactionEditState,
     onBack: () -> Unit,
-    onSave: (TransactionType, String, String, String, Long) -> Unit
+    onSave: (TransactionType, String, String, String, Long) -> Unit,
+    onAccountSelected: (String) -> Unit,
+    onCreateAccount: () -> Unit
 ) {
     var typeName by rememberSaveable { mutableStateOf(TransactionType.EXPENSE.name) }
     var amount by rememberSaveable { mutableStateOf("") }
@@ -134,6 +137,17 @@ private fun TransactionEditContent(
                     enabled = !state.isSaving, singleLine = true,
                     modifier = Modifier.fillMaxWidth().focusRequester(amountFocus)
                 )
+                state.accountsError?.let { Text(stringResource(it), color = MaterialTheme.colorScheme.error) }
+                if (state.isAccountsLoading) CircularProgressIndicator()
+                else if (state.accounts.isEmpty()) {
+                    Text(stringResource(R.string.transactions_account_required), color = MaterialTheme.colorScheme.error)
+                    OutlinedButton(onClick = onCreateAccount, enabled = !state.isSaving) {
+                        Text(stringResource(R.string.transactions_create_account))
+                    }
+                } else {
+                    TransactionAccountField(state.accounts, state.selectedAccountId, onAccountSelected,
+                        enabled = !state.isSaving, error = state.accountError, modifier = Modifier.fillMaxWidth())
+                }
                 TransactionTagField(
                     value = category, tags = state.tags, onValueChange = { category = it },
                     error = state.categoryError, enabled = !state.isSaving,
@@ -154,7 +168,7 @@ private fun TransactionEditContent(
                         focusManager.clearFocus()
                         onSave(TransactionType.valueOf(typeName), amount, category, note, dateEpochMillis)
                     },
-                    enabled = !state.isSaving, modifier = Modifier.fillMaxWidth()
+                    enabled = !state.isSaving && state.canSaveWithAccount, modifier = Modifier.fillMaxWidth()
                 ) { Text(stringResource(R.string.transactions_save)) }
                 if (state.isSaving) CircularProgressIndicator()
             }
@@ -165,5 +179,5 @@ private fun TransactionEditContent(
 @Preview(showBackground = true)
 @Composable
 private fun TransactionEditPreview() {
-    ClarityTheme { TransactionEditContent(TransactionEditState(), {}, { _, _, _, _, _ -> }) }
+    ClarityTheme { TransactionEditContent(TransactionEditState(), {}, { _, _, _, _, _ -> }, {}, {}) }
 }

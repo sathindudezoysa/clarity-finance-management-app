@@ -7,17 +7,18 @@ import com.google.firebase.firestore.DocumentSnapshot
 
 fun TransactionEntity.toDomain(): Transaction = Transaction(
     id, userId, TransactionType.valueOf(type), amountMinor, category, note,
-    dateEpochMillis, createdAt, updatedAt
+    dateEpochMillis, createdAt, updatedAt, accountId
 )
 
 fun Transaction.toEntity(): TransactionEntity = TransactionEntity(
-    id, userId, type.name, amountMinor, category, note, dateEpochMillis, createdAt, updatedAt
+    id, userId, type.name, amountMinor, category, note, dateEpochMillis, createdAt, updatedAt,
+    accountId = accountId
 )
 
-fun Transaction.toFirestoreMap(): Map<String, Any> = mapOf(
+fun Transaction.toFirestoreMap(): Map<String, Any?> = mapOf(
     "id" to id, "userId" to userId, "type" to type.name, "amountMinor" to amountMinor,
     "category" to category, "note" to note, "dateEpochMillis" to dateEpochMillis,
-    "createdAt" to createdAt, "updatedAt" to updatedAt
+    "createdAt" to createdAt, "updatedAt" to updatedAt, "accountId" to accountId
 )
 
 fun DocumentSnapshot.toDomain(): Transaction? = data?.toTransaction(id)
@@ -34,9 +35,11 @@ fun Map<String, Any?>.toTransaction(documentId: String): Transaction? {
     val date = this["dateEpochMillis"] as? Long ?: return null
     val created = this["createdAt"] as? Long ?: return null
     val updated = this["updatedAt"] as? Long ?: return null
+    val accountId = this["accountId"]
+    if (accountId != null && (accountId !is String || accountId.isBlank() || accountId.length > 128 || '/' in accountId)) return null
     if (id != documentId || id.isBlank() || id.length > 128 || '/' in id ||
         userId.isBlank() || userId.length > 128 || amount <= 0 ||
         category.isBlank() || category.length > 100 || note.length > 2000 ||
         created < 0 || updated < created) return null
-    return Transaction(id, userId, type, amount, category, note, date, created, updated)
+    return Transaction(id, userId, type, amount, category, note, date, created, updated, accountId as String?)
 }

@@ -1,0 +1,170 @@
+package com.example.clarity
+
+import androidx.lifecycle.SavedStateHandle
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.ViewModelStore
+import androidx.room.Room
+import androidx.test.ext.junit.runners.AndroidJUnit4
+import androidx.test.platform.app.InstrumentationRegistry
+import com.example.clarity.data.local.ClarityDatabase
+import com.example.clarity.data.remote.AccountRemoteDataSource
+import com.example.clarity.data.remote.AccountSnapshot
+import com.example.clarity.data.repository.AccountRepositoryImpl
+import com.example.clarity.domain.model.Account
+import com.example.clarity.domain.model.User
+import com.example.clarity.domain.repository.AuthRepository
+import com.example.clarity.domain.usecase.account.CreateAccountUseCase
+import com.example.clarity.domain.usecase.account.GetAccountUseCase
+import com.example.clarity.domain.usecase.account.GetAccountsUseCase
+import com.example.clarity.domain.usecase.account.SetDefaultAccountUseCase
+import com.example.clarity.domain.usecase.account.UpdateAccountUseCase
+import com.example.clarity.presentation.accounts.edit.AccountEditState
+import com.example.clarity.presentation.accounts.edit.AccountEditViewModel
+import com.example.clarity.presentation.accounts.list.AccountListViewModel
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.emptyFlow
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
+import org.junit.After
+import org.junit.Assert.*
+import org.junit.Before
+import org.junit.Test
+import org.junit.runner.RunWith
+
+@RunWith(AndroidJUnit4::class)
+class AccountViewModelTest {
+    private val instrumentation = InstrumentationRegistry.getInstrumentation()
+    private val context = instrumentation.targetContext
+    private val databaseName = "account-viewmodel-test"
+    private val store = ViewModelStore()
+    private lateinit var database: ClarityDatabase
+    private lateinit var repository: AccountRepositoryImpl
+    private var nextKey = 0
+
+    @Before
+    fun setUp() {
+        context.deleteDatabase(databaseName)
+        openDatabase()
+    }
+
+    @After
+    fun tearDown() {
+        instrumentation.runOnMainSync { store.clear() }
+        repository.stopSync()
+        database.close()
+        context.deleteDatabase(databaseName)
+    }
+
+    private fun openDatabase() {
+        database = Room.databaseBuilder(context, ClarityDatabase::class.java, databaseName).build()
+        repository = AccountRepositoryImpl(database.accountDao, OfflineRemote(), SignedInAuth(), Dispatchers.IO)
+    }
+
+    private fun <T : ViewModel> model(type: Class<T>, create: () -> T): T {
+        var result: T? = null
+        instrumentation.runOnMainSync {
+            val factory = object : ViewModelProvider.Factory {
+                @Suppress("UNCHECKED_CAST")
+                override fun <V : ViewModel> create(modelClass: Class<V>): V = create() as V
+            }
+            result = ViewModelProvider(store, factory).get("account-${nextKey++}", type)
+        }
+        return checkNotNull(result)
+    }
+
+    private fun editor(handle: SavedStateHandle = SavedStateHandle()) = model(AccountEditViewModel::class.java) {
+        AccountEditViewModel(handle, GetAccountUseCase(repository), CreateAccountUseCase(repository), UpdateAccountUseCase(repository))
+    }
+
+    private fun list() = model(AccountListViewModel::class.java) {
+        AccountListViewModel(GetAccountsUseCase(repository), SetDefaultAccountUseCase(repository))
+    }
+
+    private suspend fun ready(editor: AccountEditViewModel): AccountEditState =
+        withTimeout(10_000) { editor.uiState.first { !it.isLoading } }
+
+    private suspend fun create(name: String) {
+        val editor = editor()
+        ready(editor)
+        instrumentation.runOnMainSync {
+            editor.onNameChange(name)
+            editor.onBankNameChange("Bank")
+            editor.save()
+        }
+        withTimeout(10_000) { editor.uiState.first { it.isSuccess } }
+    }
+
+    @Test
+    fun addEditAndDefaultSwitchUpdateTheListAndReloadFromRoom() = runBlocking {
+        val list = list()
+        create("Daily")
+        create("Savings")
+        val accounts = withTimeout(10_000) { list.uiState.first { it.accounts.size == 2 } }.accounts
+        assertEquals("Daily", accounts.single { it.isDefault }.name)
+        val savings = accounts.single { it.name == "Savings" }
+        val editor = editor(SavedStateHandle(mapOf("id" to savings.id)))
+        assertEquals("Savings", ready(editor).name)
+        instrumentation.runOnMainSync { editor.onNameChange("Travel"); editor.save() }
+        withTimeout(10_000) { list.uiState.first { it.accounts.any { account -> account.name == "Travel" } } }
+        instrumentation.runOnMainSync { list.makeDefault(savings.id) }
+        withTimeout(10_000) { list.uiState.first { it.accounts.single { account -> account.isDefault }.id == savings.id } }
+        instrumentation.runOnMainSync { store.clear() }
+        repository.stopSync()
+        database.close()
+        openDatabase()
+        val restored = withTimeout(10_000) { list().uiState.first { it.accounts.size == 2 } }.accounts
+        assertEquals("Travel", restored.single { it.isDefault }.name)
+    }
+
+    @Test
+    fun repositoryValidationErrorsAndDraftsSurviveViewModelRecreation() = runBlocking {
+        create("Daily")
+        val handle = SavedStateHandle()
+        val editor = editor(handle)
+        ready(editor)
+        instrumentation.runOnMainSync { editor.save() }
+        withTimeout(10_000) { editor.uiState.first { it.nameError == R.string.accounts_name_blank } }
+        instrumentation.runOnMainSync { editor.onNameChange(" daily "); editor.save() }
+        withTimeout(10_000) { editor.uiState.first { it.nameError == R.string.accounts_name_duplicate } }
+        instrumentation.runOnMainSync {
+            editor.onNameChange("Travel")
+            editor.onBankNameChange("New bank")
+            editor.onTypeChange("Savings")
+            editor.onCurrencyChange("usd")
+            editor.onDefaultChange(true)
+        }
+        val restoredValues = mutableMapOf<String, Any?>()
+        instrumentation.runOnMainSync { handle.keys().forEach { restoredValues[it] = handle.get<Any?>(it) } }
+        val restored = editor(SavedStateHandle(restoredValues))
+        val state = ready(restored)
+        assertEquals("Travel", state.name)
+        assertEquals("New bank", state.bankName)
+        assertEquals("Savings", state.accountType)
+        assertEquals("usd", state.currency)
+        assertTrue(state.isDefault)
+        instrumentation.runOnMainSync { restored.save() }
+        withTimeout(10_000) { restored.uiState.first { it.isSuccess } }
+        assertEquals("USD", repository.getDefaultAccount().getOrThrow()!!.currency)
+        val committed = editor(SavedStateHandle(restoredValues))
+        assertTrue(ready(committed).isSuccess)
+        assertEquals(2, database.accountDao.getAllForUser("account-ui-user").size)
+    }
+
+    private class OfflineRemote : AccountRemoteDataSource {
+        override fun observeAccounts(userId: String): Flow<AccountSnapshot> = emptyFlow()
+        override suspend fun writeAccounts(userId: String, accounts: List<Account>) { error("Offline test") }
+    }
+
+    private class SignedInAuth : AuthRepository {
+        override val currentUser = flowOf(User("account-ui-user", null, null))
+        override suspend fun signInWithEmailPassword(email: String, password: String): Result<User> = error("Unused")
+        override suspend fun signUpWithEmailPassword(email: String, password: String): Result<User> = error("Unused")
+        override suspend fun signInWithGoogle(idToken: String): Result<User> = error("Unused")
+        override suspend fun sendPasswordResetEmail(email: String): Result<Unit> = error("Unused")
+        override suspend fun signOut() = Unit
+    }
+}

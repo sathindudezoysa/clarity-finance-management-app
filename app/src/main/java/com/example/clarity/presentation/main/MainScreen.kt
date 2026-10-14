@@ -30,7 +30,8 @@ import androidx.hilt.navigation.compose.hiltViewModel
 @Preview
 fun MainScreen(
     viewModel: MainViewModel = hiltViewModel(),
-    onNavigateToTransactions: () -> Unit = {}
+    onNavigateToTransactions: () -> Unit = {},
+    onNavigateToSettings: () -> Unit = {}
 ) {
     val state by viewModel.uiState.collectAsState()
 
@@ -51,6 +52,10 @@ fun MainScreen(
                 ) {
                     Button(onClick = onNavigateToTransactions) {
                         Text(stringResource(R.string.transactions_title))
+                    }
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Button(onClick = onNavigateToSettings) {
+                        Text(stringResource(R.string.settings_title))
                     }
                     Spacer(modifier = Modifier.height(12.dp))
                     Text(

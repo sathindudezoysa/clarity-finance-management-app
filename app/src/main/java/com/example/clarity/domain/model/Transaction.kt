@@ -11,5 +11,6 @@ data class Transaction(
     val note: String = "",
     val dateEpochMillis: Long = System.currentTimeMillis(),
     val createdAt: Long = System.currentTimeMillis(),
-    val updatedAt: Long = createdAt
+    val updatedAt: Long = createdAt,
+    val accountId: String? = null
 )

@@ -2,6 +2,7 @@ package com.example.clarity.data.repository
 
 import android.util.Log
 import com.example.clarity.data.local.dao.TransactionDao
+import com.example.clarity.data.local.dao.AccountDao
 import com.example.clarity.data.local.entity.TransactionEntity
 import com.example.clarity.data.mapper.toDomain
 import com.example.clarity.data.mapper.toEntity
@@ -38,7 +39,8 @@ class TransactionRepositoryImpl @Inject constructor(
     private val dao: TransactionDao,
     private val firestore: FirestoreDataSource,
     private val authRepository: AuthRepository,
-    private val ioDispatcher: CoroutineDispatcher
+    private val ioDispatcher: CoroutineDispatcher,
+    private val accountDao: AccountDao
 ) : TransactionRepository {
     private val mutationMutex = Mutex()
     private val syncScope = CoroutineScope(SupervisorJob() + ioDispatcher)
@@ -181,6 +183,7 @@ class TransactionRepositoryImpl @Inject constructor(
 
     override suspend fun addTransaction(t: Transaction): Result<Unit> = localWrite { uid ->
         require(t.amountMinor > 0) { "Amount must be greater than zero" }
+        validateAccount(t.accountId, uid)
         require(dao.getById(t.id) == null) { "Transaction already exists" }
         val now = System.currentTimeMillis()
         val entity = t.copy(userId = uid, createdAt = now, updatedAt = now).toEntity()
@@ -194,6 +197,7 @@ class TransactionRepositoryImpl @Inject constructor(
         require(existing != null && existing.userId == uid && !existing.isDeleted) { "Transaction not found" }
         require(t.userId == existing.userId) { "Cannot change transaction owner" }
         require(t.amountMinor > 0) { "Amount must be greater than zero" }
+        validateAccount(t.accountId, uid)
         require(existing.updatedAt < Long.MAX_VALUE) { "Transaction timestamp is out of range" }
         val entity = t.copy(
             userId = uid, createdAt = existing.createdAt,
@@ -209,6 +213,11 @@ class TransactionRepositoryImpl @Inject constructor(
         val deleted = existing.copy(isDeleted = true, pendingSync = true)
         dao.upsert(deleted)
         enqueueRemote(deleted)
+    }
+
+    private suspend fun validateAccount(accountId: String?, uid: String) {
+        require(!accountId.isNullOrBlank()) { "Select a bank account" }
+        require(accountDao.getById(accountId)?.userId == uid) { "Bank account not found" }
     }
 
     private suspend fun localWrite(block: suspend (String) -> Unit): Result<Unit> = withContext(ioDispatcher) {

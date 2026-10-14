@@ -6,11 +6,13 @@ import androidx.lifecycle.viewModelScope
 import com.example.clarity.R
 import com.example.clarity.domain.usecase.transaction.DeleteTransactionUseCase
 import com.example.clarity.domain.usecase.transaction.GetTransactionUseCase
+import com.example.clarity.domain.usecase.account.GetAccountsUseCase
 import com.example.clarity.domain.util.Resource
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
@@ -18,7 +20,8 @@ import javax.inject.Inject
 class TransactionDetailViewModel @Inject constructor(
     savedStateHandle: SavedStateHandle,
     private val getTransaction: GetTransactionUseCase,
-    private val deleteTransaction: DeleteTransactionUseCase
+    private val deleteTransaction: DeleteTransactionUseCase,
+    private val getAccounts: GetAccountsUseCase
 ) : ViewModel() {
     private val id: String = checkNotNull(savedStateHandle["id"])
     private val _uiState = MutableStateFlow(TransactionDetailState())
@@ -26,15 +29,16 @@ class TransactionDetailViewModel @Inject constructor(
 
     init {
         viewModelScope.launch {
-            getTransaction(id).collect { result ->
+            combine(getTransaction(id), getAccounts()) { transaction, accounts -> transaction to accounts }.collect { (result, accounts) ->
+                val accountName = accounts.data.orEmpty().firstOrNull { it.id == result.data?.accountId }?.name
                 _uiState.update {
                     when (result) {
-                        is Resource.Loading -> TransactionDetailState()
-                        is Resource.Success -> it.copy(isLoading = false, transaction = result.data, error = null)
+                        is Resource.Loading -> it.copy(isLoading = true, accountName = accountName)
+                        is Resource.Success -> it.copy(isLoading = false, transaction = result.data, error = null, accountName = accountName)
                         is Resource.Error -> it.copy(
                             isLoading = false, transaction = result.data,
                             error = if (result.message == "Please sign in") R.string.transactions_sign_in
-                            else R.string.transactions_load_error
+                            else R.string.transactions_load_error, accountName = accountName
                         )
                     }
                 }
