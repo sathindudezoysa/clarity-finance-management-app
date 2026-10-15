@@ -1,6 +1,10 @@
 package com.example.clarity.data.repository
 
+import android.util.Log
+import androidx.room.withTransaction
+import com.example.clarity.data.local.ClarityDatabase
 import com.example.clarity.data.local.dao.AccountDao
+import com.example.clarity.data.local.entity.AccountEntity
 import com.example.clarity.data.mapper.toDomain
 import com.example.clarity.data.mapper.toEntity
 import com.example.clarity.data.remote.AccountRemoteDataSource
@@ -13,8 +17,8 @@ import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
-import kotlinx.coroutines.cancel
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
@@ -30,12 +34,25 @@ import javax.inject.Singleton
 /** Room supplies accounts and a durable outbox; batches serialize all default changes per user. */
 @OptIn(ExperimentalCoroutinesApi::class)
 @Singleton
-class AccountRepositoryImpl @Inject constructor(
+class AccountRepositoryImpl internal constructor(
     private val dao: AccountDao,
     private val remote: AccountRemoteDataSource,
     private val authRepository: AuthRepository,
-    private val ioDispatcher: CoroutineDispatcher
+    private val ioDispatcher: CoroutineDispatcher,
+    private val runTransaction: suspend (suspend () -> Unit) -> Unit,
+    private val warnRetainedAccount: (String) -> Unit = { id ->
+        Log.w("AccountRepository", "Keeping account $id missing remotely because local transactions reference it")
+    }
 ) : AccountRepository {
+    @Inject
+    constructor(
+        database: ClarityDatabase,
+        remote: AccountRemoteDataSource,
+        authRepository: AuthRepository,
+        ioDispatcher: CoroutineDispatcher
+    ) : this(database.accountDao, remote, authRepository, ioDispatcher,
+        { block -> database.withTransaction { block() } })
+
     private val mutationMutex = Mutex()
     private val syncScope = CoroutineScope(SupervisorJob() + ioDispatcher)
     private val users = authRepository.currentUser.distinctUntilChangedBy { it?.uid }
@@ -63,7 +80,7 @@ class AccountRepositoryImpl @Inject constructor(
                     launch {
                         remote.observeAccounts(user.uid).map { snapshot ->
                             mutationMutex.withLock {
-                                dao.reconcileRemote(user.uid, snapshot.accounts.map { it.toEntity() }, snapshot.authoritative, snapshot.remoteIds)
+                                reconcileRemote(user.uid, snapshot.accounts.map { it.toEntity() }, snapshot.authoritative, snapshot.remoteIds)
                             }
                             triggers.trySend(Unit)
                         }.retryWhen { error, _ ->
@@ -79,7 +96,7 @@ class AccountRepositoryImpl @Inject constructor(
         }
     }
 
-    internal suspend fun uploadPending(uid: String, afterAccounts: suspend () -> Unit = {}): Boolean {
+    override suspend fun uploadPending(uid: String, afterAccounts: suspend () -> Unit): Boolean {
         val uploadMutex = mutationMutex.withLock { uploadMutexes.getOrPut(uid) { Mutex() } }
         // The upload outlives cancellation of the auth listener. Re-signing in cannot
         // send a newer batch while an older Firestore task for this user is unresolved.
@@ -92,8 +109,8 @@ class AccountRepositoryImpl @Inject constructor(
                         // Only uploadMutex serializes the network phase; local operations use mutationMutex.
                         remote.writeAccounts(uid, pending.map { it.toDomain() })
                         mutationMutex.withLock {
-                            // The DAO compares each current row with the uploaded version before clearing pendingSync.
-                            dao.acknowledgeBatch(pending)
+                            // Compare each current row with the uploaded version before clearing pendingSync.
+                            acknowledgeBatch(pending)
                             if (users.replayCache.firstOrNull()?.uid == uid) syncState.value = SyncState(uid)
                         }
                     }
@@ -126,16 +143,20 @@ class AccountRepositoryImpl @Inject constructor(
     }.flowOn(ioDispatcher)
 
     override suspend fun createAccount(account: Account): Result<Unit> = localOperation { uid ->
-        dao.save(validated(account.copy(userId = uid)).toEntity(), create = true)
+        saveAccount(validated(account.copy(userId = uid)).toEntity(), create = true)
     }
 
     override suspend fun updateAccount(account: Account): Result<Unit> = localOperation { uid ->
         require(account.userId == uid) { "Cannot change account owner" }
-        dao.save(validated(account).toEntity(), create = false)
+        saveAccount(validated(account).toEntity(), create = false)
     }
 
     override suspend fun setDefaultAccount(id: String): Result<Unit> = localOperation { uid ->
-        dao.setDefault(id, uid)
+        runTransaction {
+            val existing = dao.getById(id)
+            require(existing != null && existing.userId == uid) { "Account not found" }
+            if (!existing.isDefault) saveAccountInTransaction(existing.copy(isDefault = true), create = false)
+        }
     }
 
     override suspend fun getAccount(id: String): Result<Account?> = localOperation { uid ->
@@ -144,6 +165,96 @@ class AccountRepositoryImpl @Inject constructor(
 
     override suspend fun getDefaultAccount(): Result<Account?> = localOperation { uid ->
         dao.getDefault(uid)?.toDomain()
+    }
+
+    private suspend fun saveAccount(entity: AccountEntity, create: Boolean) = runTransaction {
+        saveAccountInTransaction(entity, create)
+    }
+
+    // Reads, validation and both sides of a default switch share one Room transaction.
+    private suspend fun saveAccountInTransaction(entity: AccountEntity, create: Boolean) = with(dao) {
+        val existing = getById(entity.id)
+        if (create) require(existing == null) { "Account already exists" }
+        else require(existing != null && existing.userId == entity.userId) { "Account not found" }
+        val accounts = getAllForUser(entity.userId)
+        require(entity.name.isNotBlank()) { "Account name must not be blank" }
+        require(accounts.none { it.id != entity.id && it.name.equals(entity.name, ignoreCase = true) }) {
+            "An account with this name already exists"
+        }
+        require(existing?.isDefault != true || entity.isDefault) { "Select another default account first" }
+        val latest = accounts.maxOfOrNull { it.updatedAt } ?: 0L
+        require(latest < Long.MAX_VALUE) { "Account timestamp is out of range" }
+        val now = maxOf(System.currentTimeMillis(), latest + 1)
+        val saved = entity.copy(
+            isDefault = accounts.isEmpty() || entity.isDefault,
+            createdAt = existing?.createdAt ?: now, updatedAt = now, pendingSync = true
+        )
+        val previousDefaults = if (saved.isDefault) accounts.filter { it.isDefault && it.id != saved.id }
+            .map { it.copy(isDefault = false, updatedAt = now, pendingSync = true) } else emptyList()
+        upsertAll(previousDefaults + saved)
+    }
+
+    internal suspend fun acknowledgeBatch(entities: List<AccountEntity>) = runTransaction {
+        with(dao) {
+            // Never clear a newer local change made while the batch was uploading.
+            val unchanged = entities.filter { getById(it.id) == it }
+            upsertAll(unchanged.map { it.copy(pendingSync = false) })
+        }
+    }
+
+    internal suspend fun reconcileRemote(
+        userId: String,
+        remote: List<AccountEntity>,
+        authoritative: Boolean,
+        remoteIds: Set<String> = remote.map { it.id }.toSet()
+    ) = runTransaction {
+        with(dao) {
+            val local = getAllForUser(userId)
+            val pending = local.any { it.pendingSync }
+            val merged = local.associateBy { it.id }.toMutableMap()
+            remote.filter { it.userId == userId }.forEach { incoming ->
+                val existing = getById(incoming.id)
+                if (existing != null && existing.userId != userId) return@forEach
+                // A pending default switch is an indivisible group. Cache cannot confirm it.
+                if (existing?.pendingSync == true || (pending && !authoritative)) return@forEach
+                if (existing != null && existing.updatedAt > incoming.updatedAt) {
+                    if (authoritative) merged[incoming.id] = existing.copy(pendingSync = true)
+                } else {
+                    merged[incoming.id] = incoming.copy(
+                        isDefault = if (pending) existing?.isDefault == true else incoming.isDefault,
+                        pendingSync = pending && incoming.isDefault != (existing?.isDefault == true)
+                    )
+                }
+            }
+            if (authoritative) {
+                local.filter { !it.pendingSync && it.id !in remoteIds }.forEach {
+                    if (hasTransactionReferences(it.id)) {
+                        warnRetainedAccount(it.id)
+                    } else {
+                        merged.remove(it.id)
+                        deleteById(it.id, userId)
+                    }
+                }
+            }
+            if (merged.isEmpty()) return@with
+            // Normalize malformed or concurrent remote defaults before Room observers see them.
+            val defaults = merged.values.filter { it.isDefault }
+            val selected = defaults.maxWithOrNull(compareBy<AccountEntity> { it.updatedAt }.thenBy { it.id })
+                ?: merged.values.minWith(compareBy<AccountEntity> { it.createdAt }.thenBy { it.id })
+            val latest = merged.values.maxOf { it.updatedAt }
+            require(latest < Long.MAX_VALUE) { "Account timestamp is out of range" }
+            val now = maxOf(System.currentTimeMillis(), latest + 1)
+            val normalized = merged.values.map { account ->
+                val isDefault = account.id == selected.id
+                if (account.isDefault == isDefault) account
+                else account.copy(isDefault = isDefault, updatedAt = now, pendingSync = true)
+            }
+            // Reject invalid remote duplicate names atomically, keeping the previous local state.
+            require(normalized.map { it.name.lowercase(java.util.Locale.ROOT) }.distinct().size == normalized.size) {
+                "Remote account names are duplicated"
+            }
+            upsertAll(normalized)
+        }
     }
 
     private fun validated(account: Account): Account {
@@ -168,7 +279,7 @@ class AccountRepositoryImpl @Inject constructor(
         }
     }
 
-    internal fun stopSync() { syncScope.cancel() }
+    internal fun stopSync(): Job = checkNotNull(syncScope.coroutineContext[Job]).also { it.cancel() }
 
     private companion object {
         const val RETRY_INTERVAL_MILLIS = 30_000L

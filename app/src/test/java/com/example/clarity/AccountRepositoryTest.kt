@@ -30,7 +30,8 @@ class AccountRepositoryTest {
     private val dao = MemoryDao()
     private val auth = FakeAuth()
     private val remote = FakeRemote()
-    private val repository = AccountRepositoryImpl(dao, remote, auth, Dispatchers.Unconfined)
+    private val repository = AccountRepositoryImpl(dao, remote, auth, Dispatchers.Unconfined,
+        runTransaction = { block -> block() }, warnRetainedAccount = { dao.retainedWarnings.add(it) })
 
     @After
     fun tearDown() { repository.stopSync() }
@@ -99,6 +100,24 @@ class AccountRepositoryTest {
         assertDefault("daily")
         assertEquals("Savings", saved("savings").name)
         repository.updateAccount(saved("daily").copy(bankName = "New bank")).getOrThrow()
+        assertDefault("daily")
+    }
+
+    @Test
+    fun repositoryValidationKeepsUiErrorTypesAndDoesNotAlterTheDefaultOnFailure() = runBlocking {
+        repository.createAccount(account("daily")).getOrThrow()
+        repository.createAccount(account("savings")).getOrThrow()
+        val before = dao.getAllForUser("user-a")
+        val duplicate = repository.updateAccount(saved("savings").copy(name = " DAILY ", isDefault = true)).exceptionOrNull()
+        assertTrue(duplicate is IllegalArgumentException)
+        assertEquals("An account with this name already exists", duplicate!!.message)
+        val blank = repository.createAccount(account("blank", " \t ")).exceptionOrNull()
+        assertTrue(blank is IllegalArgumentException)
+        assertEquals("Account name must not be blank", blank!!.message)
+        val clearDefault = repository.updateAccount(saved("daily").copy(isDefault = false)).exceptionOrNull()
+        assertTrue(clearDefault is IllegalArgumentException)
+        assertEquals("Select another default account first", clearDefault!!.message)
+        assertEquals(before, dao.getAllForUser("user-a"))
         assertDefault("daily")
     }
 
@@ -252,7 +271,7 @@ class AccountRepositoryTest {
         dao.transactions.add(TransactionEntity("tx", "user-a", "EXPENSE", 100, "Food", "", 1, 1, 1,
             accountId = "linked"))
 
-        dao.reconcileRemote("user-a", listOf(dao.getById("daily")!!), authoritative = true)
+        repository.reconcileRemote("user-a", listOf(dao.getById("daily")!!), authoritative = true)
 
         assertEquals(linked, dao.getById("linked"))
         assertNull(dao.getById("unused"))
@@ -266,10 +285,10 @@ class AccountRepositoryTest {
         dao.transactions.add(TransactionEntity("tx", "user-a", "EXPENSE", 100, "Food", "", 1, 1, 1,
             pendingSync = true, isDeleted = true, accountId = "linked"))
         val remoteAccounts = listOf(dao.getById("daily")!!)
-        dao.reconcileRemote("user-a", remoteAccounts, authoritative = true)
+        repository.reconcileRemote("user-a", remoteAccounts, authoritative = true)
         assertNotNull(dao.getById("linked"))
         dao.transactions.clear()
-        dao.reconcileRemote("user-a", remoteAccounts, authoritative = true)
+        repository.reconcileRemote("user-a", remoteAccounts, authoritative = true)
         assertNull(dao.getById("linked"))
     }
 
@@ -299,18 +318,18 @@ class AccountRepositoryTest {
         val old = dao.getAllForUser("user-a").map { it.copy(pendingSync = false) }
         remote.fail = true
         repository.setDefaultAccount("b").getOrThrow()
-        dao.reconcileRemote("user-a", old, authoritative = false)
+        repository.reconcileRemote("user-a", old, authoritative = false)
         assertDefault("b")
-        dao.reconcileRemote("user-a", old, authoritative = true)
+        repository.reconcileRemote("user-a", old, authoritative = true)
         assertDefault("b")
         val pending = dao.getAllForUser("user-a")
-        dao.acknowledgeBatch(pending)
+        repository.acknowledgeBatch(pending)
         val newer = pending.maxOf { it.updatedAt } + 10
-        dao.reconcileRemote("user-a", pending.map { it.copy(isDefault = true, pendingSync = false, updatedAt = newer) }, true)
+        repository.reconcileRemote("user-a", pending.map { it.copy(isDefault = true, pendingSync = false, updatedAt = newer) }, true)
         assertEquals(1, dao.getAllForUser("user-a").count { it.isDefault })
         val single = dao.getAllForUser("user-a").first().copy(isDefault = false, pendingSync = false, updatedAt = newer + 100)
-        dao.acknowledgeBatch(dao.getAllForUser("user-a"))
-        dao.reconcileRemote("user-a", listOf(single), true)
+        repository.acknowledgeBatch(dao.getAllForUser("user-a"))
+        repository.reconcileRemote("user-a", listOf(single), true)
         assertDefault(single.id)
     }
 
@@ -325,14 +344,13 @@ class AccountRepositoryTest {
         assertNull(original.toFirestoreMap().toAccount("different-id"))
     }
 
-    // Primitive storage is faked; the real DAO save/default/reconciliation methods run unchanged.
+    // Primitive storage is faked; repository validation and reconciliation run unchanged.
     private class MemoryDao : AccountDao() {
         private val rows = MutableStateFlow<Map<String, AccountEntity>>(emptyMap())
         val defaultCounts = mutableListOf<Int>()
         val transactions = mutableListOf<TransactionEntity>()
         val retainedWarnings = mutableListOf<String>()
         override suspend fun hasTransactionReferences(accountId: String) = transactions.any { it.accountId == accountId }
-        override fun warnRetainedAccount(id: String) { retainedWarnings.add(id) }
         override fun observeAll(userId: String) = rows.map { it.values.filter { row -> row.userId == userId } }.distinctUntilChanged()
         override suspend fun getAllForUser(userId: String) = rows.value.values.filter { it.userId == userId }
         override suspend fun getById(id: String) = rows.value[id]

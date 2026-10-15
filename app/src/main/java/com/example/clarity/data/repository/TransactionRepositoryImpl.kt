@@ -12,6 +12,7 @@ import com.example.clarity.data.mapper.toTransaction
 import com.example.clarity.data.remote.FirestoreDataSource
 import com.example.clarity.domain.model.Transaction
 import com.example.clarity.domain.repository.AuthRepository
+import com.example.clarity.domain.repository.AccountRepository
 import com.example.clarity.domain.repository.TransactionRepository
 import com.example.clarity.domain.util.Resource
 import com.google.firebase.firestore.MetadataChanges
@@ -43,7 +44,7 @@ class TransactionRepositoryImpl @Inject constructor(
     private val authRepository: AuthRepository,
     private val ioDispatcher: CoroutineDispatcher,
     private val accountDao: AccountDao,
-    private val accountRepository: AccountRepositoryImpl
+    private val accountRepository: AccountRepository
 ) : TransactionRepository {
     private val mutationMutex = Mutex()
     private val syncScope = CoroutineScope(SupervisorJob() + ioDispatcher)

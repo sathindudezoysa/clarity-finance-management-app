@@ -12,10 +12,19 @@ import com.example.clarity.data.local.TransactionAccountMigration
 import com.example.clarity.data.local.TransactionAccountIndexMigration
 import com.example.clarity.data.local.entity.TransactionEntity
 import com.example.clarity.data.local.entity.AccountEntity
+import com.example.clarity.data.mapper.toDomain
+import com.example.clarity.data.remote.AccountRemoteDataSource
+import com.example.clarity.data.remote.AccountSnapshot
+import com.example.clarity.data.repository.AccountRepositoryImpl
+import com.example.clarity.domain.model.Account
+import com.example.clarity.domain.model.User
+import com.example.clarity.domain.repository.AuthRepository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.emptyFlow
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.*
@@ -27,9 +36,11 @@ class AccountDaoTest {
     private val context = InstrumentationRegistry.getInstrumentation().targetContext
     private val databaseName = "account-migration-test"
     private var database: ClarityDatabase? = null
+    private val repositories = mutableListOf<AccountRepositoryImpl>()
 
     @After
     fun tearDown() {
+        runBlocking { repositories.forEach { it.stopSync().join() } }
         database?.close()
         context.deleteDatabase(databaseName)
     }
@@ -42,26 +53,45 @@ class AccountDaoTest {
         val db = Room.inMemoryDatabaseBuilder(context, ClarityDatabase::class.java).build()
         database = db
         val dao = db.accountDao
-        dao.save(row("daily"), create = true)
-        dao.save(row("savings"), create = true)
-        dao.save(row("private", "user-b"), create = true)
+        val repository = repository(db)
+        repository.createAccount(row("daily").toDomain()).getOrThrow()
+        repository.createAccount(row("savings").toDomain()).getOrThrow()
+        repository(db, "user-b").createAccount(row("private", "user-b").toDomain()).getOrThrow()
         (1..20).map { index -> async(Dispatchers.IO) {
-            dao.setDefault(if (index % 2 == 0) "daily" else "savings", "user-a")
+            repository.setDefaultAccount(if (index % 2 == 0) "daily" else "savings").getOrThrow()
         } }.awaitAll()
         assertEquals(1, dao.observeAll("user-a").first().count { it.isDefault })
         assertEquals("private", dao.getDefault("user-b")!!.id)
         val before = dao.getAllForUser("user-a")
         val other = before.first { !it.isDefault }
         try {
-            dao.save(other.copy(name = before.first { it.isDefault }.name, isDefault = true), create = false)
+            repository.updateAccount(other.copy(name = before.first { it.isDefault }.name, isDefault = true).toDomain()).getOrThrow()
             fail("Duplicate name must be rejected")
         } catch (_: IllegalArgumentException) { }
         assertEquals(before, dao.getAllForUser("user-a"))
         try {
-            dao.save(before.first { it.isDefault }.copy(isDefault = false), create = false)
+            repository.updateAccount(before.first { it.isDefault }.copy(isDefault = false).toDomain()).getOrThrow()
             fail("Clearing the sole default must be rejected")
         } catch (_: IllegalArgumentException) { }
         assertEquals(before, dao.getAllForUser("user-a"))
+    }
+
+    @Test
+    fun independentRepositoriesValidateConcurrentCreatesInsideTheRoomTransaction() = runBlocking {
+        val db = Room.inMemoryDatabaseBuilder(context, ClarityDatabase::class.java).build()
+        database = db
+        val first = repository(db)
+        val second = repository(db)
+        val results = listOf(
+            async(Dispatchers.IO) { first.createAccount(row("first").copy(name = "Daily").toDomain()) },
+            async(Dispatchers.IO) { second.createAccount(row("second").copy(name = "daily").toDomain()) }
+        ).awaitAll()
+        assertEquals(1, results.count { it.isSuccess })
+        val failure = results.single { it.isFailure }.exceptionOrNull()
+        assertTrue(failure is IllegalArgumentException)
+        assertEquals("An account with this name already exists", failure!!.message)
+        assertEquals(1, db.accountDao.getAllForUser("user-a").size)
+        assertEquals(1, db.accountDao.getAllForUser("user-a").count { it.isDefault })
     }
 
     @Test
@@ -72,9 +102,8 @@ class AccountDaoTest {
         assertTrue(db.transactionDao.getById("legacy")!!.pendingSync)
         assertEquals(listOf("Hobby"), db.transactionTagDao.observeTags("user-a").first())
         assertSamplePreserved(db)
-        db.accountDao.save(row("daily"), create = true)
-        db.accountDao.save(row("savings"), create = true)
-        db.accountDao.setDefault("savings", "user-a")
+        db.accountDao.upsertAll(listOf(row("daily").copy(pendingSync = true),
+            row("savings", default = true).copy(pendingSync = true)))
         db.close()
         db = openDatabase()
         assertEquals(2, db.accountDao.observeAll("user-a").first().size)
@@ -89,7 +118,7 @@ class AccountDaoTest {
             val db = openDatabase()
             assertSamplePreserved(db)
             if (version == 2) assertEquals("Original description", db.transactionDao.getById("legacy")!!.note)
-            db.accountDao.save(row("daily"), create = true)
+            db.accountDao.upsertAll(listOf(row("daily", default = true).copy(pendingSync = true)))
             assertEquals("daily", db.accountDao.getDefault("user-a")!!.id)
             db.close()
         }
@@ -105,12 +134,13 @@ class AccountDaoTest {
         val transaction = TransactionEntity("tx", "user-a", "EXPENSE", 100, "Food", "", 1, 1, 1,
             pendingSync = true, isDeleted = true, accountId = "linked")
         db.transactionDao.upsert(transaction)
-        db.accountDao.reconcileRemote("user-a", listOf(daily), authoritative = true)
+        val repository = repository(db)
+        repository.reconcileRemote("user-a", listOf(daily), authoritative = true)
         assertEquals(linked, db.accountDao.getById("linked"))
         assertNull(db.accountDao.getById("unused"))
         assertNotNull(db.accountDao.getById("other"))
         db.transactionDao.deleteById("tx", "user-a")
-        db.accountDao.reconcileRemote("user-a", listOf(daily), authoritative = true)
+        repository.reconcileRemote("user-a", listOf(daily), authoritative = true)
         assertNull(db.accountDao.getById("linked"))
     }
 
@@ -142,6 +172,23 @@ class AccountDaoTest {
     private fun openDatabase() = Room.databaseBuilder(context, ClarityDatabase::class.java, databaseName)
         .addMigrations(InitialTransactionMigration, TransactionTagMigration, AccountMigration, TransactionAccountMigration, TransactionAccountIndexMigration)
         .build().also { database = it }
+
+    private fun repository(db: ClarityDatabase, userId: String = "user-a") = AccountRepositoryImpl(
+        db,
+        object : AccountRemoteDataSource {
+            override fun observeAccounts(userId: String) = emptyFlow<AccountSnapshot>()
+            override suspend fun writeAccounts(userId: String, accounts: List<Account>) { error("Offline test") }
+        },
+        object : AuthRepository {
+            override val currentUser = flowOf(User(userId, null, null))
+            override suspend fun signInWithEmailPassword(email: String, password: String): Result<User> = error("Unused")
+            override suspend fun signUpWithEmailPassword(email: String, password: String): Result<User> = error("Unused")
+            override suspend fun signInWithGoogle(idToken: String): Result<User> = error("Unused")
+            override suspend fun sendPasswordResetEmail(email: String): Result<Unit> = error("Unused")
+            override suspend fun signOut() = Unit
+        },
+        Dispatchers.IO
+    ).also { repositories.add(it) }
 
     private fun assertSamplePreserved(db: ClarityDatabase) {
         db.openHelper.readableDatabase.query("SELECT title FROM sample_table WHERE id = 'sample'").use {

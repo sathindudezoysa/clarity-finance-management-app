@@ -15,6 +15,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import java.util.Locale
+import java.util.UUID
 import javax.inject.Inject
 
 @HiltViewModel
@@ -25,8 +26,10 @@ class AccountEditViewModel @Inject constructor(
     private val updateAccount: UpdateAccountUseCase
 ) : ViewModel() {
     private val id: String? = savedStateHandle["id"]
+    private val draftId = savedStateHandle.get<String>("draft_id")
+        ?: UUID.randomUUID().toString().also { savedStateHandle["draft_id"] = it }
     private val draft = Account(
-        id = savedStateHandle.get<String>("draft_id") ?: Account(name = "", bankName = "").id,
+        id = draftId,
         name = "", bankName = ""
     )
     private var account: Account? = null
@@ -41,7 +44,6 @@ class AccountEditViewModel @Inject constructor(
     val uiState = _uiState.asStateFlow()
 
     init {
-        savedStateHandle["draft_id"] = draft.id
         load()
     }
 

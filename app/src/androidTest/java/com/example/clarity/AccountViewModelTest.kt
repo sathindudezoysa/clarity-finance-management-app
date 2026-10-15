@@ -54,14 +54,14 @@ class AccountViewModelTest {
     @After
     fun tearDown() {
         instrumentation.runOnMainSync { store.clear() }
-        repository.stopSync()
+        runBlocking { repository.stopSync().join() }
         database.close()
         context.deleteDatabase(databaseName)
     }
 
     private fun openDatabase() {
         database = Room.databaseBuilder(context, ClarityDatabase::class.java, databaseName).build()
-        repository = AccountRepositoryImpl(database.accountDao, OfflineRemote(), SignedInAuth(), Dispatchers.IO)
+        repository = AccountRepositoryImpl(database, OfflineRemote(), SignedInAuth(), Dispatchers.IO)
     }
 
     private fun <T : ViewModel> model(type: Class<T>, create: () -> T): T {
@@ -113,7 +113,7 @@ class AccountViewModelTest {
         instrumentation.runOnMainSync { list.makeDefault(savings.id) }
         withTimeout(10_000) { list.uiState.first { it.accounts.single { account -> account.isDefault }.id == savings.id } }
         instrumentation.runOnMainSync { store.clear() }
-        repository.stopSync()
+        repository.stopSync().join()
         database.close()
         openDatabase()
         val restored = withTimeout(10_000) { list().uiState.first { it.accounts.size == 2 } }.accounts
@@ -125,6 +125,8 @@ class AccountViewModelTest {
         create("Daily")
         val handle = SavedStateHandle()
         val editor = editor(handle)
+        val draftId = handle.get<String>("draft_id")
+        assertNotNull(draftId)
         ready(editor)
         instrumentation.runOnMainSync { editor.save() }
         withTimeout(10_000) { editor.uiState.first { it.nameError == R.string.accounts_name_blank } }
@@ -140,6 +142,7 @@ class AccountViewModelTest {
         val restoredValues = mutableMapOf<String, Any?>()
         instrumentation.runOnMainSync { handle.keys().forEach { restoredValues[it] = handle.get<Any?>(it) } }
         val restored = editor(SavedStateHandle(restoredValues))
+        assertEquals(draftId, restoredValues["draft_id"])
         val state = ready(restored)
         assertEquals("Travel", state.name)
         assertEquals("New bank", state.bankName)
@@ -149,8 +152,37 @@ class AccountViewModelTest {
         instrumentation.runOnMainSync { restored.save() }
         withTimeout(10_000) { restored.uiState.first { it.isSuccess } }
         assertEquals("USD", repository.getDefaultAccount().getOrThrow()!!.currency)
+        assertEquals(draftId, repository.getDefaultAccount().getOrThrow()!!.id)
         val committed = editor(SavedStateHandle(restoredValues))
         assertTrue(ready(committed).isSuccess)
+        assertEquals(2, database.accountDao.getAllForUser("account-ui-user").size)
+    }
+
+    @Test
+    fun restoredDraftIdIsReusedForSaveRetriesAndACommitBeforeProcessDeath() = runBlocking {
+        create("Daily")
+        val draftId = "restored-account-draft"
+        val handle = SavedStateHandle(mapOf("draft_id" to draftId))
+        val original = editor(handle)
+        ready(original)
+        instrumentation.runOnMainSync { original.onNameChange("daily"); original.save() }
+        withTimeout(10_000) { original.uiState.first { it.nameError == R.string.accounts_name_duplicate } }
+        assertNull(database.accountDao.getById(draftId))
+
+        val values = mutableMapOf<String, Any?>()
+        instrumentation.runOnMainSync { handle.keys().forEach { values[it] = handle.get<Any?>(it) } }
+        val restoredHandle = SavedStateHandle(values)
+        val restored = editor(restoredHandle)
+        ready(restored)
+        assertEquals(draftId, restoredHandle.get<String>("draft_id"))
+        instrumentation.runOnMainSync { restored.onNameChange("Travel"); restored.save() }
+        withTimeout(10_000) { restored.uiState.first { it.isSuccess } }
+        assertEquals("Travel", database.accountDao.getById(draftId)!!.name)
+
+        // Restore the saved state captured before the commit: Room must identify the same draft.
+        val afterProcessDeath = editor(SavedStateHandle(values))
+        assertTrue(ready(afterProcessDeath).isSuccess)
+        instrumentation.runOnMainSync { afterProcessDeath.save() }
         assertEquals(2, database.accountDao.getAllForUser("account-ui-user").size)
     }
 

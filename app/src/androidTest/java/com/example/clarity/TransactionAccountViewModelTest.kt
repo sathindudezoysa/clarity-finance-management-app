@@ -147,6 +147,10 @@ class TransactionAccountViewModelTest {
     }
 
     private class MemoryAccounts : AccountRepository {
+        override suspend fun uploadPending(uid: String, afterAccounts: suspend () -> Unit): Boolean {
+            afterAccounts()
+            return true
+        }
         val values = MutableStateFlow(listOf(
             Account(id = "daily", name = "Daily", bankName = "Bank", isDefault = true),
             Account(id = "savings", name = "Savings", bankName = "Bank")
