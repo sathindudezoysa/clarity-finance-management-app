@@ -24,6 +24,7 @@ class TransactionDetailViewModel @Inject constructor(
     private val deleteTransaction: DeleteTransactionUseCase,
     private val getAccounts: GetAccountsUseCase
 ) : ViewModel() {
+    // get<String> inserts a throwing cast for malformed saved/navigation state; check the runtime type first.
     private val id = (savedStateHandle.get<Any?>("id") as? String)
         ?.takeIf { it.isNotBlank() && it.length <= 128 && '/' !in it }
     private val _uiState = MutableStateFlow(TransactionDetailState(
@@ -36,13 +37,16 @@ class TransactionDetailViewModel @Inject constructor(
         if (id != null) viewModelScope.launch {
             combine(getTransaction(id), getAccounts()) { transaction, accounts -> transaction to accounts }.collect { (result, accounts) ->
                 _uiState.update {
-                    val accountName = if (accounts.data == null) it.accountName
-                        else accounts.data.firstOrNull { account -> account.id == result.data?.accountId }?.name
+                    val transaction = result.data ?: it.transaction.takeIf {
+                        result is Resource.Loading || (result is Resource.Error && !result.cause.isSignInRequired())
+                    }
+                    val accountName = if (transaction == null) null else if (accounts.data == null) it.accountName
+                        else accounts.data.firstOrNull { account -> account.id == transaction.accountId }?.name
                     when (result) {
                         is Resource.Loading -> it.copy(isLoading = true, accountName = accountName)
                         is Resource.Success -> it.copy(isLoading = false, transaction = result.data, error = null, accountName = accountName)
                         is Resource.Error -> it.copy(
-                            isLoading = false, transaction = result.data,
+                            isLoading = false, transaction = transaction,
                             error = if (result.cause.isSignInRequired()) R.string.transactions_sign_in
                             else R.string.transactions_load_error, accountName = accountName
                         )

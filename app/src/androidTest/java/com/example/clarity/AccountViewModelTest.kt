@@ -23,6 +23,9 @@ import com.example.clarity.presentation.accounts.edit.AccountEditState
 import com.example.clarity.presentation.accounts.edit.AccountEditViewModel
 import com.example.clarity.presentation.accounts.list.AccountListViewModel
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.first
@@ -44,6 +47,7 @@ class AccountViewModelTest {
     private lateinit var database: ClarityDatabase
     private lateinit var repository: AccountRepositoryImpl
     private var nextKey = 0
+    private val applicationScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     @Before
     fun setUp() {
@@ -55,13 +59,14 @@ class AccountViewModelTest {
     fun tearDown() {
         instrumentation.runOnMainSync { store.clear() }
         runBlocking { repository.stopSync().join() }
+        applicationScope.cancel()
         database.close()
         context.deleteDatabase(databaseName)
     }
 
     private fun openDatabase() {
         database = Room.databaseBuilder(context, ClarityDatabase::class.java, databaseName).build()
-        repository = AccountRepositoryImpl(database, OfflineRemote(), SignedInAuth(), Dispatchers.IO)
+        repository = AccountRepositoryImpl(database, OfflineRemote(), SignedInAuth(), Dispatchers.IO, applicationScope)
     }
 
     private fun <T : ViewModel> model(type: Class<T>, create: () -> T): T {

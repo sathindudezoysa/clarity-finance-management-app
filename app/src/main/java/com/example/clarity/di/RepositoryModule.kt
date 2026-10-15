@@ -15,13 +15,29 @@ import com.example.clarity.data.repository.TransactionTagRepositoryImpl
 import com.example.clarity.domain.repository.TransactionTagRepository
 import dagger.Binds
 import dagger.Module
+import dagger.Provides
 import dagger.hilt.InstallIn
 import dagger.hilt.components.SingletonComponent
 import javax.inject.Singleton
+import javax.inject.Qualifier
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.SupervisorJob
+
+@Qualifier
+@Retention(AnnotationRetention.BINARY)
+annotation class ApplicationScope
 
 @Module
 @InstallIn(SingletonComponent::class)
 abstract class RepositoryModule {
+    companion object {
+        @Provides
+        @Singleton
+        @ApplicationScope
+        fun provideApplicationScope(ioDispatcher: CoroutineDispatcher): CoroutineScope =
+            CoroutineScope(SupervisorJob() + ioDispatcher)
+    }
 
     @Binds
     @Singleton

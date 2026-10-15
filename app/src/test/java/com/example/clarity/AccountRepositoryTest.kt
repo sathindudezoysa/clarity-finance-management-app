@@ -22,6 +22,10 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.flow.*
@@ -35,11 +39,13 @@ class AccountRepositoryTest {
     private val dao = MemoryDao()
     private val auth = FakeAuth()
     private val remote = FakeRemote()
+    private val applicationJob = SupervisorJob()
+    private val applicationScope = CoroutineScope(applicationJob + Dispatchers.Unconfined)
     private val skippedAccountWarnings = mutableListOf<List<String>>()
     private val invalidTimestampWarnings = mutableListOf<List<String>>()
     private var transactionGate: CompletableDeferred<Unit>? = null
     private var onTransactionStarted: () -> Unit = {}
-    private val repository = AccountRepositoryImpl(dao, remote, auth, Dispatchers.Unconfined,
+    private val repository = AccountRepositoryImpl(dao, remote, auth, Dispatchers.Unconfined, applicationScope,
         runTransaction = { block ->
             transactionGate?.let { gate -> onTransactionStarted(); gate.await() }
             block()
@@ -49,7 +55,7 @@ class AccountRepositoryTest {
     private val uploader: AccountUploader = repository
 
     @After
-    fun tearDown() { repository.stopSync() }
+    fun tearDown() { applicationScope.cancel() }
 
     private fun account(id: String, name: String = id, default: Boolean = false) =
         Account(id = id, name = name, bankName = "Bank", isDefault = default)
@@ -59,6 +65,41 @@ class AccountRepositoryTest {
     private suspend fun assertDefault(id: String, userId: String = "user-a") {
         assertEquals(listOf(id), dao.getAllForUser(userId).filter { it.isDefault }.map { it.id })
         assertEquals(id, repository.getDefaultAccount().getOrThrow()!!.id)
+    }
+
+    @Test
+    fun applicationOwnershipKeepsOneSyncCollectorAndRepositoryCancellationIsIsolated() = runBlocking {
+        repository.observeAccounts().first { it !is Resource.Loading }
+        repository.observeAccounts().first { it !is Resource.Loading }
+        assertEquals(1, remote.subscriptions)
+        assertEquals(1, remote.activeSubscriptions)
+        auth.currentUser.value = null
+        assertEquals(0, remote.activeSubscriptions)
+        auth.currentUser.value = User("user-a", null, null)
+        assertEquals(2, remote.subscriptions)
+        assertEquals(1, remote.activeSubscriptions)
+        repository.stopSync().join()
+        assertEquals(0, remote.activeSubscriptions)
+        assertTrue(applicationJob.isActive)
+        assertEquals(42, applicationScope.async { 42 }.await())
+    }
+
+    @Test
+    fun applicationCancellationPropagatesAndLeavesUnacknowledgedWritesInTheOutbox() = runBlocking {
+        remote.fail = true
+        repository.createAccount(account("pending")).getOrThrow()
+        remote.fail = false
+        remote.gate = CompletableDeferred()
+        val upload = async(start = CoroutineStart.UNDISPATCHED) { uploader.uploadPending("user-a") }
+        assertFalse(upload.isCompleted)
+        applicationJob.cancel()
+        applicationJob.join()
+        try {
+            upload.await()
+            fail("Cancelled synchronization must propagate cancellation")
+        } catch (_: CancellationException) { }
+        assertTrue(dao.getById("pending")!!.pendingSync)
+        assertEquals(0, remote.activeSubscriptions)
     }
 
     @Test
@@ -256,7 +297,7 @@ class AccountRepositoryTest {
         assertDefault("savings")
         repository.stopSync().join()
 
-        val restarted = AccountRepositoryImpl(dao, remote, auth, Dispatchers.Unconfined,
+        val restarted = AccountRepositoryImpl(dao, remote, auth, Dispatchers.Unconfined, applicationScope,
             runTransaction = { it() })
         try {
             assertEquals(pending, dao.getAllForUser("user-a"))
@@ -519,6 +560,41 @@ class AccountRepositoryTest {
     }
 
     @Test
+    fun remoteRenameCannotReplaceAnotherLocalAccountWithTheSameName() = runBlocking {
+        repository.createAccount(account("daily", "Daily")).getOrThrow()
+        repository.createAccount(account("savings", "Savings")).getOrThrow()
+        val local = dao.getAllForUser("user-a")
+        val incoming = local.map { if (it.id == "savings") it.copy(name = "DAILY", updatedAt = it.updatedAt + 1) else it }
+        repository.reconcileRemote("user-a", incoming, authoritative = true)
+        assertEquals(local, dao.getAllForUser("user-a"))
+        assertEquals(listOf(listOf("savings")), skippedAccountWarnings)
+        assertDefault("daily")
+    }
+
+    @Test
+    fun twoRemoteRenamesToTheSameNewNameKeepBothExistingLocalIds() = runBlocking {
+        repository.createAccount(account("daily", "Daily")).getOrThrow()
+        repository.createAccount(account("savings", "Savings")).getOrThrow()
+        val local = dao.getAllForUser("user-a")
+        repository.reconcileRemote("user-a", local.map { it.copy(name = "Shared", updatedAt = it.updatedAt + 1) }, true)
+        assertEquals(setOf("daily", "savings"), dao.getAllForUser("user-a").map { it.id }.toSet())
+        assertEquals("Shared", saved("daily").name)
+        assertEquals("Savings", saved("savings").name)
+        assertEquals(listOf(listOf("savings")), skippedAccountWarnings)
+        assertDefault("daily")
+    }
+
+    @Test
+    fun aRemoteRenameMayUseTheNameOfAnAccountAuthoritativelyDeletedInTheSameSnapshot() = runBlocking {
+        repository.createAccount(account("daily", "Daily")).getOrThrow()
+        repository.createAccount(account("savings", "Savings")).getOrThrow()
+        val renamed = dao.getById("daily")!!.copy(name = "Savings")
+        repository.reconcileRemote("user-a", listOf(renamed), authoritative = true)
+        assertEquals(listOf(renamed), dao.getAllForUser("user-a"))
+        assertTrue(skippedAccountWarnings.isEmpty())
+    }
+
+    @Test
     fun remoteNameCollisionKeepsTheExistingLocalAccountUnchanged() = runBlocking {
         repository.createAccount(account("local", "Daily")).getOrThrow()
         val local = dao.getById("local")!!
@@ -592,6 +668,8 @@ class AccountRepositoryTest {
     }
 
     private class FakeRemote : AccountRemoteDataSource {
+        var subscriptions = 0
+        var activeSubscriptions = 0
         val batches = mutableListOf<List<Account>>()
         var gate: CompletableDeferred<Unit>? = null
         var fail = false
@@ -599,6 +677,8 @@ class AccountRepositoryTest {
         var onStarted: () -> Unit = {}
         val snapshots = MutableSharedFlow<AccountSnapshot>()
         override fun observeAccounts(userId: String): Flow<AccountSnapshot> = snapshots.buffer(Channel.CONFLATED)
+            .onStart { subscriptions++; activeSubscriptions++ }
+            .onCompletion { activeSubscriptions-- }
         override suspend fun writeAccounts(userId: String, accounts: List<Account>) {
             assertTrue(accounts.all { it.userId == userId })
             batches.add(accounts)

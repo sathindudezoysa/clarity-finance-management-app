@@ -33,7 +33,8 @@ class TransactionListViewModel @Inject constructor(
                         is Resource.Success -> it.copy(isLoading = false, transactions = result.data.orEmpty(), error = null,
                             accountNames = accountNames)
                         is Resource.Error -> it.copy(
-                            isLoading = false, transactions = result.data.orEmpty(),
+                            isLoading = false, transactions = if (result.cause.isSignInRequired()) result.data.orEmpty()
+                                else result.data ?: it.transactions,
                             error = if (result.cause.isSignInRequired()) R.string.transactions_sign_in
                             else R.string.transactions_load_error, accountNames = accountNames
                         )

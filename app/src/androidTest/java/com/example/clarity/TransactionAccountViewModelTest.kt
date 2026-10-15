@@ -79,6 +79,127 @@ class TransactionAccountViewModelTest {
     }
 
     @Test
+    fun accountAndTransactionEmissionOrdersBothPrioritizeTheSavedAccount() = runBlocking {
+        val transaction = Transaction(id = "editing", amountMinor = 1250, accountId = "savings")
+        for (accountsFirst in listOf(true, false)) {
+            instrumentation.runOnMainSync {
+                accounts.status.value = Resource.Loading()
+                transactions.status.value = Resource.Loading()
+            }
+            val handle = SavedStateHandle(mapOf("id" to transaction.id))
+            val editor = editor(handle)
+            instrumentation.runOnMainSync {
+                if (accountsFirst) accounts.status.value = Resource.Success(accounts.values.value)
+                else transactions.status.value = Resource.Success(transaction)
+            }
+            withTimeout(10_000) { editor.uiState.first {
+                if (accountsFirst) !it.isAccountsLoading else !it.isLoading
+            } }
+            assertNull(editor.uiState.value.selectedAccountId)
+            instrumentation.runOnMainSync {
+                accounts.status.value = Resource.Success(accounts.values.value)
+                transactions.status.value = Resource.Success(transaction)
+            }
+            withTimeout(10_000) { editor.uiState.first { it.selectedAccountId == "savings" } }
+            assertEquals("savings", handle.get<String>("selected_account_id"))
+            assertEquals(true, handle.get<Boolean>("account_selection_initialized"))
+        }
+    }
+
+    @Test
+    fun explicitSelectionDuringLoadingWinsOverLaterInitializationAndRapidEmissions() = runBlocking {
+        val transaction = Transaction(id = "editing", amountMinor = 1250, accountId = "savings")
+        transactions.status.value = Resource.Loading()
+        val handle = SavedStateHandle(mapOf("id" to transaction.id))
+        val editor = editor(handle)
+        withTimeout(10_000) { editor.uiState.first { !it.isAccountsLoading } }
+        instrumentation.runOnMainSync { editor.onAccountSelected("daily") }
+        instrumentation.runOnMainSync { transactions.status.value = Resource.Success(transaction) }
+        ready(editor)
+        assertEquals("daily", editor.uiState.value.selectedAccountId)
+        repeat(40) { index ->
+            instrumentation.runOnMainSync {
+                editor.onAccountSelected(if (index % 2 == 0) "savings" else "daily")
+                accounts.values.value = accounts.values.value.map { it.copy(isDefault = it.id == "savings") }
+                transactions.status.value = Resource.Success(transaction.copy(note = "emission-$index"))
+            }
+        }
+        withTimeout(10_000) { editor.uiState.first { it.transaction?.note == "emission-39" } }
+        assertEquals("daily", editor.uiState.value.selectedAccountId)
+        assertEquals("daily", handle.get<String>("selected_account_id"))
+        val restored = mutableMapOf<String, Any?>()
+        instrumentation.runOnMainSync { handle.keys().forEach { restored[it] = handle.get<Any?>(it) } }
+        assertEquals("daily", ready(editor(SavedStateHandle(restored))).selectedAccountId)
+    }
+
+    @Test
+    fun temporaryAccountFailuresPreserveSelectionButRemovalRequiresAnExplicitReplacement() = runBlocking {
+        val handle = SavedStateHandle()
+        val editor = editor(handle)
+        ready(editor)
+        instrumentation.runOnMainSync { editor.onAccountSelected("savings") }
+        val available = accounts.values.value
+        instrumentation.runOnMainSync { accounts.status.value = Resource.Loading() }
+        withTimeout(10_000) { editor.uiState.first { it.isAccountsLoading } }
+        assertEquals("savings", editor.uiState.value.selectedAccountId)
+        save(editor)
+        assertTrue(transactions.rows.value.isEmpty())
+        instrumentation.runOnMainSync { accounts.status.value = Resource.Error("Temporary sync failure") }
+        val offline = withTimeout(10_000) { editor.uiState.first { !it.isAccountsLoading && it.accountsError != null } }
+        assertEquals(available, offline.accounts)
+        assertEquals("savings", offline.selectedAccountId)
+        assertTrue(offline.canSaveWithAccount)
+        instrumentation.runOnMainSync { accounts.status.value = Resource.Success(available.filter { it.id == "daily" }) }
+        val removed = withTimeout(10_000) { editor.uiState.first { it.accountError == R.string.transactions_account_unavailable } }
+        assertEquals("savings", removed.selectedAccountId)
+        assertEquals("savings", handle.get<String>("selected_account_id"))
+        assertFalse(removed.canSaveWithAccount)
+        save(editor)
+        assertTrue(transactions.rows.value.isEmpty())
+        instrumentation.runOnMainSync { accounts.status.value = Resource.Success(emptyList()) }
+        withTimeout(10_000) { editor.uiState.first { it.accounts.isEmpty() } }
+        instrumentation.runOnMainSync { accounts.status.value = Resource.Success(available) }
+        withTimeout(10_000) { editor.uiState.first { it.canSaveWithAccount } }
+        assertEquals("savings", editor.uiState.value.selectedAccountId)
+        instrumentation.runOnMainSync { editor.onAccountSelected("daily") }
+        assertNull(editor.uiState.value.accountError)
+        assertEquals("daily", handle.get<String>("selected_account_id"))
+    }
+
+    @Test
+    fun createInitializationWaitsForDataAndRestoredIdsAreNotReplacedByDefaults() = runBlocking {
+        accounts.status.value = Resource.Error("No cached data yet")
+        val editor = editor()
+        ready(editor)
+        assertNull(editor.uiState.value.selectedAccountId)
+        instrumentation.runOnMainSync { accounts.status.value = Resource.Error("Offline", accounts.values.value) }
+        withTimeout(10_000) { editor.uiState.first { it.selectedAccountId == "daily" } }
+        val handle = SavedStateHandle(mapOf("selected_account_id" to "savings", "account_selection_initialized" to false))
+        val restored = editor(handle)
+        assertEquals("savings", ready(restored).selectedAccountId)
+        assertEquals(true, handle.get<Boolean>("account_selection_initialized"))
+        instrumentation.runOnMainSync {
+            accounts.status.value = Resource.Success(accounts.values.value.map { it.copy(isDefault = it.id == "daily") })
+        }
+        instrumentation.waitForIdleSync()
+        assertEquals("savings", restored.uiState.value.selectedAccountId)
+    }
+
+    @Test
+    fun incorrectlyTypedStringRetrievalThrowsButDetailExtractionRemainsSafe() {
+        val handle = SavedStateHandle(mapOf("id" to 42))
+        try {
+            val id: String? = handle.get<String>("id")
+            fail("Typed retrieval must not be used for unchecked arguments: $id")
+        } catch (_: ClassCastException) { }
+        val detail = model(TransactionDetailViewModel::class.java) {
+            TransactionDetailViewModel(handle, GetTransactionUseCase(transactions), DeleteTransactionUseCase(transactions), getAccounts)
+        }
+        assertEquals(R.string.transactions_not_found, detail.uiState.value.error)
+        assertTrue(transactions.observedIds.isEmpty())
+    }
+
+    @Test
     fun invalidDetailIdsExposeAnErrorWithoutStartingQueriesOrDeleting() {
         for (invalid in listOf(null, "", " \t ", 42, true, listOf("id"), "a/b", "a".repeat(129))) {
             val detail = model(TransactionDetailViewModel::class.java) {
@@ -137,7 +258,7 @@ class TransactionAccountViewModelTest {
     }
 
     @Test
-    fun typedAuthenticationFailuresPreserveCachedTransactionsAndUseLocalizedErrors() = runBlocking {
+    fun typedAuthenticationFailuresPreserveCachedTransactionsAndUseLocalizedErrors() = runBlocking<Unit> {
         val transaction = Transaction(id = "transaction", amountMinor = 1250, accountId = "daily")
         transactions.rows.value = mapOf(transaction.id to transaction)
         val detail = model(TransactionDetailViewModel::class.java) {
@@ -175,6 +296,35 @@ class TransactionAccountViewModelTest {
         withTimeout(10_000) { editor.uiState.first {
             it.error == R.string.transactions_load_error && it.accountsError == R.string.transactions_accounts_load_error
         } }
+    }
+
+    @Test
+    fun temporaryTransactionFailuresKeepCachedRowsAndSignOutClearsThem() = runBlocking {
+        val transaction = Transaction(id = "cached", amountMinor = 1250, accountId = "daily")
+        transactions.rows.value = mapOf(transaction.id to transaction)
+        val detail = model(TransactionDetailViewModel::class.java) {
+            TransactionDetailViewModel(SavedStateHandle(mapOf("id" to transaction.id)), GetTransactionUseCase(transactions),
+                DeleteTransactionUseCase(transactions), getAccounts)
+        }
+        val list = model(TransactionListViewModel::class.java) {
+            TransactionListViewModel(GetTransactionsUseCase(transactions), getAccounts)
+        }
+        withTimeout(10_000) { detail.uiState.first { it.transaction != null } }
+        withTimeout(10_000) { list.uiState.first { it.transactions.isNotEmpty() } }
+        instrumentation.runOnMainSync {
+            transactions.status.value = Resource.Error("Temporary failure")
+            transactions.listStatus.value = Resource.Error("Temporary failure")
+        }
+        assertEquals(transaction, withTimeout(10_000) { detail.uiState.first { it.error != null } }.transaction)
+        assertEquals("Daily", detail.uiState.value.accountName)
+        assertEquals(listOf(transaction), withTimeout(10_000) { list.uiState.first { it.error != null } }.transactions)
+        instrumentation.runOnMainSync {
+            val cause = TransactionException(TransactionError.SIGN_IN_REQUIRED)
+            transactions.status.value = Resource.Error("Authentication required", cause = cause)
+            transactions.listStatus.value = Resource.Error("Authentication required", cause = cause)
+        }
+        assertNull(withTimeout(10_000) { detail.uiState.first { it.error == R.string.transactions_sign_in } }.transaction)
+        assertTrue(withTimeout(10_000) { list.uiState.first { it.error == R.string.transactions_sign_in } }.transactions.isEmpty())
     }
 
     @Test
@@ -269,10 +419,14 @@ class TransactionAccountViewModelTest {
     }
 
     @Test
-    fun unavailableSavedAccountPreselectsDefaultWithoutChangingTheStoredTransaction() = runBlocking {
+    fun unavailableSavedAccountRequiresAnExplicitReplacementBeforeSaving() = runBlocking {
         transactions.rows.value = mapOf("legacy" to Transaction(id = "legacy", amountMinor = 1250, accountId = "missing"))
         val editor = editor(SavedStateHandle(mapOf("id" to "legacy")))
-        assertEquals("daily", ready(editor).selectedAccountId)
+        val state = ready(editor)
+        assertEquals("missing", state.selectedAccountId)
+        assertEquals(R.string.transactions_account_unavailable, state.accountError)
+        assertFalse(state.canSaveWithAccount)
+        save(editor)
         assertEquals("missing", transactions.rows.value["legacy"]!!.accountId)
     }
 
@@ -352,18 +506,20 @@ class TransactionAccountViewModelTest {
 
     private class MemoryTransactions : TransactionRepository {
         val rows = MutableStateFlow<Map<String, Transaction>>(emptyMap())
+        val status = MutableStateFlow<Resource<Transaction?>?>(null)
+        val listStatus = MutableStateFlow<Resource<List<Transaction>>?>(null)
         val failure = MutableStateFlow<Throwable?>(null)
         var diagnosticMessage = "Diagnostic text may change"
         val observedIds = mutableListOf<String>()
         val deletedIds = mutableListOf<String>()
-        override fun observeTransactions(): Flow<Resource<List<Transaction>>> = combine(rows, failure) { values, cause ->
-            if (cause == null) Resource.Success(values.values.toList())
+        override fun observeTransactions(): Flow<Resource<List<Transaction>>> = combine(rows, failure, listStatus) { values, cause, result ->
+            result ?: if (cause == null) Resource.Success(values.values.toList())
             else Resource.Error(diagnosticMessage, values.values.toList(), cause)
         }
         override fun observeTransaction(id: String): Flow<Resource<Transaction?>> {
             observedIds.add(id)
-            return combine(rows, failure) { values, cause ->
-                if (cause == null) Resource.Success(values[id]) else Resource.Error(diagnosticMessage, values[id], cause)
+            return combine(rows, failure, status) { values, cause, result ->
+                result ?: if (cause == null) Resource.Success(values[id]) else Resource.Error(diagnosticMessage, values[id], cause)
             }
         }
         override suspend fun addTransaction(t: Transaction): Result<Unit> {

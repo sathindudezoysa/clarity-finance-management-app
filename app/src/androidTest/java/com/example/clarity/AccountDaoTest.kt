@@ -28,6 +28,9 @@ import com.example.clarity.domain.util.Resource
 import com.example.clarity.domain.util.isSignInRequired
 import com.google.firebase.firestore.FirebaseFirestore
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.flow.first
@@ -47,11 +50,13 @@ class AccountDaoTest {
     private var database: ClarityDatabase? = null
     private val repositories = mutableListOf<AccountRepositoryImpl>()
     private val transactionRepositories = mutableListOf<TransactionRepositoryImpl>()
+    private val applicationScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     @After
     fun tearDown() {
         runBlocking { repositories.forEach { it.stopSync().join() } }
         runBlocking { transactionRepositories.forEach { it.stopSync().join() } }
+        applicationScope.cancel()
         database?.close()
         context.deleteDatabase(databaseName)
     }
@@ -118,7 +123,7 @@ class AccountDaoTest {
             }, Dispatchers.IO, object : AccountUploader {
                 override suspend fun uploadPending(uid: String, afterAccounts: suspend () -> Unit): Boolean =
                     error("Signed-out users must not upload")
-            }).also { transactionRepositories.add(it) }
+            }, applicationScope).also { transactionRepositories.add(it) }
         val list = withTimeout(10_000) {
             repository.observeTransactions().first { it is Resource.Error } as Resource.Error
         }
@@ -200,6 +205,23 @@ class AccountDaoTest {
     }
 
     @Test
+    fun remoteRenameKeepsBothRoomRowsAndTheirTransactionReferences() = runBlocking {
+        val db = openDatabase()
+        val repository = repository(db)
+        repository.createAccount(row("daily").toDomain()).getOrThrow()
+        repository.createAccount(row("savings").toDomain()).getOrThrow()
+        repository.acknowledgeBatch(db.accountDao.getAllForUser("user-a"))
+        val local = db.accountDao.getAllForUser("user-a")
+        db.transactionDao.upsert(TransactionEntity("linked", "user-a", "EXPENSE", 100, "Food", "", 1, 1, 1,
+            accountId = "savings"))
+        repository.reconcileRemote("user-a", local.map {
+            if (it.id == "savings") it.copy(name = "DAILY", updatedAt = it.updatedAt + 1) else it
+        }, authoritative = true)
+        assertEquals(local, db.accountDao.getAllForUser("user-a"))
+        assertNotNull(db.accountDao.getById(db.transactionDao.getById("linked")!!.accountId!!))
+    }
+
+    @Test
     fun reconciliationRetainsAccountsUntilTheirLastTransactionIsRemoved() = runBlocking {
         val db = Room.inMemoryDatabaseBuilder(context, ClarityDatabase::class.java).build()
         database = db
@@ -264,7 +286,7 @@ class AccountDaoTest {
             override suspend fun sendPasswordResetEmail(email: String): Result<Unit> = error("Unused")
             override suspend fun signOut() = Unit
         },
-        Dispatchers.IO
+        Dispatchers.IO, applicationScope
     ).also { repositories.add(it) }
 
     private fun assertSamplePreserved(db: ClarityDatabase) {

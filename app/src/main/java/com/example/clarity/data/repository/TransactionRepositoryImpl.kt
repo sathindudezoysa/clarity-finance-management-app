@@ -16,6 +16,7 @@ import com.example.clarity.domain.model.TransactionException
 import com.example.clarity.domain.repository.AuthRepository
 import com.example.clarity.domain.repository.TransactionRepository
 import com.example.clarity.domain.util.Resource
+import com.example.clarity.di.ApplicationScope
 import com.google.firebase.firestore.MetadataChanges
 import com.google.firebase.firestore.QuerySnapshot
 import kotlinx.coroutines.*
@@ -25,6 +26,7 @@ import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import javax.inject.Inject
+import javax.inject.Singleton
 
 /**
  * Room alone supplies UI records; its pending flags and tombstones form a durable outbox.
@@ -39,15 +41,18 @@ import javax.inject.Inject
  * Never await Firestore tasks in UI writes; failures are logged and Room retains pending records.
  */
 @OptIn(ExperimentalCoroutinesApi::class)
+@Singleton
 class TransactionRepositoryImpl @Inject internal constructor(
     private val dao: TransactionDao,
     private val firestore: FirestoreDataSource,
     private val authRepository: AuthRepository,
     private val ioDispatcher: CoroutineDispatcher,
-    private val accountUploader: AccountUploader
+    private val accountUploader: AccountUploader,
+    @ApplicationScope applicationScope: CoroutineScope
 ) : TransactionRepository {
     private val mutationMutex = Mutex()
-    private val syncScope = CoroutineScope(SupervisorJob() + ioDispatcher)
+    // Application ownership keeps synchronization independent of screen subscriptions.
+    private val syncScope = CoroutineScope(applicationScope.coroutineContext + SupervisorJob(applicationScope.coroutineContext[Job]))
     private val users = authRepository.currentUser.distinctUntilChangedBy { it?.uid }
         .shareIn(syncScope, SharingStarted.Eagerly, replay = 1)
     private data class SyncState(val uid: String?, val warning: String? = null)

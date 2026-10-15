@@ -15,6 +15,7 @@ import com.example.clarity.domain.model.AccountException
 import com.example.clarity.domain.repository.AccountRepository
 import com.example.clarity.domain.repository.AuthRepository
 import com.example.clarity.domain.util.Resource
+import com.example.clarity.di.ApplicationScope
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
@@ -42,6 +43,7 @@ class AccountRepositoryImpl internal constructor(
     private val remote: AccountRemoteDataSource,
     private val authRepository: AuthRepository,
     private val ioDispatcher: CoroutineDispatcher,
+    applicationScope: CoroutineScope,
     private val runTransaction: suspend (suspend () -> Unit) -> Unit,
     private val warnRetainedAccount: (String) -> Unit = { id ->
         Log.w("AccountRepository", "Keeping account $id missing remotely because local transactions reference it")
@@ -58,12 +60,14 @@ class AccountRepositoryImpl internal constructor(
         database: ClarityDatabase,
         remote: AccountRemoteDataSource,
         authRepository: AuthRepository,
-        ioDispatcher: CoroutineDispatcher
-    ) : this(database.accountDao, remote, authRepository, ioDispatcher,
+        ioDispatcher: CoroutineDispatcher,
+        @ApplicationScope applicationScope: CoroutineScope
+    ) : this(database.accountDao, remote, authRepository, ioDispatcher, applicationScope,
         { block -> database.withTransaction { block() } })
 
     private val mutationMutex = Mutex()
-    private val syncScope = CoroutineScope(SupervisorJob() + ioDispatcher)
+    // The application owns this child job; stopping this repository never cancels sibling sync jobs.
+    private val syncScope = CoroutineScope(applicationScope.coroutineContext + SupervisorJob(applicationScope.coroutineContext[Job]))
     private val users = authRepository.currentUser.distinctUntilChangedBy { it?.uid }
         .shareIn(syncScope, SharingStarted.Eagerly, replay = 1)
     private data class SyncState(val uid: String?, val warning: String? = null)
@@ -233,6 +237,16 @@ class AccountRepositoryImpl internal constructor(
                 if (existing != null && existing.userId != userId) return@forEach
                 // A pending default switch is an indivisible group. Cache cannot confirm it.
                 if (existing?.pendingSync == true || (pending && !authoritative)) return@forEach
+                // A remote rename must not make Room's REPLACE delete a different local account.
+                val incomingName = incoming.name.lowercase(java.util.Locale.ROOT)
+                if (existing != null && existing.name.lowercase(java.util.Locale.ROOT) != incomingName &&
+                    local.any { other -> other.id != incoming.id &&
+                        (other.name.lowercase(java.util.Locale.ROOT) == incomingName ||
+                            merged[other.id]?.name?.lowercase(java.util.Locale.ROOT) == incomingName) &&
+                        (!authoritative || other.pendingSync || other.id in remoteIds || hasTransactionReferences(other.id)) }) {
+                    warnSkippedAccounts(listOf(incoming.id))
+                    return@forEach
+                }
                 if (existing != null && existing.updatedAt > incoming.updatedAt) {
                     if (authoritative) merged[incoming.id] = existing.copy(pendingSync = true)
                 } else {
