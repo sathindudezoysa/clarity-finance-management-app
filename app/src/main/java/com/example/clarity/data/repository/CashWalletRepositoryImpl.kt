@@ -31,21 +31,8 @@ class CashWalletRepositoryImpl @Inject constructor(
     override fun observeWallet(): Flow<CashWallet> = auth.currentUser.distinctUntilChangedBy { it?.uid }
         .flatMapLatest { user ->
             if (user == null) flowOf(CashWallet())
-            else dao.observeChanges(user.uid).conflate().mapLatest {
-                // Cancellation discards obsolete reads; this transaction makes each read consistent.
-                database.withTransaction {
-                    CashWallet(
-                        balanceMinor = dao.balance(user.uid).value(),
-                        accounts = dao.accountTotals(user.uid).map { it.toWalletAccount() },
-                        activity = dao.recentActivity(user.uid).map { it.toWalletActivity() },
-                        topUpOption = dao.option(user.uid)?.toWalletOption(),
-                        topUpHistory = dao.topUps(user.uid).map {
-                            WalletActivity("transfer:${it.id}", if (it.automatic) "Automatic top-up" else "Bank to cash wallet", it.amountMinor, true,
-                                it.dateEpochMillis, kind = "TRANSFER", bankAccountId = it.bankAccountId)
-                        }, ownerId = user.uid
-                    )
-                }
-            }.distinctUntilChanged()
+            else dao.observeSnapshotRows(user.uid).conflate().distinctUntilChanged()
+                .mapLatest { rows -> rows.toCashWallet(user.uid) }
         }.flowOn(ioDispatcher)
 
     override suspend fun addBankAccount(name: String, openingBalanceMinor: Long): Result<Unit> =

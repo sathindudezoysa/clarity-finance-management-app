@@ -2,6 +2,7 @@ package com.example.clarity.data.local
 
 import androidx.room.Embedded
 import com.example.clarity.data.local.entity.WalletBankAccountEntity
+import com.example.clarity.data.local.entity.WalletTopUpOptionEntity
 import java.math.BigInteger
 
 /** Split integer sums stay exact even when historical totals exceed a signed 64-bit sum. */
@@ -14,4 +15,12 @@ data class WalletBankTotals(@Embedded val account: WalletBankAccountEntity, val 
 data class WalletActivityRow(
     val id: String, val title: String, val amountMinor: Long, val dateEpochMillis: Long,
     val kind: String, val transactionId: String?, val bankAccountId: String?
+)
+
+/** A tagged union from one read query; unused embedded sections are entirely NULL. */
+data class WalletSnapshotRow(
+    val section: String, val balanceHigh: Long, val balanceLow: Long,
+    @Embedded(prefix = "account_") val account: WalletBankTotals?,
+    @Embedded(prefix = "activity_") val activity: WalletActivityRow?,
+    @Embedded(prefix = "option_") val option: WalletTopUpOptionEntity?
 )

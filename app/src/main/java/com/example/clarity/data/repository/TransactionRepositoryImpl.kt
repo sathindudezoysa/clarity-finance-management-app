@@ -38,10 +38,12 @@ class TransactionRepositoryImpl @Inject constructor(
     private val dao: TransactionDao,
     private val firestore: FirestoreDataSource,
     private val authRepository: AuthRepository,
-    private val ioDispatcher: CoroutineDispatcher
+    private val ioDispatcher: CoroutineDispatcher,
+    private val clock: java.time.Clock
 ) : TransactionRepository {
-    // Field injection preserves the original four-argument constructor for manual wiring.
-    @Inject @JvmField var clock: java.time.Clock = java.time.Clock.systemUTC()
+    // Preserve existing manual wiring while Hilt and tests use an immutable injected clock.
+    constructor(dao: TransactionDao, firestore: FirestoreDataSource, authRepository: AuthRepository,
+        ioDispatcher: CoroutineDispatcher) : this(dao, firestore, authRepository, ioDispatcher, java.time.Clock.systemUTC())
     private val mutationMutex = Mutex()
     private val syncScope = CoroutineScope(SupervisorJob() + ioDispatcher)
     private val users = authRepository.currentUser.distinctUntilChangedBy { it?.uid }

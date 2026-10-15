@@ -31,7 +31,7 @@ class CashWalletScreenTest {
         ActivityScenario.launch(ComponentActivity::class.java).use { scenario ->
             scenario.onActivity { activity ->
                 val viewModel = CashWalletViewModel(ObserveCashWalletUseCase(repo), RecordCashTransactionUseCase(repo),
-                    TopUpCashWalletUseCase(repo), ConfigureWalletTopUpUseCase(repo), AdjustCashBalanceUseCase(repo))
+                    TopUpCashWalletUseCase(repo), ConfigureWalletTopUpUseCase(repo), AdjustCashBalanceUseCase(repo), androidx.lifecycle.SavedStateHandle())
                 store.put("wallet", viewModel)
                 activity.setContent { ClarityTheme { CashWalletScreen({}, {}, viewModel) } }
             }

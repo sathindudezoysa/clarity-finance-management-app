@@ -21,7 +21,7 @@ class CashWalletViewModel @Inject constructor(
     private val topUp: TopUpCashWalletUseCase,
     private val configureTopUp: ConfigureWalletTopUpUseCase,
     private val adjustCash: AdjustCashBalanceUseCase,
-    private val savedState: SavedStateHandle = SavedStateHandle()
+    private val savedState: SavedStateHandle
 ) : ViewModel() {
     private val _uiState = MutableStateFlow(CashWalletState(
         action = if (savedState.get<Boolean>("review") == true) WalletAction.TOP_UP else WalletAction.EXPENSE,
@@ -114,7 +114,12 @@ class CashWalletViewModel @Inject constructor(
             savedState["amount"] = state.amount
             savedState["review"] = true
             edit { it.copy(showTransferReview = true) }
-        } catch (error: WalletValidationException) { _uiState.update { it.copy(error = error.message) } }
+        } catch (error: Exception) {
+            if (error is CancellationException) throw error
+            clearDraft()
+            _uiState.update { it.copy(showTransferReview = false, message = null,
+                error = if (error is WalletValidationException) error.message else "We couldn't review this transfer. Please try again.") }
+        }
     }
 
     fun save() {

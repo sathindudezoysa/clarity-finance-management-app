@@ -1,6 +1,8 @@
 ﻿package com.example.clarity.presentation.wallet
 
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.text.KeyboardActions
@@ -152,7 +154,7 @@ fun CashWalletScreen(
         }
     }
     if (state.showAddCashChoices) AlertDialog(onDismissRequest = { viewModel.showAddCash(false) }, title = { Text("Add Cash") }, text = {
-        Column {
+        Column(Modifier.verticalScroll(rememberScrollState())) {
             TextButton(onClick = { viewModel.selectAction(WalletAction.ADJUSTMENT) }) { Text("Starting Cash / Balance Adjustment") }
             Text("Cash you already hold; does not count as earnings.")
             TextButton(onClick = { viewModel.selectAction(WalletAction.INCOME) }) { Text("Receive Cash Income") }
@@ -165,7 +167,7 @@ fun CashWalletScreen(
         val bank = state.wallet.accounts.firstOrNull { it.id == state.selectedBankId }
         val amount = com.example.clarity.domain.util.MoneyUtils.parseMinor(state.amount).getOrDefault(0)
         AlertDialog(onDismissRequest = { if (!state.isSaving) viewModel.cancelReview() }, title = { Text("Review Transfer") }, text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("From: ${bank?.bankName.orEmpty()} — ${bank?.name.orEmpty()}")
                 Text("To: Cash Wallet")
                 Text("Top-up Amount: ${walletMoney(amount)}")

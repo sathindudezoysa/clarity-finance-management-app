@@ -27,6 +27,8 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.collect
 import org.junit.After
 import org.junit.Assert.*
 import org.junit.Test
@@ -225,7 +227,7 @@ class CashWalletPersistenceTest {
         val firestore = FirebaseFirestore.getInstance(app).apply { useEmulator("127.0.0.1", 1) }
         try {
             val transactions = TransactionRepositoryImpl(db.transactionDao, FirestoreDataSource(firestore), auth,
-                Dispatchers.Unconfined).apply { this.clock = this@CashWalletPersistenceTest.clock }
+                Dispatchers.Unconfined, clock)
             val rows = db.transactionDao.observeAll("a").first()
             val income = rows.single { it.type == "INCOME" }.toDomain()
             val expense = rows.single { it.type == "EXPENSE" }.toDomain()
@@ -271,6 +273,29 @@ class CashWalletPersistenceTest {
         assertEquals(1, results.count { it.isSuccess })
         assertEquals(BigInteger.valueOf(200), repo.observeWallet().first().accounts.single().balanceMinor)
         assertEquals(BigInteger.valueOf(800), repo.observeWallet().first().balanceMinor)
+    }
+
+    @Test fun observedReadSnapshotsStayConsistentDuringConcurrentTransfers() = runBlocking {
+        context.deleteDatabase(name)
+        val db = open(); val repo = repository(db)
+        repo.saveBankAccount(WalletBankAccountInput("bank", "hnb", "Savings", openingBalanceMinor = 10000)).getOrThrow()
+        var snapshots = 0
+        val started = kotlinx.coroutines.CompletableDeferred<Unit>()
+        val observer = launch(Dispatchers.IO) {
+            repo.observeWallet().collect { wallet ->
+                assertEquals(BigInteger.valueOf(10000), wallet.balanceMinor + wallet.accounts.single().balanceMinor)
+                assertTrue(wallet.topUpHistory.size <= 50)
+                assertTrue(wallet.activity.size <= 50)
+                snapshots++
+                started.complete(Unit)
+            }
+        }
+        try {
+            withTimeout(5000) { started.await() }
+            (1..60).map { id -> async(Dispatchers.IO) { repo.topUp("bank", 10, "snapshot-$id").getOrThrow() } }.awaitAll()
+            withTimeout(5000) { repo.observeWallet().first { it.balanceMinor == BigInteger.valueOf(600) } }
+        } finally { observer.cancel(); observer.join() }
+        assertTrue(snapshots > 0)
     }
 
     @Test fun overflowAfterTransferInsertionRollsBackBothBalancesAndHistory() = runBlocking {

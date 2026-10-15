@@ -1,6 +1,12 @@
 ﻿package com.example.clarity
 
 import com.example.clarity.data.local.WalletMoneyParts
+import com.example.clarity.data.local.WalletSnapshotRow
+import com.example.clarity.data.local.WalletBankTotals
+import com.example.clarity.data.local.WalletActivityRow
+import com.example.clarity.data.local.entity.WalletBankAccountEntity
+import com.example.clarity.data.local.entity.WalletTopUpOptionEntity
+import com.example.clarity.data.mapper.toCashWallet
 import com.example.clarity.domain.model.*
 import com.example.clarity.domain.util.MoneyUtils
 import org.junit.Assert.*
@@ -9,6 +15,33 @@ import java.math.BigInteger
 
 class CashWalletTest {
     private val option = WalletTopUpOption("bank", true, 100000, 500000)
+
+    @Test fun emptySingleQuerySnapshotHasZeroBalanceAndNoPhantomEmbeddedRows() {
+        val wallet = listOf(WalletSnapshotRow("BALANCE", 0, 0, null, null, null)).toCashWallet("a")
+        assertEquals(BigInteger.ZERO, wallet.balanceMinor)
+        assertEquals("a", wallet.ownerId)
+        assertTrue(wallet.accounts.isEmpty())
+        assertTrue(wallet.activity.isEmpty())
+        assertTrue(wallet.topUpHistory.isEmpty())
+        assertNull(wallet.topUpOption)
+    }
+
+    @Test fun singleQuerySnapshotMapsAccountsActivityHistoryAndOptionsIndependently() {
+        val account = WalletBankTotals(WalletBankAccountEntity("a", "bank", "Savings", 10000), 0, 1000)
+        val transfer = WalletActivityRow("transfer:one", "Automatic top-up", 1000, 42, "TRANSFER", null, "bank")
+        val rows = listOf(
+            WalletSnapshotRow("BALANCE", 0, 1200, null, null, null),
+            WalletSnapshotRow("ACCOUNT", 0, 0, account, null, null),
+            WalletSnapshotRow("ACTIVITY", 0, 0, null, transfer, null),
+            WalletSnapshotRow("HISTORY", 0, 0, null, transfer, null),
+            WalletSnapshotRow("OPTION", 0, 0, null, null, WalletTopUpOptionEntity("a", "bank", true, 500, 1000, true)))
+        val wallet = rows.toCashWallet("a")
+        assertEquals(BigInteger.valueOf(1200), wallet.balanceMinor)
+        assertEquals(BigInteger.valueOf(9000), wallet.accounts.single().balanceMinor)
+        assertEquals("transfer:one", wallet.activity.single().id)
+        assertEquals("Automatic top-up", wallet.topUpHistory.single().title)
+        assertTrue(wallet.topUpOption!!.automaticExecution)
+    }
 
     @Test fun lowBalanceOffersReminderWithoutCreatingMoney() {
         assertTrue(CashWalletRules.needsReminder(BigInteger.valueOf(99999), option))
