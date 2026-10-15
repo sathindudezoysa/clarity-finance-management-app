@@ -63,7 +63,7 @@ class AccountRepositoryImpl @Inject constructor(
                     launch {
                         remote.observeAccounts(user.uid).map { snapshot ->
                             mutationMutex.withLock {
-                                dao.reconcileRemote(user.uid, snapshot.accounts.map { it.toEntity() }, snapshot.authoritative)
+                                dao.reconcileRemote(user.uid, snapshot.accounts.map { it.toEntity() }, snapshot.authoritative, snapshot.remoteIds)
                             }
                             triggers.trySend(Unit)
                         }.retryWhen { error, _ ->
@@ -89,15 +89,21 @@ class AccountRepositoryImpl @Inject constructor(
                     if (authRepository.currentUser.first()?.uid != uid) return@withLock false
                     val pending = mutationMutex.withLock { dao.getAllForUser(uid).filter { it.pendingSync } }
                     if (pending.isNotEmpty()) {
+                        // Only uploadMutex serializes the network phase; local operations use mutationMutex.
                         remote.writeAccounts(uid, pending.map { it.toDomain() })
-                        mutationMutex.withLock { dao.acknowledgeBatch(pending) }
-                        if (users.replayCache.firstOrNull()?.uid == uid) syncState.value = SyncState(uid)
+                        mutationMutex.withLock {
+                            // The DAO compares each current row with the uploaded version before clearing pendingSync.
+                            dao.acknowledgeBatch(pending)
+                            if (users.replayCache.firstOrNull()?.uid == uid) syncState.value = SyncState(uid)
+                        }
                     }
                     true
                 } catch (error: Exception) {
                     if (error is CancellationException) throw error
-                    if (users.replayCache.firstOrNull()?.uid == uid) {
-                        syncState.value = SyncState(uid, "Unable to sync accounts")
+                    mutationMutex.withLock {
+                        if (users.replayCache.firstOrNull()?.uid == uid) {
+                            syncState.value = SyncState(uid, "Unable to sync accounts")
+                        }
                     }
                     false
                 }

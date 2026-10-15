@@ -25,11 +25,11 @@ fun Map<String, Any?>.toAccount(documentId: String): Account? {
     val accountType = this["accountType"]
     val currency = this["currency"] as? String ?: return null
     val isDefault = this["isDefault"] as? Boolean ?: return null
-    val created = this["createdAt"] as? Long ?: return null
-    val updated = this["updatedAt"] as? Long ?: return null
+    val created = this["createdAt"].toFirestoreLong() ?: return null
+    val updated = this["updatedAt"].toFirestoreLong() ?: return null
     if (id != documentId || id.isBlank() || id.length > 128 || '/' in id ||
         userId.isBlank() || userId.length > 128 || name.isBlank() || name.length > 100 ||
         bankName.length > 100 || (accountType != null && (accountType !is String || accountType.length > 100)) ||
         !currency.matches(Regex("[A-Z]{3}")) || created < 0 || updated < created) return null
-    return Account(id, userId, name, bankName, accountType as String?, currency, isDefault, created, updated)
+    return Account(id, userId, name, bankName, accountType as? String, currency, isDefault, created, updated)
 }

@@ -1,5 +1,8 @@
 package com.example.clarity.data.remote
 
+import android.util.Log
+import com.example.clarity.data.mapper.mapFirestoreDocuments
+import com.example.clarity.data.mapper.toFirestoreLong
 import com.example.clarity.data.mapper.toAccount
 import com.example.clarity.data.mapper.toFirestoreMap
 import com.example.clarity.domain.model.Account
@@ -11,7 +14,11 @@ import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.tasks.await
 import javax.inject.Inject
 
-data class AccountSnapshot(val accounts: List<Account>, val authoritative: Boolean)
+data class AccountSnapshot(
+    val accounts: List<Account>,
+    val authoritative: Boolean,
+    val remoteIds: Set<String> = accounts.map { it.id }.toSet()
+)
 
 interface AccountRemoteDataSource {
     fun observeAccounts(userId: String): Flow<AccountSnapshot>
@@ -26,14 +33,16 @@ class FirestoreAccountDataSource @Inject constructor(
             .addSnapshotListener(MetadataChanges.INCLUDE) { snapshot, error ->
                 if (error != null) close(error)
                 else if (snapshot != null) {
-                    val accounts = snapshot.documents.map { document ->
-                        document.data?.toAccount(document.id)?.takeIf { it.userId == userId }
-                    }
+                    val documents = snapshot.documents.map { it.id to it.data }
+                    val accounts = documents.mapFirestoreDocuments(
+                        { data, id -> data.toAccount(id)?.takeIf { it.userId == userId } },
+                        { id -> Log.w("AccountRemote", "Skipping malformed account document $id") }
+                    )
                     // A malformed document must not look like an authoritative deletion.
-                    if (accounts.any { it == null }) close(IllegalStateException("Invalid remote account"))
-                    else trySend(AccountSnapshot(
-                        accounts.filterNotNull(),
-                        !snapshot.metadata.isFromCache && !snapshot.metadata.hasPendingWrites()
+                    trySend(AccountSnapshot(
+                        accounts,
+                        !snapshot.metadata.isFromCache && !snapshot.metadata.hasPendingWrites(),
+                        documents.map { it.first }.toSet()
                     ))
                 }
             }
@@ -51,11 +60,11 @@ class FirestoreAccountDataSource @Inject constructor(
             val selection = firestore.getCollection("users/$userId/account_settings").document("default")
             // Room is the offline queue. Read the current pointer before building the batch;
             // getAfter rules reject a concurrent stale switch, which the outbox retries.
-            val previousId = selection.get(Source.SERVER).await().getString("accountId")
+            val previousId = selection.get(Source.SERVER).await().data?.get("accountId") as? String
             if (previousId != null && previousId != selected.id && accounts.none { it.id == previousId }) {
                 val previous = collection.document(previousId).get(Source.SERVER).await()
                 batch.update(collection.document(previousId), "isDefault", false,
-                    "updatedAt", maxOf(selected.updatedAt, previous.getLong("updatedAt") ?: 0L))
+                    "updatedAt", maxOf(selected.updatedAt, previous.data?.get("updatedAt").toFirestoreLong() ?: 0L))
             }
             batch.set(selection, mapOf("accountId" to selected.id))
         }

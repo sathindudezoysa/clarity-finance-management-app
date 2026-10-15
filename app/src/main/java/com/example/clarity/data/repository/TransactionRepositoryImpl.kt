@@ -7,6 +7,8 @@ import com.example.clarity.data.local.entity.TransactionEntity
 import com.example.clarity.data.mapper.toDomain
 import com.example.clarity.data.mapper.toEntity
 import com.example.clarity.data.mapper.toFirestoreMap
+import com.example.clarity.data.mapper.mapFirestoreDocuments
+import com.example.clarity.data.mapper.toTransaction
 import com.example.clarity.data.remote.FirestoreDataSource
 import com.example.clarity.domain.model.Transaction
 import com.example.clarity.domain.repository.AuthRepository
@@ -137,9 +139,10 @@ class TransactionRepositoryImpl @Inject constructor(
                     if (activeUid == uid && generation == listenerGeneration.value) {
                         val authoritative = !snapshot.metadata.isFromCache && !snapshot.metadata.hasPendingWrites()
                         val remoteIds = snapshot.documents.map { it.id }.toSet()
-                        val remote = snapshot.documents.mapNotNull { doc ->
-                            doc.toDomain()?.takeIf { it.userId == uid }?.toEntity()
-                        }
+                        val remote = snapshot.documents.map { it.id to it.data }.mapFirestoreDocuments(
+                            { data, id -> data.toTransaction(id)?.takeIf { it.userId == uid }?.toEntity() },
+                            { id -> Log.w(TAG, "Skipping malformed transaction document $id") }
+                        )
                         val confirmedDeletes = dao.getPendingForUser(uid).filter { entity ->
                             entity.isDeleted && acknowledged[WriteKey(uid, entity.id)] == entity
                         }.map { it.id }.toSet()

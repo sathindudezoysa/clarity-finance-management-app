@@ -29,17 +29,17 @@ fun Map<String, Any?>.toTransaction(documentId: String): Transaction? {
     val userId = this["userId"] as? String ?: return null
     val typeName = this["type"] as? String ?: return null
     val type = TransactionType.values().firstOrNull { it.name == typeName } ?: return null
-    val amount = this["amountMinor"] as? Long ?: return null
+    val amount = this["amountMinor"].toFirestoreLong() ?: return null
     val category = this["category"] as? String ?: return null
     val note = this["note"] as? String ?: return null
-    val date = this["dateEpochMillis"] as? Long ?: return null
-    val created = this["createdAt"] as? Long ?: return null
-    val updated = this["updatedAt"] as? Long ?: return null
+    val date = this["dateEpochMillis"].toFirestoreLong() ?: return null
+    val created = this["createdAt"].toFirestoreLong() ?: return null
+    val updated = this["updatedAt"].toFirestoreLong() ?: return null
     val accountId = this["accountId"]
     if (accountId != null && (accountId !is String || accountId.isBlank() || accountId.length > 128 || '/' in accountId)) return null
     if (id != documentId || id.isBlank() || id.length > 128 || '/' in id ||
         userId.isBlank() || userId.length > 128 || amount <= 0 ||
         category.isBlank() || category.length > 100 || note.length > 2000 ||
         created < 0 || updated < created) return null
-    return Transaction(id, userId, type, amount, category, note, date, created, updated, accountId as String?)
+    return Transaction(id, userId, type, amount, category, note, date, created, updated, accountId as? String)
 }

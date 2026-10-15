@@ -76,7 +76,12 @@ abstract class AccountDao {
     }
 
     @Transaction
-    open suspend fun reconcileRemote(userId: String, remote: List<AccountEntity>, authoritative: Boolean) {
+    open suspend fun reconcileRemote(
+        userId: String,
+        remote: List<AccountEntity>,
+        authoritative: Boolean,
+        remoteIds: Set<String> = remote.map { it.id }.toSet()
+    ) {
         val local = getAllForUser(userId)
         val pending = local.any { it.pendingSync }
         val merged = local.associateBy { it.id }.toMutableMap()
@@ -95,7 +100,6 @@ abstract class AccountDao {
             }
         }
         if (authoritative) {
-            val remoteIds = remote.map { it.id }.toSet()
             local.filter { !it.pendingSync && it.id !in remoteIds }.forEach {
                 if (hasTransactionReferences(it.id)) {
                     warnRetainedAccount(it.id)

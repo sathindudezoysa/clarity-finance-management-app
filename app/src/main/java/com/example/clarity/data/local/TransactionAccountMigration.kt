@@ -12,12 +12,13 @@ object TransactionAccountMigration : Migration(4, 5) {
         db.execSQL("""
             UPDATE transactions SET
                 accountId = (SELECT id FROM accounts
-                    WHERE accounts.userId = transactions.userId AND isDefault = 1 LIMIT 1),
+                    WHERE accounts.userId = transactions.userId
+                    ORDER BY isDefault DESC, createdAt ASC, id ASC LIMIT 1),
                 pendingSync = 1,
                 updatedAt = CASE WHEN updatedAt < 9223372036854775807
                     THEN MAX(updatedAt + 1, $now) ELSE updatedAt END
             WHERE EXISTS (SELECT 1 FROM accounts
-                WHERE accounts.userId = transactions.userId AND isDefault = 1)
+                WHERE accounts.userId = transactions.userId)
         """.trimIndent())
     }
 }

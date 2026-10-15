@@ -21,6 +21,7 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import org.junit.After
 import org.junit.Assert.*
 import org.junit.Test
@@ -196,6 +197,53 @@ class AccountRepositoryTest {
     }
 
     @Test
+    fun slowUploadAllowsLocalSavesAndCannotAcknowledgeAnEditMadeDuringUpload() = runBlocking {
+        repository.createAccount(account("daily")).getOrThrow()
+        val firstGate = CompletableDeferred<Unit>()
+        val secondGate = CompletableDeferred<Unit>()
+        remote.gate = firstGate
+        repository.updateAccount(saved("daily").copy(bankName = "Uploading version")).getOrThrow()
+        val uploading = remote.batches.last().single()
+
+        withTimeout(2_000) {
+            repository.updateAccount(saved("daily").copy(bankName = "Newer local edit")).getOrThrow()
+            repository.createAccount(account("savings")).getOrThrow()
+            assertEquals("Newer local edit", saved("daily").bankName)
+        }
+        val newer = dao.getById("daily")!!
+        assertTrue(newer.updatedAt > uploading.updatedAt)
+        assertTrue(newer.pendingSync)
+        val nextUploadStarted = CompletableDeferred<Unit>()
+        remote.onStarted = { nextUploadStarted.complete(Unit) }
+        remote.gate = secondGate
+        firstGate.complete(Unit)
+        withTimeout(2_000) { nextUploadStarted.await() }
+
+        // The older upload was acknowledged, but the newer row must still be pending.
+        assertEquals(newer, dao.getById("daily"))
+        assertEquals("Newer local edit", remote.batches.last().first { it.id == "daily" }.bankName)
+        assertTrue(dao.getById("savings")!!.pendingSync)
+        remote.gate = null
+        secondGate.complete(Unit)
+        withTimeout(2_000) { repository.uploadPending("user-a") }
+        assertEquals(newer.copy(pendingSync = false), dao.getById("daily"))
+        assertTrue(dao.getAllForUser("user-a").none { it.pendingSync })
+    }
+
+    @Test
+    fun skippedMalformedAccountDoesNotDeleteLocalCopyOrBlockOtherRemoteUpdates() = runBlocking {
+        repository.createAccount(account("daily")).getOrThrow()
+        repository.createAccount(account("malformed")).getOrThrow()
+        repository.createAccount(account("deleted")).getOrThrow()
+        val malformed = dao.getById("malformed")!!
+        val daily = saved("daily").copy(bankName = "Remote bank", updatedAt = saved("daily").updatedAt + 10)
+        remote.snapshots.emit(AccountSnapshot(listOf(daily), true, setOf("daily", "malformed")))
+        assertEquals(malformed, dao.getById("malformed"))
+        assertEquals("Remote bank", saved("daily").bankName)
+        assertNull(dao.getById("deleted"))
+    }
+
+    @Test
     fun reconciliationKeepsReferencedAccountsAndDeletesUnreferencedAccounts() = runBlocking {
         repository.createAccount(account("daily")).getOrThrow()
         repository.createAccount(account("linked")).getOrThrow()
@@ -307,10 +355,13 @@ class AccountRepositoryTest {
         var gate: CompletableDeferred<Unit>? = null
         var fail = false
         var onCommitted: () -> Unit = {}
-        override fun observeAccounts(userId: String): Flow<AccountSnapshot> = emptyFlow()
+        var onStarted: () -> Unit = {}
+        val snapshots = MutableSharedFlow<AccountSnapshot>()
+        override fun observeAccounts(userId: String): Flow<AccountSnapshot> = snapshots
         override suspend fun writeAccounts(userId: String, accounts: List<Account>) {
             assertTrue(accounts.all { it.userId == userId })
             batches.add(accounts)
+            onStarted()
             gate?.await()
             check(!fail) { "Offline" }
             onCommitted()
