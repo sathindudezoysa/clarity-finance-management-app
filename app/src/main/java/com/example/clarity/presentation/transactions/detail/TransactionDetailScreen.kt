@@ -9,6 +9,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.clarity.R
 import com.example.clarity.domain.model.TransactionType
 import com.example.clarity.domain.util.MoneyUtils
@@ -22,7 +23,7 @@ fun TransactionDetailScreen(
     onEdit: (String) -> Unit,
     viewModel: TransactionDetailViewModel = hiltViewModel()
 ) {
-    val state by viewModel.uiState.collectAsState()
+    val state by viewModel.uiState.collectAsStateWithLifecycle()
     LaunchedEffect(state.isDeleted) { if (state.isDeleted) onBack() }
 
     if (state.isDeleteDialogVisible) AlertDialog(
@@ -47,12 +48,17 @@ fun TransactionDetailScreen(
             if (state.isLoading) CircularProgressIndicator()
             else {
                 val transaction = state.transaction
-                if (transaction == null) Text(stringResource(R.string.transactions_not_found))
+                if (transaction == null) {
+                    if (state.error == null) Text(stringResource(R.string.transactions_not_found))
+                }
                 else {
                     Field(R.string.transactions_type, stringResource(
                         if (transaction.type == TransactionType.INCOME) R.string.transactions_income else R.string.transactions_expense
                     ))
                     Field(R.string.transactions_amount, MoneyUtils.formatMinor(transaction.amountMinor))
+                    Field(R.string.transactions_account, state.accountName ?: stringResource(
+                        if (transaction.accountId == null) R.string.transactions_account_unassigned
+                        else R.string.transactions_account_unavailable))
                     Field(R.string.transactions_tag, transaction.category)
                     Field(R.string.transactions_description, transaction.note.ifBlank { stringResource(R.string.transactions_none) })
                     Field(R.string.transactions_date, formatTransactionDate(transaction.dateEpochMillis))

@@ -2,6 +2,7 @@ package com.example.clarity.presentation.transactions.edit
 
 import com.example.clarity.domain.model.Transaction
 import com.example.clarity.domain.model.TransactionTags
+import com.example.clarity.domain.model.Account
 
 data class TransactionEditState(
     val isEditMode: Boolean = false,
@@ -13,5 +14,12 @@ data class TransactionEditState(
     val amountError: Int? = null,
     val categoryError: Int? = null,
     val noteError: Int? = null,
-    val tags: List<String> = TransactionTags.predefined
-)
+    val tags: List<String> = TransactionTags.predefined,
+    val accounts: List<Account> = emptyList(),
+    val selectedAccountId: String? = null,
+    val isAccountsLoading: Boolean = true,
+    val accountsError: Int? = null,
+    val accountError: Int? = null
+) {
+    val canSaveWithAccount: Boolean get() = !isAccountsLoading && accounts.any { it.id == selectedAccountId }
+}

@@ -8,5 +8,6 @@ data class TransactionDetailState(
     val error: Int? = null,
     val isDeleteDialogVisible: Boolean = false,
     val isDeleting: Boolean = false,
-    val isDeleted: Boolean = false
+    val isDeleted: Boolean = false,
+    val accountName: String? = null
 )

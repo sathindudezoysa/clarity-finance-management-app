@@ -20,6 +20,7 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class TransactionTagsTest {
+    private val accounts = TransactionTestAccounts()
     @Test
     fun suggestionsIncludeRequirementExamplesAndDeduplicateCustomNames() = runBlocking {
         val repository = object : TransactionTagRepository {
@@ -33,9 +34,9 @@ class TransactionTagsTest {
     @Test
     fun addAcceptsEachPredefinedTagWithoutDescription() = runBlocking {
         val repository = RecordingRepository()
-        val add = AddTransactionUseCase(repository)
+        val add = AddTransactionUseCase(repository, accounts)
         for (tag in TransactionTags.predefined) {
-            assertTrue(add(Transaction(amountMinor = 1250, category = tag)).isSuccess)
+            assertTrue(add(Transaction(amountMinor = 1250, category = tag, accountId = "savings")).isSuccess)
             assertEquals(tag, repository.saved!!.category)
             assertEquals("", repository.saved!!.note)
         }
@@ -45,8 +46,8 @@ class TransactionTagsTest {
     fun customTagAndDescriptionSurviveLocalAndRemoteRoundTrips() = runBlocking {
         val repository = RecordingRepository()
         val original = Transaction(userId = "user-a", amountMinor = 2500,
-            category = "  Weekend hobby  ", note = "  Supplies\nfor painting  ")
-        assertTrue(AddTransactionUseCase(repository)(original).isSuccess)
+            category = "  Weekend hobby  ", note = "  Supplies\nfor painting  ", accountId = "savings")
+        assertTrue(AddTransactionUseCase(repository, accounts)(original).isSuccess)
         val saved = repository.saved!!
         assertEquals("Weekend hobby", saved.category)
         assertEquals("Supplies\nfor painting", saved.note)
@@ -57,23 +58,23 @@ class TransactionTagsTest {
     @Test
     fun editingCanChangeTagAndClearDescriptionWithoutChangingIdentity() = runBlocking {
         val repository = RecordingRepository()
-        val original = Transaction(userId = "user-a", amountMinor = 2500, category = "Food", note = "Lunch")
-        assertTrue(UpdateTransactionUseCase(repository)(original.copy(category = " Savings ", note = "  ")).isSuccess)
+        val original = Transaction(userId = "user-a", amountMinor = 2500, category = "Food", note = "Lunch", accountId = "savings")
+        assertTrue(UpdateTransactionUseCase(repository, accounts)(original.copy(category = " Savings ", note = "  ")).isSuccess)
         assertEquals(original.copy(category = "Savings", note = ""), repository.saved)
     }
 
     @Test
     fun blankTagKeepsTheExistingGeneralDefault() = runBlocking {
         val repository = RecordingRepository()
-        assertTrue(AddTransactionUseCase(repository)(Transaction(amountMinor = 100, category = "  ")).isSuccess)
+        assertTrue(AddTransactionUseCase(repository, accounts)(Transaction(amountMinor = 100, category = "  ", accountId = "savings")).isSuccess)
         assertEquals("General", repository.saved!!.category)
     }
 
     @Test
     fun addAndEditRejectOversizedTagsAndDescriptionsBeforeWriting() = runBlocking {
         val repository = RecordingRepository()
-        val add = AddTransactionUseCase(repository)
-        val edit = UpdateTransactionUseCase(repository)
+        val add = AddTransactionUseCase(repository, accounts)
+        val edit = UpdateTransactionUseCase(repository, accounts)
         val longTag = Transaction(amountMinor = 100, category = "t".repeat(101))
         val longDescription = Transaction(amountMinor = 100, note = "d".repeat(2001))
         assertTrue(add(longTag).isFailure)
