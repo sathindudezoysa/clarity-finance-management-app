@@ -12,7 +12,6 @@ import com.example.clarity.data.remote.FirestoreDataSource
 import com.example.clarity.data.sync.AccountUploader
 import com.example.clarity.domain.model.Transaction
 import com.example.clarity.domain.repository.AuthRepository
-import com.example.clarity.domain.repository.AccountRepository
 import com.example.clarity.domain.repository.TransactionRepository
 import com.example.clarity.domain.util.Resource
 import com.google.firebase.firestore.MetadataChanges
@@ -43,7 +42,6 @@ class TransactionRepositoryImpl @Inject internal constructor(
     private val firestore: FirestoreDataSource,
     private val authRepository: AuthRepository,
     private val ioDispatcher: CoroutineDispatcher,
-    private val accountRepository: AccountRepository,
     private val accountUploader: AccountUploader
 ) : TransactionRepository {
     private val mutationMutex = Mutex()
@@ -188,7 +186,6 @@ class TransactionRepositoryImpl @Inject internal constructor(
 
     override suspend fun addTransaction(t: Transaction): Result<Unit> = localWrite { uid ->
         require(t.amountMinor > 0) { "Amount must be greater than zero" }
-        validateAccount(t.accountId, uid)
         require(dao.getById(t.id) == null) { "Transaction already exists" }
         val now = System.currentTimeMillis()
         val entity = t.copy(userId = uid, createdAt = now, updatedAt = now).toEntity()
@@ -202,7 +199,6 @@ class TransactionRepositoryImpl @Inject internal constructor(
         require(existing != null && existing.userId == uid && !existing.isDeleted) { "Transaction not found" }
         require(t.userId == existing.userId) { "Cannot change transaction owner" }
         require(t.amountMinor > 0) { "Amount must be greater than zero" }
-        validateAccount(t.accountId, uid)
         require(existing.updatedAt < Long.MAX_VALUE) { "Transaction timestamp is out of range" }
         val entity = t.copy(
             userId = uid, createdAt = existing.createdAt,
@@ -218,10 +214,6 @@ class TransactionRepositoryImpl @Inject internal constructor(
         val deleted = existing.copy(isDeleted = true, pendingSync = true)
         dao.upsert(deleted)
         enqueueRemote(deleted)
-    }
-
-    private suspend fun validateAccount(accountId: String?, uid: String) {
-        accountRepository.requireOwnedTransactionAccount(accountId, uid)
     }
 
     private suspend fun localWrite(block: suspend (String) -> Unit): Result<Unit> = withContext(ioDispatcher) {
@@ -329,9 +321,4 @@ class TransactionRepositoryImpl @Inject internal constructor(
         const val TAG = "TransactionRepository"
         const val RETRY_INTERVAL_MILLIS = 30_000L
     }
-}
-
-internal suspend fun AccountRepository.requireOwnedTransactionAccount(accountId: String?, uid: String) {
-    require(!accountId.isNullOrBlank()) { "Select a bank account" }
-    require(getAccount(accountId).getOrThrow()?.userId == uid) { "Bank account not found" }
 }

@@ -58,8 +58,8 @@ class TransactionAccountViewModelTest {
     }
 
     private fun editor(handle: SavedStateHandle = SavedStateHandle()) = model(TransactionEditViewModel::class.java) {
-        TransactionEditViewModel(handle, GetTransactionUseCase(transactions), AddTransactionUseCase(transactions),
-            UpdateTransactionUseCase(transactions), GetTransactionTagsUseCase(object : TransactionTagRepository {
+        TransactionEditViewModel(handle, GetTransactionUseCase(transactions), AddTransactionUseCase(transactions, accounts),
+            UpdateTransactionUseCase(transactions, accounts), GetTransactionTagsUseCase(object : TransactionTagRepository {
                 override fun observeTags() = flowOf(emptyList<String>())
             }), getAccounts)
     }
@@ -96,6 +96,45 @@ class TransactionAccountViewModelTest {
         withTimeout(10_000) { detail.uiState.first { it.accountName == "Travel" } }
         withTimeout(10_000) { list.uiState.first { it.accountNames[saved.accountId] == "Travel" } }
         assertEquals("savings", reopened.uiState.value.selectedAccountId)
+    }
+
+    @Test
+    fun accountNamesSurviveReloadsWithoutDataAndRefreshWhenAccountDataIsAvailable() = runBlocking {
+        val transaction = Transaction(id = "transaction", amountMinor = 1250, accountId = "daily")
+        transactions.rows.value = mapOf(transaction.id to transaction)
+        val detail = model(TransactionDetailViewModel::class.java) {
+            TransactionDetailViewModel(SavedStateHandle(mapOf("id" to transaction.id)), GetTransactionUseCase(transactions),
+                DeleteTransactionUseCase(transactions), getAccounts)
+        }
+        val list = model(TransactionListViewModel::class.java) {
+            TransactionListViewModel(GetTransactionsUseCase(transactions), getAccounts)
+        }
+        withTimeout(10_000) { detail.uiState.first { it.accountName == "Daily" } }
+        withTimeout(10_000) { list.uiState.first { it.accountNames["daily"] == "Daily" } }
+        val originalNames = list.uiState.value.accountNames
+
+        suspend fun emitAccounts(result: Resource<List<Account>>, marker: String) {
+            instrumentation.runOnMainSync { accounts.status.value = result }
+            instrumentation.waitForIdleSync()
+            transactions.rows.value = mapOf(transaction.id to transaction.copy(note = marker))
+            // Wait for both combined streams to process the new account status.
+            withTimeout(10_000) { detail.uiState.first { it.transaction?.note == marker } }
+            withTimeout(10_000) { list.uiState.first { it.transactions.singleOrNull()?.note == marker } }
+        }
+
+        emitAccounts(Resource.Loading(), "loading")
+        assertEquals("Daily", detail.uiState.value.accountName)
+        assertEquals(originalNames, list.uiState.value.accountNames)
+        emitAccounts(Resource.Error("Reload failed"), "no-data-error")
+        assertEquals("Daily", detail.uiState.value.accountName)
+        assertEquals(originalNames, list.uiState.value.accountNames)
+        val renamed = accounts.values.value.first { it.id == "daily" }.copy(name = "Renamed")
+        emitAccounts(Resource.Error("Offline", listOf(renamed)), "cached-error")
+        assertEquals("Renamed", detail.uiState.value.accountName)
+        assertEquals(mapOf("daily" to "Renamed"), list.uiState.value.accountNames)
+        emitAccounts(Resource.Success(emptyList()), "removed")
+        assertNull(detail.uiState.value.accountName)
+        assertTrue(list.uiState.value.accountNames.isEmpty())
     }
 
     @Test
@@ -222,11 +261,14 @@ class TransactionAccountViewModelTest {
     }
 
     private class MemoryAccounts : AccountRepository {
+        val status = MutableStateFlow<Resource<List<Account>>?>(null)
         val values = MutableStateFlow(listOf(
             Account(id = "daily", name = "Daily", bankName = "Bank", isDefault = true),
             Account(id = "savings", name = "Savings", bankName = "Bank")
         ))
-        override fun observeAccounts() = values.map { Resource.Success(it) }
+        override fun observeAccounts(): Flow<Resource<List<Account>>> = combine(values, status) { accounts, result ->
+            result ?: Resource.Success(accounts)
+        }
         override suspend fun getAccount(id: String) = Result.success(values.value.firstOrNull { it.id == id })
         override suspend fun getDefaultAccount() = Result.success(values.value.firstOrNull { it.isDefault })
         override suspend fun createAccount(account: Account): Result<Unit> = error("Unused")

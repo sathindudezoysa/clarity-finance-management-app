@@ -10,14 +10,13 @@ import com.example.clarity.data.mapper.toAccount
 import com.example.clarity.data.remote.AccountRemoteDataSource
 import com.example.clarity.data.remote.AccountSnapshot
 import com.example.clarity.data.repository.AccountRepositoryImpl
-import com.example.clarity.data.repository.requireOwnedTransactionAccount
 import com.example.clarity.data.sync.AccountUploader
-import com.example.clarity.domain.repository.AccountRepository
 import com.example.clarity.domain.model.Account
 import com.example.clarity.domain.model.User
 import com.example.clarity.domain.repository.AuthRepository
 import com.example.clarity.domain.util.Resource
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
@@ -67,65 +66,7 @@ class AccountRepositoryTest {
     }
 
     @Test
-    fun transactionOwnershipIsCheckedThroughTheAccountRepository() = runBlocking {
-        repository.createAccount(account("daily")).getOrThrow()
-        val lookups = mutableListOf<String>()
-        val accounts = object : AccountRepository by repository {
-            override suspend fun getAccount(id: String): Result<Account?> {
-                lookups.add(id)
-                return repository.getAccount(id)
-            }
-        }
-        accounts.requireOwnedTransactionAccount("daily", "user-a")
-        assertEquals(listOf("daily"), lookups)
-        for ((id, uid) in listOf("missing" to "user-a", "daily" to "user-b")) {
-            try {
-                accounts.requireOwnedTransactionAccount(id, uid)
-                fail("Missing or foreign accounts must be rejected")
-            } catch (error: IllegalArgumentException) {
-                assertEquals("Bank account not found", error.message)
-            }
-        }
-        auth.currentUser.value = User("user-b", null, null)
-        try {
-            accounts.requireOwnedTransactionAccount("daily", "user-b")
-            fail("Another user's account must remain inaccessible")
-        } catch (error: IllegalArgumentException) {
-            assertEquals("Bank account not found", error.message)
-        }
-        assertEquals(listOf("daily", "missing", "daily", "daily"), lookups)
-    }
-
-    @Test
-    fun transactionAccountValidationPropagatesRepositoryFailuresAndRejectsEmptySelections() = runBlocking {
-        val unavailable = IllegalStateException("Please sign in")
-        var lookups = 0
-        val accounts = object : AccountRepository by repository {
-            override suspend fun getAccount(id: String): Result<Account?> {
-                lookups++
-                return Result.failure(unavailable)
-            }
-        }
-        for (id in listOf(null, "", " ")) {
-            try {
-                accounts.requireOwnedTransactionAccount(id, "user-a")
-                fail("An account selection is required")
-            } catch (error: IllegalArgumentException) {
-                assertEquals("Select a bank account", error.message)
-            }
-        }
-        assertEquals(0, lookups)
-        try {
-            accounts.requireOwnedTransactionAccount("daily", "user-a")
-            fail("A failed lookup must not allow saving")
-        } catch (error: IllegalStateException) {
-            assertSame(unavailable, error)
-        }
-        assertEquals(1, lookups)
-    }
-
-    @Test
-    fun remoteSnapshotsConflateWhileReconciliationIsBlockedAndTheLatestWins() = runBlocking {
+    fun remoteDataSourceConflatesSnapshotsWhileReconciliationIsBlockedAndTheLatestWins() = runBlocking {
         repository.createAccount(account("daily")).getOrThrow()
         val original = saved("daily")
         val gate = CompletableDeferred<Unit>()
@@ -472,7 +413,7 @@ class AccountRepositoryTest {
         var onCommitted: () -> Unit = {}
         var onStarted: () -> Unit = {}
         val snapshots = MutableSharedFlow<AccountSnapshot>()
-        override fun observeAccounts(userId: String): Flow<AccountSnapshot> = snapshots
+        override fun observeAccounts(userId: String): Flow<AccountSnapshot> = snapshots.buffer(Channel.CONFLATED)
         override suspend fun writeAccounts(userId: String, accounts: List<Account>) {
             assertTrue(accounts.all { it.userId == userId })
             batches.add(accounts)

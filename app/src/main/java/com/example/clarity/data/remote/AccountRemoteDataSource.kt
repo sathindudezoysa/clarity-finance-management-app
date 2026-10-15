@@ -9,8 +9,10 @@ import com.example.clarity.domain.model.Account
 import com.google.firebase.firestore.MetadataChanges
 import com.google.firebase.firestore.Source
 import kotlinx.coroutines.channels.awaitClose
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
+import kotlinx.coroutines.flow.buffer
 import kotlinx.coroutines.tasks.await
 import javax.inject.Inject
 
@@ -47,7 +49,7 @@ class FirestoreAccountDataSource @Inject constructor(
                 }
             }
         awaitClose { registration.remove() }
-    }
+    }.buffer(Channel.CONFLATED)
 
     override suspend fun writeAccounts(userId: String, accounts: List<Account>) {
         if (accounts.isEmpty()) return

@@ -79,7 +79,7 @@ class AccountRepositoryImpl internal constructor(
                         }
                     }
                     launch {
-                        remote.observeAccounts(user.uid).conflate().map { snapshot ->
+                        remote.observeAccounts(user.uid).map { snapshot ->
                             mutationMutex.withLock {
                                 reconcileRemote(user.uid, snapshot.accounts.map { it.toEntity() }, snapshot.authoritative, snapshot.remoteIds)
                             }

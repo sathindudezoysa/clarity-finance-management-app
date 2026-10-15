@@ -25,8 +25,8 @@ class TransactionListViewModel @Inject constructor(
     init {
         viewModelScope.launch {
             combine(getTransactions(), getAccounts()) { transactions, accounts -> transactions to accounts }.collect { (result, accounts) ->
-                val accountNames = accounts.data.orEmpty().associate { it.id to it.name }
                 _uiState.update {
+                    val accountNames = accounts.data?.associate { account -> account.id to account.name } ?: it.accountNames
                     when (result) {
                         is Resource.Loading -> it.copy(isLoading = true, accountNames = accountNames)
                         is Resource.Success -> it.copy(isLoading = false, transactions = result.data.orEmpty(), error = null,

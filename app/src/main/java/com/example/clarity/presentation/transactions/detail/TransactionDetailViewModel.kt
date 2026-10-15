@@ -30,8 +30,9 @@ class TransactionDetailViewModel @Inject constructor(
     init {
         viewModelScope.launch {
             combine(getTransaction(id), getAccounts()) { transaction, accounts -> transaction to accounts }.collect { (result, accounts) ->
-                val accountName = accounts.data.orEmpty().firstOrNull { it.id == result.data?.accountId }?.name
                 _uiState.update {
+                    val accountName = if (accounts.data == null) it.accountName
+                        else accounts.data.firstOrNull { account -> account.id == result.data?.accountId }?.name
                     when (result) {
                         is Resource.Loading -> it.copy(isLoading = true, accountName = accountName)
                         is Resource.Success -> it.copy(isLoading = false, transaction = result.data, error = null, accountName = accountName)
