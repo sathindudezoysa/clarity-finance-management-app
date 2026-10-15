@@ -6,6 +6,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.example.clarity.data.local.ClarityDatabase
 import com.example.clarity.data.local.TransactionAccountMigration
+import com.example.clarity.data.local.TransactionAccountIndexMigration
 import com.example.clarity.data.local.entity.TransactionEntity
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
@@ -79,5 +80,5 @@ class TransactionAccountMigrationTest {
     }
 
     private fun open() = Room.databaseBuilder(context, ClarityDatabase::class.java, databaseName)
-        .addMigrations(TransactionAccountMigration).build().also { database = it }
+        .addMigrations(TransactionAccountMigration, TransactionAccountIndexMigration).build().also { database = it }
 }

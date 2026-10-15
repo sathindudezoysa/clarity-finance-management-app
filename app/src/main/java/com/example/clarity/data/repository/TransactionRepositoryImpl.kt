@@ -40,7 +40,8 @@ class TransactionRepositoryImpl @Inject constructor(
     private val firestore: FirestoreDataSource,
     private val authRepository: AuthRepository,
     private val ioDispatcher: CoroutineDispatcher,
-    private val accountDao: AccountDao
+    private val accountDao: AccountDao,
+    private val accountRepository: AccountRepositoryImpl
 ) : TransactionRepository {
     private val mutationMutex = Mutex()
     private val syncScope = CoroutineScope(SupervisorJob() + ioDispatcher)
@@ -244,31 +245,48 @@ class TransactionRepositoryImpl @Inject constructor(
         acknowledged.remove(key)
         val attempt = WriteAttempt(entity)
         inFlight[key] = attempt
-        try {
-            val document = firestore.getCollection("users/" + entity.userId + "/transactions").document(entity.id)
-            // Room is the offline queue. Server transactions fail offline and are retried above;
-            // their read/compare/write prevents timestamp-older edits from blindly overwriting.
-            // Neither transaction tasks nor delete tasks are awaited by the local write path.
-            val task = if (entity.isDeleted) document.delete() else document.firestore.runTransaction { transaction ->
-                val snapshot = transaction.get(document)
-                val remote = snapshot.toDomain()
-                require(!snapshot.exists() || (remote != null && remote.userId == entity.userId)) {
-                    "Remote transaction is malformed or belongs to another user"
+        // Await account acknowledgement outside mutationMutex so local saves stay responsive.
+        syncScope.launch {
+            try {
+                val uploaded = accountRepository.uploadPending(entity.userId) {
+                    mutationMutex.withLock {
+                        if (activeUid != entity.userId) {
+                            finishWrite(key, attempt, IllegalStateException("User changed before upload"))
+                        } else {
+                            startRemoteWrite(key, attempt)
+                        }
+                    }
                 }
-                if (remote == null || remote.updatedAt < entity.updatedAt) {
-                    transaction.set(document, entity.toDomain().toFirestoreMap())
-                }
-                Unit
-            }
-            task.addOnSuccessListener { finishWrite(key, attempt, null) }
-            task.addOnFailureListener { error ->
-                Log.w(TAG, "Remote transaction write failed; local change retained for retry", error)
+                if (!uploaded) finishWrite(key, attempt, IllegalStateException("Accounts remain pending"))
+            } catch (error: Exception) {
+                if (error is CancellationException) throw error
+                Log.w(TAG, "Could not queue transaction write; local change retained for retry", error)
                 finishWrite(key, attempt, error)
             }
-        } catch (error: Exception) {
-            inFlight.remove(key)
-            Log.w(TAG, "Could not queue transaction write; local change retained for retry", error)
-            syncState.value = SyncState(entity.userId, "Unable to sync transactions")
+        }
+    }
+
+    private fun startRemoteWrite(key: WriteKey, attempt: WriteAttempt) {
+        val entity = attempt.entity
+        val document = firestore.getCollection("users/" + entity.userId + "/transactions").document(entity.id)
+        // Room is the offline queue. Server transactions fail offline and are retried above;
+        // their read/compare/write prevents timestamp-older edits from blindly overwriting.
+        // Neither transaction tasks nor delete tasks are awaited by the local write path.
+        val task = if (entity.isDeleted) document.delete() else document.firestore.runTransaction { transaction ->
+            val snapshot = transaction.get(document)
+            val remote = snapshot.toDomain()
+            require(!snapshot.exists() || (remote != null && remote.userId == entity.userId)) {
+                "Remote transaction is malformed or belongs to another user"
+            }
+            if (remote == null || remote.updatedAt < entity.updatedAt) {
+                transaction.set(document, entity.toDomain().toFirestoreMap())
+            }
+            Unit
+        }
+        task.addOnSuccessListener { finishWrite(key, attempt, null) }
+        task.addOnFailureListener { error ->
+            Log.w(TAG, "Remote transaction write failed; local change retained for retry", error)
+            finishWrite(key, attempt, error)
         }
     }
 

@@ -25,9 +25,11 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import javax.inject.Inject
+import javax.inject.Singleton
 
 /** Room supplies accounts and a durable outbox; batches serialize all default changes per user. */
 @OptIn(ExperimentalCoroutinesApi::class)
+@Singleton
 class AccountRepositoryImpl @Inject constructor(
     private val dao: AccountDao,
     private val remote: AccountRemoteDataSource,
@@ -77,28 +79,32 @@ class AccountRepositoryImpl @Inject constructor(
         }
     }
 
-    private suspend fun uploadPending(uid: String) {
+    internal suspend fun uploadPending(uid: String, afterAccounts: suspend () -> Unit = {}): Boolean {
         val uploadMutex = mutationMutex.withLock { uploadMutexes.getOrPut(uid) { Mutex() } }
         // The upload outlives cancellation of the auth listener. Re-signing in cannot
         // send a newer batch while an older Firestore task for this user is unresolved.
-        syncScope.async {
+        val uploaded = syncScope.async {
             uploadMutex.withLock {
                 try {
-                    if (authRepository.currentUser.first()?.uid != uid) return@withLock
+                    if (authRepository.currentUser.first()?.uid != uid) return@withLock false
                     val pending = mutationMutex.withLock { dao.getAllForUser(uid).filter { it.pendingSync } }
                     if (pending.isNotEmpty()) {
                         remote.writeAccounts(uid, pending.map { it.toDomain() })
                         mutationMutex.withLock { dao.acknowledgeBatch(pending) }
                         if (users.replayCache.firstOrNull()?.uid == uid) syncState.value = SyncState(uid)
                     }
+                    true
                 } catch (error: Exception) {
                     if (error is CancellationException) throw error
                     if (users.replayCache.firstOrNull()?.uid == uid) {
                         syncState.value = SyncState(uid, "Unable to sync accounts")
                     }
+                    false
                 }
             }
         }.await()
+        if (uploaded) afterAccounts()
+        return uploaded
     }
 
     override fun observeAccounts(): Flow<Resource<List<Account>>> = users.flatMapLatest { user ->

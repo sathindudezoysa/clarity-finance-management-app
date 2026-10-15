@@ -1,5 +1,6 @@
 package com.example.clarity.data.local.dao
 
+import android.util.Log
 import androidx.room.Dao
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
@@ -27,6 +28,14 @@ abstract class AccountDao {
 
     @Query("DELETE FROM accounts WHERE id = :id AND userId = :userId")
     abstract suspend fun deleteById(id: String, userId: String)
+
+    // Include pending deletes and every owner: any stored reference must remain valid.
+    @Query("SELECT EXISTS(SELECT 1 FROM transactions WHERE accountId = :accountId)")
+    abstract suspend fun hasTransactionReferences(accountId: String): Boolean
+
+    protected open fun warnRetainedAccount(id: String) {
+        Log.w("AccountDao", "Keeping account $id missing remotely because local transactions reference it")
+    }
 
     // Validation, first-account selection and both sides of a switch share one commit.
     @Transaction
@@ -88,8 +97,12 @@ abstract class AccountDao {
         if (authoritative) {
             val remoteIds = remote.map { it.id }.toSet()
             local.filter { !it.pendingSync && it.id !in remoteIds }.forEach {
-                merged.remove(it.id)
-                deleteById(it.id, userId)
+                if (hasTransactionReferences(it.id)) {
+                    warnRetainedAccount(it.id)
+                } else {
+                    merged.remove(it.id)
+                    deleteById(it.id, userId)
+                }
             }
         }
         if (merged.isEmpty()) return

@@ -2,6 +2,7 @@ package com.example.clarity
 
 import com.example.clarity.data.local.dao.AccountDao
 import com.example.clarity.data.local.entity.AccountEntity
+import com.example.clarity.data.local.entity.TransactionEntity
 import com.example.clarity.data.mapper.toDomain
 import com.example.clarity.data.mapper.toEntity
 import com.example.clarity.data.mapper.toFirestoreMap
@@ -14,6 +15,7 @@ import com.example.clarity.domain.model.User
 import com.example.clarity.domain.repository.AuthRepository
 import com.example.clarity.domain.util.Resource
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -155,6 +157,75 @@ class AccountRepositoryTest {
     }
 
     @Test
+    fun offlineAccountMustBeAcknowledgedBeforeTransactionUpload() = runBlocking {
+        remote.fail = true
+        repository.createAccount(account("daily")).getOrThrow()
+        val pending = dao.getById("daily")!!
+        assertTrue(pending.pendingSync)
+        val events = mutableListOf<String>()
+        remote.onCommitted = { events.add("account") }
+        val gate = CompletableDeferred<Unit>()
+        remote.fail = false
+        remote.gate = gate
+        val sync = async(start = CoroutineStart.UNDISPATCHED) {
+            repository.uploadPending("user-a") {
+                assertFalse(dao.getById("daily")!!.pendingSync)
+                events.add("transaction")
+            }
+        }
+        assertFalse(sync.isCompleted)
+        assertTrue(events.isEmpty())
+        assertTrue(dao.getById("daily")!!.pendingSync)
+        gate.complete(Unit)
+        assertTrue(sync.await())
+        assertEquals(listOf("account", "transaction"), events)
+    }
+
+    @Test
+    fun failedAccountUploadDefersTransactionsUntilNextSync() = runBlocking {
+        remote.fail = true
+        repository.createAccount(account("daily")).getOrThrow()
+        var transactionWrites = 0
+        assertFalse(repository.uploadPending("user-a") { transactionWrites++ })
+        assertEquals(0, transactionWrites)
+        assertTrue(dao.getById("daily")!!.pendingSync)
+        remote.fail = false
+        assertTrue(repository.uploadPending("user-a") { transactionWrites++ })
+        assertEquals(1, transactionWrites)
+        assertFalse(dao.getById("daily")!!.pendingSync)
+    }
+
+    @Test
+    fun reconciliationKeepsReferencedAccountsAndDeletesUnreferencedAccounts() = runBlocking {
+        repository.createAccount(account("daily")).getOrThrow()
+        repository.createAccount(account("linked")).getOrThrow()
+        repository.createAccount(account("unused")).getOrThrow()
+        val linked = dao.getById("linked")!!
+        dao.transactions.add(TransactionEntity("tx", "user-a", "EXPENSE", 100, "Food", "", 1, 1, 1,
+            accountId = "linked"))
+
+        dao.reconcileRemote("user-a", listOf(dao.getById("daily")!!), authoritative = true)
+
+        assertEquals(linked, dao.getById("linked"))
+        assertNull(dao.getById("unused"))
+        assertEquals(listOf("linked"), dao.retainedWarnings)
+    }
+
+    @Test
+    fun reconciliationAlsoProtectsAccountsReferencedByPendingTombstones() = runBlocking {
+        repository.createAccount(account("daily")).getOrThrow()
+        repository.createAccount(account("linked")).getOrThrow()
+        dao.transactions.add(TransactionEntity("tx", "user-a", "EXPENSE", 100, "Food", "", 1, 1, 1,
+            pendingSync = true, isDeleted = true, accountId = "linked"))
+        val remoteAccounts = listOf(dao.getById("daily")!!)
+        dao.reconcileRemote("user-a", remoteAccounts, authoritative = true)
+        assertNotNull(dao.getById("linked"))
+        dao.transactions.clear()
+        dao.reconcileRemote("user-a", remoteAccounts, authoritative = true)
+        assertNull(dao.getById("linked"))
+    }
+
+    @Test
     fun signingOutAndBackInCannotLetAnOlderBatchOvertakeTheNewDefault() = runBlocking {
         repository.createAccount(account("a")).getOrThrow()
         repository.createAccount(account("b")).getOrThrow()
@@ -210,6 +281,10 @@ class AccountRepositoryTest {
     private class MemoryDao : AccountDao() {
         private val rows = MutableStateFlow<Map<String, AccountEntity>>(emptyMap())
         val defaultCounts = mutableListOf<Int>()
+        val transactions = mutableListOf<TransactionEntity>()
+        val retainedWarnings = mutableListOf<String>()
+        override suspend fun hasTransactionReferences(accountId: String) = transactions.any { it.accountId == accountId }
+        override fun warnRetainedAccount(id: String) { retainedWarnings.add(id) }
         override fun observeAll(userId: String) = rows.map { it.values.filter { row -> row.userId == userId } }.distinctUntilChanged()
         override suspend fun getAllForUser(userId: String) = rows.value.values.filter { it.userId == userId }
         override suspend fun getById(id: String) = rows.value[id]
@@ -231,12 +306,14 @@ class AccountRepositoryTest {
         val batches = mutableListOf<List<Account>>()
         var gate: CompletableDeferred<Unit>? = null
         var fail = false
+        var onCommitted: () -> Unit = {}
         override fun observeAccounts(userId: String): Flow<AccountSnapshot> = emptyFlow()
         override suspend fun writeAccounts(userId: String, accounts: List<Account>) {
             assertTrue(accounts.all { it.userId == userId })
             batches.add(accounts)
             gate?.await()
             check(!fail) { "Offline" }
+            onCommitted()
         }
     }
 
