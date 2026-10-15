@@ -62,6 +62,7 @@ class FirestoreAccountDataSource @Inject constructor(
             val selection = firestore.getCollection("users/$userId/account_settings").document("default")
             // Room is the offline queue. Read the current pointer before building the batch;
             // getAfter rules reject a concurrent stale switch, which the outbox retries.
+            // A failed server read defers upload only; cached pointers cannot safely select the old default.
             val previousId = selection.get(Source.SERVER).await().data?.get("accountId") as? String
             if (previousId != null && previousId != selected.id && accounts.none { it.id == previousId }) {
                 val previous = collection.document(previousId).get(Source.SERVER).await()

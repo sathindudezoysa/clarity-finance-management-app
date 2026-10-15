@@ -6,6 +6,7 @@ import com.example.clarity.R
 import com.example.clarity.domain.usecase.transaction.GetTransactionsUseCase
 import com.example.clarity.domain.usecase.account.GetAccountsUseCase
 import com.example.clarity.domain.util.Resource
+import com.example.clarity.domain.util.isSignInRequired
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -33,7 +34,7 @@ class TransactionListViewModel @Inject constructor(
                             accountNames = accountNames)
                         is Resource.Error -> it.copy(
                             isLoading = false, transactions = result.data.orEmpty(),
-                            error = if (result.message == "Please sign in") R.string.transactions_sign_in
+                            error = if (result.cause.isSignInRequired()) R.string.transactions_sign_in
                             else R.string.transactions_load_error, accountNames = accountNames
                         )
                     }

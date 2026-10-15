@@ -48,7 +48,9 @@ fun TransactionDetailScreen(
             if (state.isLoading) CircularProgressIndicator()
             else {
                 val transaction = state.transaction
-                if (transaction == null) Text(stringResource(R.string.transactions_not_found))
+                if (transaction == null) {
+                    if (state.error == null) Text(stringResource(R.string.transactions_not_found))
+                }
                 else {
                     Field(R.string.transactions_type, stringResource(
                         if (transaction.type == TransactionType.INCOME) R.string.transactions_income else R.string.transactions_expense

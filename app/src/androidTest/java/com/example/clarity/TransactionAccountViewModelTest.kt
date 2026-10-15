@@ -12,7 +12,11 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.core.app.ActivityScenario
 import androidx.test.platform.app.InstrumentationRegistry
 import com.example.clarity.domain.model.Account
+import com.example.clarity.domain.model.AccountError
+import com.example.clarity.domain.model.AccountException
 import com.example.clarity.domain.model.Transaction
+import com.example.clarity.domain.model.TransactionError
+import com.example.clarity.domain.model.TransactionException
 import com.example.clarity.domain.model.TransactionType
 import com.example.clarity.domain.repository.AccountRepository
 import com.example.clarity.domain.repository.TransactionRepository
@@ -21,11 +25,13 @@ import com.example.clarity.domain.usecase.account.GetAccountsUseCase
 import com.example.clarity.domain.usecase.transaction.*
 import com.example.clarity.domain.util.Resource
 import com.example.clarity.presentation.transactions.detail.TransactionDetailViewModel
+import com.example.clarity.presentation.transactions.detail.TransactionDetailScreen
 import com.example.clarity.presentation.transactions.edit.TransactionEditViewModel
 import com.example.clarity.presentation.transactions.edit.TransactionEditScreen
 import com.example.clarity.presentation.transactions.list.TransactionListViewModel
 import com.example.clarity.presentation.theme.ClarityTheme
 import kotlinx.coroutines.flow.*
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import org.junit.After
@@ -70,6 +76,105 @@ class TransactionAccountViewModelTest {
 
     private fun save(editor: TransactionEditViewModel) = instrumentation.runOnMainSync {
         editor.save(TransactionType.EXPENSE, "12.50", "Food", "Lunch", 100)
+    }
+
+    @Test
+    fun invalidDetailIdsExposeAnErrorWithoutStartingQueriesOrDeleting() {
+        for (invalid in listOf(null, "", " \t ", 42, true, listOf("id"), "a/b", "a".repeat(129))) {
+            val detail = model(TransactionDetailViewModel::class.java) {
+                TransactionDetailViewModel(SavedStateHandle(mapOf("id" to invalid)), GetTransactionUseCase(transactions),
+                    DeleteTransactionUseCase(transactions), getAccounts)
+            }
+            assertFalse(detail.uiState.value.isLoading)
+            assertEquals(R.string.transactions_not_found, detail.uiState.value.error)
+            instrumentation.runOnMainSync { detail.showDeleteDialog(); detail.confirmDelete() }
+            assertFalse(detail.uiState.value.isDeleteDialogVisible)
+            assertFalse(detail.uiState.value.isDeleting)
+        }
+        assertTrue(transactions.observedIds.isEmpty())
+        assertEquals(0, accounts.observations)
+        assertTrue(transactions.deletedIds.isEmpty())
+    }
+
+    @Test
+    fun invalidDetailScreenKeepsTheBackActionAvailable() = runBlocking {
+        val detail = model(TransactionDetailViewModel::class.java) {
+            TransactionDetailViewModel(SavedStateHandle(), GetTransactionUseCase(transactions),
+                DeleteTransactionUseCase(transactions), getAccounts)
+        }
+        val back = CompletableDeferred<Unit>()
+        ActivityScenario.launch(ComponentActivity::class.java).use { scenario ->
+            scenario.onActivity { activity ->
+                activity.setContent {
+                    ClarityTheme { TransactionDetailScreen(onBack = { back.complete(Unit) }, onEdit = {}, viewModel = detail) }
+                }
+            }
+            val error = instrumentation.targetContext.getString(R.string.transactions_not_found)
+            awaitNode { it.text?.toString() == error }
+            val backLabel = instrumentation.targetContext.getString(R.string.transactions_back)
+            val button = awaitNode { it.isClickable && findNode(it) { child -> child.text?.toString() == backLabel } != null }
+            assertTrue(button.performAction(AccessibilityNodeInfo.ACTION_CLICK))
+            withTimeout(10_000) { back.await() }
+        }
+    }
+
+    @Test
+    fun validDetailStillLoadsAndDeletesTheRequestedTransaction() = runBlocking {
+        val transaction = Transaction(id = "valid-id", amountMinor = 1250)
+        transactions.rows.value = mapOf(transaction.id to transaction)
+        val detail = model(TransactionDetailViewModel::class.java) {
+            TransactionDetailViewModel(SavedStateHandle(mapOf("id" to transaction.id)), GetTransactionUseCase(transactions),
+                DeleteTransactionUseCase(transactions), getAccounts)
+        }
+        withTimeout(10_000) { detail.uiState.first { it.transaction == transaction && !it.isLoading } }
+        instrumentation.runOnMainSync { detail.showDeleteDialog() }
+        assertTrue(detail.uiState.value.isDeleteDialogVisible)
+        instrumentation.runOnMainSync { detail.confirmDelete() }
+        withTimeout(10_000) { detail.uiState.first { it.isDeleted } }
+        assertEquals(listOf(transaction.id), transactions.observedIds)
+        assertEquals(listOf(transaction.id), transactions.deletedIds)
+        assertTrue(transactions.rows.value.isEmpty())
+    }
+
+    @Test
+    fun typedAuthenticationFailuresPreserveCachedTransactionsAndUseLocalizedErrors() = runBlocking {
+        val transaction = Transaction(id = "transaction", amountMinor = 1250, accountId = "daily")
+        transactions.rows.value = mapOf(transaction.id to transaction)
+        val detail = model(TransactionDetailViewModel::class.java) {
+            TransactionDetailViewModel(SavedStateHandle(mapOf("id" to transaction.id)), GetTransactionUseCase(transactions),
+                DeleteTransactionUseCase(transactions), getAccounts)
+        }
+        val list = model(TransactionListViewModel::class.java) {
+            TransactionListViewModel(GetTransactionsUseCase(transactions), getAccounts)
+        }
+        val editor = editor(SavedStateHandle(mapOf("id" to transaction.id)))
+        ready(editor)
+        instrumentation.runOnMainSync {
+            transactions.failure.value = TransactionException(TransactionError.SIGN_IN_REQUIRED, "Token expired")
+            accounts.status.value = Resource.Error("Different diagnostic", accounts.values.value,
+                AccountException(AccountError.SIGN_IN_REQUIRED, "Account token expired"))
+        }
+        val detailState = withTimeout(10_000) { detail.uiState.first { it.error == R.string.transactions_sign_in } }
+        val listState = withTimeout(10_000) { list.uiState.first { it.error == R.string.transactions_sign_in } }
+        val editState = withTimeout(10_000) { editor.uiState.first {
+            it.error == R.string.transactions_sign_in && it.accountsError == R.string.transactions_sign_in
+        } }
+        assertEquals(transaction, detailState.transaction)
+        assertEquals(listOf(transaction), listState.transactions)
+        assertEquals(transaction, editState.transaction)
+        assertEquals(accounts.values.value, editState.accounts)
+        assertFalse(detailState.isLoading)
+
+        instrumentation.runOnMainSync {
+            transactions.diagnosticMessage = "Please sign in"
+            transactions.failure.value = IllegalStateException("Please sign in")
+            accounts.status.value = Resource.Error("Please sign in", accounts.values.value)
+        }
+        withTimeout(10_000) { detail.uiState.first { it.error == R.string.transactions_load_error } }
+        withTimeout(10_000) { list.uiState.first { it.error == R.string.transactions_load_error } }
+        withTimeout(10_000) { editor.uiState.first {
+            it.error == R.string.transactions_load_error && it.accountsError == R.string.transactions_accounts_load_error
+        } }
     }
 
     @Test
@@ -247,27 +352,42 @@ class TransactionAccountViewModelTest {
 
     private class MemoryTransactions : TransactionRepository {
         val rows = MutableStateFlow<Map<String, Transaction>>(emptyMap())
-        override fun observeTransactions() = rows.map { Resource.Success(it.values.toList()) }
-        override fun observeTransaction(id: String) = rows.map { Resource.Success(it[id]) }
+        val failure = MutableStateFlow<Throwable?>(null)
+        var diagnosticMessage = "Diagnostic text may change"
+        val observedIds = mutableListOf<String>()
+        val deletedIds = mutableListOf<String>()
+        override fun observeTransactions(): Flow<Resource<List<Transaction>>> = combine(rows, failure) { values, cause ->
+            if (cause == null) Resource.Success(values.values.toList())
+            else Resource.Error(diagnosticMessage, values.values.toList(), cause)
+        }
+        override fun observeTransaction(id: String): Flow<Resource<Transaction?>> {
+            observedIds.add(id)
+            return combine(rows, failure) { values, cause ->
+                if (cause == null) Resource.Success(values[id]) else Resource.Error(diagnosticMessage, values[id], cause)
+            }
+        }
         override suspend fun addTransaction(t: Transaction): Result<Unit> {
             rows.value = rows.value + (t.id to t)
             return Result.success(Unit)
         }
         override suspend fun updateTransaction(t: Transaction) = addTransaction(t)
         override suspend fun deleteTransaction(id: String): Result<Unit> {
+            deletedIds.add(id)
             rows.value = rows.value - id
             return Result.success(Unit)
         }
     }
 
     private class MemoryAccounts : AccountRepository {
+        var observations = 0
         val status = MutableStateFlow<Resource<List<Account>>?>(null)
         val values = MutableStateFlow(listOf(
             Account(id = "daily", name = "Daily", bankName = "Bank", isDefault = true),
             Account(id = "savings", name = "Savings", bankName = "Bank")
         ))
-        override fun observeAccounts(): Flow<Resource<List<Account>>> = combine(values, status) { accounts, result ->
-            result ?: Resource.Success(accounts)
+        override fun observeAccounts(): Flow<Resource<List<Account>>> {
+            observations++
+            return combine(values, status) { accounts, result -> result ?: Resource.Success(accounts) }
         }
         override suspend fun getAccount(id: String) = Result.success(values.value.firstOrNull { it.id == id })
         override suspend fun getDefaultAccount() = Result.success(values.value.firstOrNull { it.isDefault })

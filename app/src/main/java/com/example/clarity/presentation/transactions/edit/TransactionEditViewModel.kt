@@ -17,6 +17,7 @@ import com.example.clarity.domain.usecase.transaction.UpdateTransactionUseCase
 import com.example.clarity.domain.usecase.account.GetAccountsUseCase
 import com.example.clarity.domain.util.MoneyUtils
 import com.example.clarity.domain.util.Resource
+import com.example.clarity.domain.util.isSignInRequired
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -45,7 +46,7 @@ class TransactionEditViewModel @Inject constructor(
                 val accounts = if (result is Resource.Loading) _uiState.value.accounts else result.data.orEmpty()
                 _uiState.update { it.copy(accounts = accounts, isAccountsLoading = result is Resource.Loading,
                     accountsError = if (result is Resource.Error) {
-                        if (result.message == "Please sign in") R.string.transactions_sign_in
+                        if (result.cause.isSignInRequired()) R.string.transactions_sign_in
                         else R.string.transactions_accounts_load_error
                     } else null) }
                 initializeAccountSelection()
@@ -65,7 +66,7 @@ class TransactionEditViewModel @Inject constructor(
                         )
                         is Resource.Error -> it.copy(
                             isLoading = false, transaction = result.data,
-                            error = if (result.message == "Please sign in") R.string.transactions_sign_in
+                            error = if (result.cause.isSignInRequired()) R.string.transactions_sign_in
                             else R.string.transactions_load_error
                         )
                     }

@@ -205,7 +205,8 @@ class AccountRepositoryTest {
         auth.currentUser.value = null
         assertTrue(repository.createAccount(account("signed-out")).isFailure)
         assertTrue(repository.getDefaultAccount().isFailure)
-        assertTrue(repository.observeAccounts().first { it !is Resource.Loading } is Resource.Error)
+        val error = repository.observeAccounts().first { it !is Resource.Loading } as Resource.Error
+        assertEquals(AccountError.SIGN_IN_REQUIRED, (error.cause as AccountException).error)
     }
 
     @Test
@@ -242,6 +243,66 @@ class AccountRepositoryTest {
         assertEquals(setOf("a", "b"), remote.batches.last().map { it.id }.toSet())
         assertEquals(listOf("b"), remote.batches.last().filter { it.isDefault }.map { it.id })
         assertTrue(dao.getAllForUser("user-a").none { it.pendingSync })
+    }
+
+    @Test
+    fun offlineCreatesAndDefaultSwitchAreRetriedFromTheOutboxAfterRepositoryRestart() = runBlocking {
+        remote.fail = true
+        repository.createAccount(account("daily")).getOrThrow()
+        repository.createAccount(account("savings")).getOrThrow()
+        repository.setDefaultAccount("savings").getOrThrow()
+        val pending = dao.getAllForUser("user-a")
+        assertTrue(pending.all { it.pendingSync })
+        assertDefault("savings")
+        repository.stopSync().join()
+
+        val restarted = AccountRepositoryImpl(dao, remote, auth, Dispatchers.Unconfined,
+            runTransaction = { it() })
+        try {
+            assertEquals(pending, dao.getAllForUser("user-a"))
+            remote.batches.clear()
+            remote.fail = false
+            remote.snapshots.emit(AccountSnapshot(emptyList(), authoritative = false))
+            assertEquals(setOf("daily", "savings"), remote.batches.single().map { it.id }.toSet())
+            assertEquals(listOf("savings"), remote.batches.single().filter { it.isDefault }.map { it.id })
+            assertTrue(dao.getAllForUser("user-a").none { it.pendingSync })
+            assertEquals("savings", restarted.getDefaultAccount().getOrThrow()!!.id)
+        } finally {
+            restarted.stopSync().join()
+        }
+    }
+
+    @Test
+    fun uploadsAcrossDifferentUsersCannotAcknowledgeANewerDefaultSwitch() = runBlocking {
+        repository.createAccount(account("a")).getOrThrow()
+        repository.createAccount(account("b")).getOrThrow()
+        remote.batches.clear()
+        val oldUpload = CompletableDeferred<Unit>()
+        remote.gate = oldUpload
+        repository.setDefaultAccount("b").getOrThrow()
+        repository.setDefaultAccount("a").getOrThrow()
+        val newer = dao.getAllForUser("user-a")
+        auth.currentUser.value = User("user-b", null, null)
+        repository.createAccount(account("c")).getOrThrow()
+        val nextUpload = CompletableDeferred<Unit>()
+        val started = CompletableDeferred<Unit>()
+        remote.gate = nextUpload
+        remote.onStarted = { started.complete(Unit) }
+        oldUpload.complete(Unit)
+        withTimeout(2_000) { started.await() }
+        assertEquals(newer, dao.getAllForUser("user-a"))
+        assertTrue(newer.all { it.pendingSync })
+        assertEquals(setOf("user-b"), remote.batches.last().map { it.userId }.toSet())
+        remote.gate = null
+        nextUpload.complete(Unit)
+        assertTrue(uploader.uploadPending("user-b"))
+        assertTrue(dao.getAllForUser("user-b").none { it.pendingSync })
+        assertEquals(newer, dao.getAllForUser("user-a"))
+        auth.currentUser.value = User("user-a", null, null)
+        assertDefault("a")
+        assertTrue(dao.getAllForUser("user-a").none { it.pendingSync })
+        assertEquals(listOf("a"), remote.batches.last().filter { it.isDefault }.map { it.id })
+        assertTrue(remote.batches.all { it.map { account -> account.userId }.distinct().size == 1 })
     }
 
     @Test

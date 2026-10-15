@@ -15,6 +15,7 @@ import com.example.clarity.domain.repository.TransactionRepository
 import com.example.clarity.domain.usecase.transaction.AddTransactionUseCase
 import com.example.clarity.domain.usecase.transaction.UpdateTransactionUseCase
 import com.example.clarity.domain.util.Resource
+import com.example.clarity.domain.util.isSignInRequired
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.CancellationException
@@ -111,6 +112,24 @@ class TransactionAccountTest {
             assertSame(failure, save(update, repository, accounts, transaction).exceptionOrNull())
             assertNull(repository.saved)
         }
+    }
+
+    @Test
+    fun resourceErrorsRetainTypedCausesDiagnosticsAndCachedData() {
+        val cached = listOf(transaction)
+        val causes = listOf(AccountException(AccountError.SIGN_IN_REQUIRED, "Account auth detail"),
+            TransactionException(TransactionError.SIGN_IN_REQUIRED, "Transaction auth detail"))
+        for (cause in causes) {
+            val error = Resource.Error("Different diagnostic text", cached, cause)
+            assertTrue(error.cause.isSignInRequired())
+            assertSame(cached, error.data)
+            assertSame(cause, error.cause)
+            assertEquals("Different diagnostic text", error.message)
+        }
+        assertFalse(Resource.Error("Please sign in", cached).cause.isSignInRequired())
+        assertFalse(IllegalStateException("Please sign in").isSignInRequired())
+        assertFalse(AccountException(AccountError.NOT_FOUND).isSignInRequired())
+        assertFalse(TransactionException(TransactionError.ACCOUNT_NOT_FOUND).isSignInRequired())
     }
 
     @Test

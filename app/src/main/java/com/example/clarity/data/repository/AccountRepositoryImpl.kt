@@ -139,7 +139,8 @@ class AccountRepositoryImpl internal constructor(
     }
 
     override fun observeAccounts(): Flow<Resource<List<Account>>> = users.flatMapLatest { user ->
-        if (user == null) flowOf(Resource.Error("Please sign in"))
+        if (user == null) flowOf(Resource.Error("Please sign in",
+            cause = AccountException(AccountError.SIGN_IN_REQUIRED, "Please sign in")))
         else combine(dao.observeAll(user.uid), syncState.filter { it.uid == user.uid }) { local, status ->
             val accounts = local.map { it.toDomain() }
             if (status.warning == null) Resource.Success(accounts)
@@ -147,7 +148,7 @@ class AccountRepositoryImpl internal constructor(
         }.onStart { emit(Resource.Loading()) }
     }.onStart { emit(Resource.Loading()) }.catch { error ->
         if (error is CancellationException) throw error
-        emit(Resource.Error("Unable to load accounts"))
+        emit(Resource.Error("Unable to load accounts", cause = error))
     }.flowOn(ioDispatcher)
 
     override suspend fun createAccount(account: Account): Result<Unit> = localOperation { uid ->

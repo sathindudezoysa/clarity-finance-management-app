@@ -6,7 +6,8 @@ internal fun Any?.toFirestoreLong(): Long? {
     if (number is Double || number is Float) {
         val value = number.toDouble()
         // Avoid silently turning NaN, infinity or an out-of-range value into a valid timestamp.
-        if (!value.isFinite() || value < Long.MIN_VALUE.toDouble() || value >= -Long.MIN_VALUE.toDouble()) return null
+        // Convert before negating: the exclusive Double upper bound is 2^63, not an overflowing Long.
+        if (!value.isFinite() || value < Long.MIN_VALUE.toDouble() || value >= -(Long.MIN_VALUE.toDouble())) return null
     }
     return number.toLong()
 }

@@ -15,12 +15,18 @@ import com.example.clarity.data.local.entity.AccountEntity
 import com.example.clarity.data.mapper.toDomain
 import com.example.clarity.data.remote.AccountRemoteDataSource
 import com.example.clarity.data.remote.AccountSnapshot
+import com.example.clarity.data.remote.FirestoreDataSource
 import com.example.clarity.data.repository.AccountRepositoryImpl
+import com.example.clarity.data.repository.TransactionRepositoryImpl
+import com.example.clarity.data.sync.AccountUploader
 import com.example.clarity.domain.model.Account
 import com.example.clarity.domain.model.AccountError
 import com.example.clarity.domain.model.AccountException
 import com.example.clarity.domain.model.User
 import com.example.clarity.domain.repository.AuthRepository
+import com.example.clarity.domain.util.Resource
+import com.example.clarity.domain.util.isSignInRequired
+import com.google.firebase.firestore.FirebaseFirestore
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -28,6 +34,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import org.junit.After
 import org.junit.Assert.*
 import org.junit.Test
@@ -39,10 +46,12 @@ class AccountDaoTest {
     private val databaseName = "account-migration-test"
     private var database: ClarityDatabase? = null
     private val repositories = mutableListOf<AccountRepositoryImpl>()
+    private val transactionRepositories = mutableListOf<TransactionRepositoryImpl>()
 
     @After
     fun tearDown() {
         runBlocking { repositories.forEach { it.stopSync().join() } }
+        runBlocking { transactionRepositories.forEach { it.stopSync().join() } }
         database?.close()
         context.deleteDatabase(databaseName)
     }
@@ -93,6 +102,71 @@ class AccountDaoTest {
         assertEquals(AccountError.NAME_DUPLICATE, (failure as AccountException).error)
         assertEquals(1, db.accountDao.getAllForUser("user-a").size)
         assertEquals(1, db.accountDao.getAllForUser("user-a").count { it.isDefault })
+    }
+
+    @Test
+    fun signedOutTransactionRepositoryEmitsTypedAuthenticationErrorsWithoutStartingRemoteWork() = runBlocking {
+        val db = openDatabase()
+        val repository = TransactionRepositoryImpl(db.transactionDao, FirestoreDataSource(FirebaseFirestore.getInstance()),
+            object : AuthRepository {
+                override val currentUser = flowOf<User?>(null)
+                override suspend fun signInWithEmailPassword(email: String, password: String): Result<User> = error("Unused")
+                override suspend fun signUpWithEmailPassword(email: String, password: String): Result<User> = error("Unused")
+                override suspend fun signInWithGoogle(idToken: String): Result<User> = error("Unused")
+                override suspend fun sendPasswordResetEmail(email: String): Result<Unit> = error("Unused")
+                override suspend fun signOut() = Unit
+            }, Dispatchers.IO, object : AccountUploader {
+                override suspend fun uploadPending(uid: String, afterAccounts: suspend () -> Unit): Boolean =
+                    error("Signed-out users must not upload")
+            }).also { transactionRepositories.add(it) }
+        val list = withTimeout(10_000) {
+            repository.observeTransactions().first { it is Resource.Error } as Resource.Error
+        }
+        val detail = withTimeout(10_000) {
+            repository.observeTransaction("transaction").first { it is Resource.Error } as Resource.Error
+        }
+        assertTrue(list.cause.isSignInRequired())
+        assertTrue(detail.cause.isSignInRequired())
+        assertEquals("Please sign in", list.message)
+        assertEquals("Please sign in", detail.message)
+        assertTrue(repository.deleteTransaction("transaction").exceptionOrNull().isSignInRequired())
+    }
+
+    @Test
+    fun offlineCreationAndDefaultSwitchSurviveRoomReopenAndUploadTogether() = runBlocking {
+        val remote = object : AccountRemoteDataSource {
+            @Volatile var online = false
+            val committed = mutableListOf<List<Account>>()
+            override fun observeAccounts(userId: String) = emptyFlow<AccountSnapshot>()
+            override suspend fun writeAccounts(userId: String, accounts: List<Account>) {
+                check(online) { "Offline test" }
+                assertEquals(1, accounts.count { it.isDefault })
+                committed.add(accounts)
+            }
+        }
+        var db = openDatabase()
+        val original = repository(db, remote = remote)
+        withTimeout(10_000) {
+            original.createAccount(row("daily").toDomain()).getOrThrow()
+            original.createAccount(row("savings").toDomain()).getOrThrow()
+            original.setDefaultAccount("savings").getOrThrow()
+        }
+        val pending = db.accountDao.getAllForUser("user-a")
+        assertTrue(pending.all { it.pendingSync })
+        assertEquals(listOf("savings"), pending.filter { it.isDefault }.map { it.id })
+        assertTrue(remote.committed.isEmpty())
+        original.stopSync().join()
+        db.close()
+
+        db = openDatabase()
+        assertEquals(pending.associateBy { it.id }, db.accountDao.getAllForUser("user-a").associateBy { it.id })
+        val restarted = repository(db, remote = remote)
+        remote.online = true
+        assertTrue(withTimeout(10_000) { restarted.uploadPending("user-a") })
+        val synchronized = db.accountDao.getAllForUser("user-a")
+        assertEquals(pending.map { it.copy(pendingSync = false) }.associateBy { it.id }, synchronized.associateBy { it.id })
+        assertEquals(setOf("daily", "savings"), remote.committed.single().map { it.id }.toSet())
+        assertEquals(listOf("savings"), remote.committed.single().filter { it.isDefault }.map { it.id })
     }
 
     @Test
@@ -174,12 +248,14 @@ class AccountDaoTest {
         .addMigrations(InitialTransactionMigration, TransactionTagMigration, AccountMigration, TransactionAccountMigration, TransactionAccountIndexMigration)
         .build().also { database = it }
 
-    private fun repository(db: ClarityDatabase, userId: String = "user-a") = AccountRepositoryImpl(
-        db,
-        object : AccountRemoteDataSource {
+    private fun repository(db: ClarityDatabase, userId: String = "user-a",
+        remote: AccountRemoteDataSource = object : AccountRemoteDataSource {
             override fun observeAccounts(userId: String) = emptyFlow<AccountSnapshot>()
             override suspend fun writeAccounts(userId: String, accounts: List<Account>) { error("Offline test") }
-        },
+        }
+    ) = AccountRepositoryImpl(
+        db,
+        remote,
         object : AuthRepository {
             override val currentUser = flowOf(User(userId, null, null))
             override suspend fun signInWithEmailPassword(email: String, password: String): Result<User> = error("Unused")

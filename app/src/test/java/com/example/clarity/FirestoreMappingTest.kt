@@ -4,6 +4,7 @@ import com.example.clarity.data.mapper.mapFirestoreDocuments
 import com.example.clarity.data.mapper.toAccount
 import com.example.clarity.data.mapper.toFirestoreMap
 import com.example.clarity.data.mapper.toTransaction
+import com.example.clarity.data.mapper.toFirestoreLong
 import com.example.clarity.domain.model.Account
 import com.example.clarity.domain.model.Transaction
 import org.junit.Assert.*
@@ -61,6 +62,35 @@ class FirestoreMappingTest {
                 assertNull((transaction.toFirestoreMap() + (field to value)).toTransaction(transaction.id))
             }
         }
+    }
+
+    @Test
+    fun floatingPointLongBoundsAreInclusiveBelowAndExclusiveAbove() {
+        val lower = Long.MIN_VALUE.toDouble()
+        val upper = -(Long.MIN_VALUE.toDouble())
+        assertEquals(Long.MIN_VALUE, lower.toFirestoreLong())
+        assertEquals(Math.nextUp(lower).toLong(), Math.nextUp(lower).toFirestoreLong())
+        assertEquals(Math.nextDown(upper).toLong(), Math.nextDown(upper).toFirestoreLong())
+        for (invalid in listOf(Math.nextDown(lower), upper, Math.nextUp(upper), Long.MAX_VALUE.toDouble(),
+            Double.NaN, Double.NEGATIVE_INFINITY, Double.POSITIVE_INFINITY)) {
+            assertNull("Expected rejection of $invalid", invalid.toFirestoreLong())
+        }
+    }
+
+    @Test
+    fun floatBoundsAndIntegralLongsKeepTheirExistingConversions() {
+        val lower = Long.MIN_VALUE.toFloat()
+        val upper = -(Long.MIN_VALUE.toFloat())
+        assertEquals(Long.MIN_VALUE, lower.toFirestoreLong())
+        assertEquals(Math.nextDown(upper).toLong(), Math.nextDown(upper).toFirestoreLong())
+        for (invalid in listOf(Math.nextDown(lower), upper, Float.NaN, Float.NEGATIVE_INFINITY, Float.POSITIVE_INFINITY)) {
+            assertNull(invalid.toFirestoreLong())
+        }
+        assertEquals(Long.MAX_VALUE, Long.MAX_VALUE.toFirestoreLong())
+        assertEquals(Long.MIN_VALUE, Long.MIN_VALUE.toFirestoreLong())
+        assertEquals(42L, 42.toFirestoreLong())
+        assertEquals(12L, 12.75.toFirestoreLong())
+        assertEquals(-12L, (-12.75f).toFirestoreLong())
     }
 
     @Test

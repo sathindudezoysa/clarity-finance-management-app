@@ -97,7 +97,8 @@ class TransactionRepositoryImpl @Inject internal constructor(
 
     override fun observeTransactions(): Flow<Resource<List<Transaction>>> =
         users.flatMapLatest { user ->
-            if (user == null) flowOf(Resource.Error("Please sign in"))
+            if (user == null) flowOf(Resource.Error("Please sign in",
+                cause = TransactionException(TransactionError.SIGN_IN_REQUIRED, "Please sign in")))
             else combine(
                 dao.observeAll(user.uid), syncState.filter { it.uid == user.uid }
             ) { local, status ->
@@ -107,12 +108,13 @@ class TransactionRepositoryImpl @Inject internal constructor(
             }.onStart { emit(Resource.Loading()) }
         }.onStart { emit(Resource.Loading()) }.catch { error ->
             if (error is CancellationException) throw error
-            emit(Resource.Error("Unable to load transactions"))
+            emit(Resource.Error("Unable to load transactions", cause = error))
         }.flowOn(ioDispatcher)
 
     override fun observeTransaction(id: String): Flow<Resource<Transaction?>> =
         users.flatMapLatest { user ->
-            if (user == null) flowOf<Resource<Transaction?>>(Resource.Error("Please sign in"))
+            if (user == null) flowOf<Resource<Transaction?>>(Resource.Error("Please sign in",
+                cause = TransactionException(TransactionError.SIGN_IN_REQUIRED, "Please sign in")))
             else combine(
                 dao.observeById(id, user.uid), syncState.filter { it.uid == user.uid }
             ) { local, status ->
@@ -122,7 +124,7 @@ class TransactionRepositoryImpl @Inject internal constructor(
             }.onStart { emit(Resource.Loading()) }
         }.onStart { emit(Resource.Loading()) }.catch { error ->
             if (error is CancellationException) throw error
-            emit(Resource.Error("Unable to load transaction"))
+            emit(Resource.Error("Unable to load transaction", cause = error))
         }.flowOn(ioDispatcher)
 
     private fun observeRemote(uid: String): Flow<String?> =
@@ -318,6 +320,8 @@ class TransactionRepositoryImpl @Inject internal constructor(
             }
         }
     }
+
+    internal fun stopSync(): Job = checkNotNull(syncScope.coroutineContext[Job]).also { it.cancel() }
 
     private companion object {
         const val TAG = "TransactionRepository"

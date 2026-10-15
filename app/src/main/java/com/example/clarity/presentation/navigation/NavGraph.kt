@@ -93,7 +93,11 @@ fun SetupNavGraph(
             arguments = listOf(navArgument("id") { type = NavType.StringType })
         ) {
             TransactionDetailScreen(
-                onBack = { navController.popBackStack() },
+                onBack = {
+                    if (!navController.popBackStack()) navController.navigate(Screen.TransactionList.route) {
+                        launchSingleTop = true
+                    }
+                },
                 onEdit = { id -> navController.navigate(Screen.TransactionEdit.createRoute(id)) },
                 viewModel = hiltViewModel()
             )
