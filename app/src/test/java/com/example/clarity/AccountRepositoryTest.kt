@@ -32,13 +32,15 @@ class AccountRepositoryTest {
     private val dao = MemoryDao()
     private val auth = FakeAuth()
     private val remote = FakeRemote()
+    private val skippedAccountWarnings = mutableListOf<List<String>>()
     private var transactionGate: CompletableDeferred<Unit>? = null
     private var onTransactionStarted: () -> Unit = {}
     private val repository = AccountRepositoryImpl(dao, remote, auth, Dispatchers.Unconfined,
         runTransaction = { block ->
             transactionGate?.let { gate -> onTransactionStarted(); gate.await() }
             block()
-        }, warnRetainedAccount = { dao.retainedWarnings.add(it) })
+        }, warnRetainedAccount = { dao.retainedWarnings.add(it) },
+        warnSkippedAccounts = { skippedAccountWarnings.add(it) })
     private val uploader: AccountUploader = repository
 
     @After
@@ -370,6 +372,63 @@ class AccountRepositoryTest {
     }
 
     @Test
+    fun duplicateRemoteNamesKeepTheOldestAndDoNotInterruptTheSyncLoop() = runBlocking {
+        val older = account("z-older", "Daily").copy(userId = "user-a", createdAt = 10, updatedAt = 10)
+        val newer = account("a-newer", "DAILY", default = true)
+            .copy(userId = "user-a", createdAt = 20, updatedAt = 20)
+
+        remote.snapshots.emit(AccountSnapshot(listOf(newer, older), true))
+
+        assertEquals(listOf(older.id), dao.getAllForUser("user-a").map { it.id })
+        assertEquals(older.createdAt, saved(older.id).createdAt)
+        assertDefault(older.id)
+        assertEquals(listOf(listOf(newer.id)), skippedAccountWarnings)
+        assertTrue(remote.batches.flatten().none { it.id == newer.id })
+
+        val updated = saved(older.id).copy(bankName = "Next snapshot", updatedAt = saved(older.id).updatedAt + 1)
+        remote.snapshots.emit(AccountSnapshot(listOf(updated, newer), true))
+
+        assertEquals(updated, saved(older.id))
+        assertNull(dao.getById(newer.id))
+        assertDefault(older.id)
+        assertTrue(repository.observeAccounts().first { it !is Resource.Loading } is Resource.Success)
+    }
+
+    @Test
+    fun remoteNameCollisionKeepsTheExistingLocalAccountUnchanged() = runBlocking {
+        repository.createAccount(account("local", "Daily")).getOrThrow()
+        val local = dao.getById("local")!!
+        val incoming = account("remote", "DAILY", default = true)
+            .copy(userId = "user-a", createdAt = 1, updatedAt = local.updatedAt + 1).toEntity()
+        remote.batches.clear()
+
+        repository.reconcileRemote("user-a", listOf(incoming, local), authoritative = true)
+
+        assertEquals(listOf(local), dao.getAllForUser("user-a"))
+        assertNull(dao.getById(incoming.id))
+        assertDefault(local.id)
+        assertEquals(listOf(listOf(incoming.id)), skippedAccountWarnings)
+        assertTrue(remote.batches.isEmpty())
+    }
+
+    @Test
+    fun duplicateRemoteNameTiesKeepTheSmallestIdAndNormalizeSurvivingDefaults() = runBlocking {
+        val kept = account("a", "Daily", default = true)
+            .copy(userId = "user-a", createdAt = 10, updatedAt = 10).toEntity()
+        val skipped = kept.copy(id = "z", name = "DAILY", updatedAt = 40)
+        val other = kept.copy(id = "savings", name = "Savings", createdAt = 20, updatedAt = 30)
+
+        repository.reconcileRemote("user-a", listOf(skipped, other, kept), authoritative = true)
+
+        assertEquals(setOf(kept.id, other.id), dao.getAllForUser("user-a").map { it.id }.toSet())
+        assertNull(dao.getById(skipped.id))
+        assertDefault(other.id)
+        assertEquals(listOf(listOf(skipped.id)), skippedAccountWarnings)
+        assertTrue(dao.defaultCounts.all { it == 1 })
+        assertTrue(remote.batches.flatten().none { it.id == skipped.id })
+    }
+
+    @Test
     fun accountFieldsRoundTripWithoutSendingLocalOutboxMetadata() {
         val original = account("a").copy(userId = "user-a", accountType = "Savings", isDefault = true)
         assertEquals(original, original.toEntity().toDomain())
@@ -396,6 +455,8 @@ class AccountRepositoryTest {
             if (entities.isNotEmpty()) committedRows.add(entities)
             val updated = rows.value + entities.associateBy { it.id }
             updated.values.groupBy { it.userId }.values.forEach { accounts ->
+                assertEquals("Account names must be unique per user", accounts.size,
+                    accounts.map { it.name.lowercase(java.util.Locale.ROOT) }.distinct().size)
                 defaultCounts.add(accounts.count { it.isDefault })
                 assertEquals("Every committed account set must have one default", 1, accounts.count { it.isDefault })
             }

@@ -43,6 +43,9 @@ class AccountRepositoryImpl internal constructor(
     private val runTransaction: suspend (suspend () -> Unit) -> Unit,
     private val warnRetainedAccount: (String) -> Unit = { id ->
         Log.w("AccountRepository", "Keeping account $id missing remotely because local transactions reference it")
+    },
+    private val warnSkippedAccounts: (List<String>) -> Unit = { ids ->
+        Log.w("AccountRepository", "Skipping remote accounts with duplicate names: $ids")
     }
 ) : AccountRepository, AccountUploader {
     @Inject
@@ -238,6 +241,15 @@ class AccountRepositoryImpl internal constructor(
                 }
             }
             if (merged.isEmpty()) return@with
+            val localIds = local.map { it.id }.toSet()
+            merged.values.groupBy { it.name.lowercase(java.util.Locale.ROOT) }.values
+                .filter { it.size > 1 }.forEach { duplicates ->
+                    val kept = duplicates.firstOrNull { it.id in localIds }
+                        ?: duplicates.minWith(compareBy<AccountEntity> { it.createdAt }.thenBy { it.id })
+                    val skippedIds = duplicates.filter { it.id != kept.id && it.id !in localIds }.map { it.id }
+                    skippedIds.forEach { merged.remove(it) }
+                    if (skippedIds.isNotEmpty()) warnSkippedAccounts(skippedIds)
+                }
             // Normalize malformed or concurrent remote defaults before Room observers see them.
             val defaults = merged.values.filter { it.isDefault }
             val selected = defaults.maxWithOrNull(compareBy<AccountEntity> { it.updatedAt }.thenBy { it.id })
@@ -249,10 +261,6 @@ class AccountRepositoryImpl internal constructor(
                 val isDefault = account.id == selected.id
                 if (account.isDefault == isDefault) account
                 else account.copy(isDefault = isDefault, updatedAt = now, pendingSync = true)
-            }
-            // Reject invalid remote duplicate names atomically, keeping the previous local state.
-            require(normalized.map { it.name.lowercase(java.util.Locale.ROOT) }.distinct().size == normalized.size) {
-                "Remote account names are duplicated"
             }
             upsertAll(normalized)
         }
