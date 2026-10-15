@@ -2,6 +2,7 @@ package com.example.clarity.domain.usecase.wallet
 
 import com.example.clarity.domain.model.TransactionType
 import com.example.clarity.domain.model.WalletTopUpOption
+import com.example.clarity.domain.model.WalletBankAccountInput
 import com.example.clarity.domain.repository.CashWalletRepository
 import javax.inject.Inject
 
@@ -15,7 +16,7 @@ class RecordCashTransactionUseCase @Inject constructor(private val repository: C
 }
 
 class TopUpCashWalletUseCase @Inject constructor(private val repository: CashWalletRepository) {
-    suspend operator fun invoke(bankAccountId: String, amountMinor: Long) = repository.topUp(bankAccountId, amountMinor)
+    suspend operator fun invoke(bankAccountId: String, amountMinor: Long, operationId: String) = repository.topUp(bankAccountId, amountMinor, operationId)
 }
 
 class AddWalletBankAccountUseCase @Inject constructor(private val repository: CashWalletRepository) {
@@ -24,4 +25,17 @@ class AddWalletBankAccountUseCase @Inject constructor(private val repository: Ca
 
 class ConfigureWalletTopUpUseCase @Inject constructor(private val repository: CashWalletRepository) {
     suspend operator fun invoke(option: WalletTopUpOption) = repository.configureTopUp(option)
+}
+
+class SaveWalletBankAccountUseCase @Inject constructor(private val repository: CashWalletRepository) {
+    suspend operator fun invoke(input: WalletBankAccountInput) = repository.saveBankAccount(input)
+}
+class ArchiveWalletBankAccountUseCase @Inject constructor(private val repository: CashWalletRepository) {
+    suspend operator fun invoke(id: String) = repository.archiveBankAccount(id)
+}
+class AdjustCashBalanceUseCase @Inject constructor(private val repository: CashWalletRepository) {
+    suspend operator fun invoke(amount: Long, note: String, operationId: String) = repository.adjustCashBalance(amount, note, operationId)
+}
+class GetWalletBankActivityUseCase @Inject constructor(private val repository: CashWalletRepository) {
+    suspend operator fun invoke(id: String) = repository.bankActivity(id)
 }

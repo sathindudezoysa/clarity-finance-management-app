@@ -1,6 +1,9 @@
 package com.example.clarity.data.repository
 
 import android.util.Log
+import androidx.room.withTransaction
+import com.example.clarity.data.local.ClarityDatabase
+import com.example.clarity.data.local.checkWalletBalance
 import com.example.clarity.data.local.dao.TransactionDao
 import com.example.clarity.data.local.entity.TransactionEntity
 import com.example.clarity.data.mapper.toDomain
@@ -38,7 +41,9 @@ class TransactionRepositoryImpl @Inject constructor(
     private val dao: TransactionDao,
     private val firestore: FirestoreDataSource,
     private val authRepository: AuthRepository,
-    private val ioDispatcher: CoroutineDispatcher
+    private val ioDispatcher: CoroutineDispatcher,
+    private val database: ClarityDatabase,
+    private val clock: java.time.Clock
 ) : TransactionRepository {
     private val mutationMutex = Mutex()
     private val syncScope = CoroutineScope(SupervisorJob() + ioDispatcher)
@@ -182,11 +187,11 @@ class TransactionRepositoryImpl @Inject constructor(
     override suspend fun addTransaction(t: Transaction): Result<Unit> = localWrite { uid ->
         require(t.amountMinor > 0) { "Amount must be greater than zero" }
         require(dao.getById(t.id) == null) { "Transaction already exists" }
-        val now = System.currentTimeMillis()
+        val now = clock.millis()
         val entity = t.copy(userId = uid, createdAt = now, updatedAt = now).toEntity()
             .copy(pendingSync = true)
         dao.upsertWithTag(entity)
-        enqueueRemote(entity)
+        entity
     }
 
     override suspend fun updateTransaction(t: Transaction): Result<Unit> = localWrite { uid ->
@@ -197,10 +202,10 @@ class TransactionRepositoryImpl @Inject constructor(
         require(existing.updatedAt < Long.MAX_VALUE) { "Transaction timestamp is out of range" }
         val entity = t.copy(
             userId = uid, createdAt = existing.createdAt,
-            updatedAt = maxOf(System.currentTimeMillis(), existing.updatedAt + 1)
+            updatedAt = maxOf(clock.millis(), existing.updatedAt + 1)
         ).toEntity().copy(pendingSync = true)
         dao.upsertWithTag(entity)
-        enqueueRemote(entity)
+        entity
     }
 
     override suspend fun deleteTransaction(id: String): Result<Unit> = localWrite { uid ->
@@ -208,16 +213,23 @@ class TransactionRepositoryImpl @Inject constructor(
         require(existing != null && existing.userId == uid && !existing.isDeleted) { "Transaction not found" }
         val deleted = existing.copy(isDeleted = true, pendingSync = true)
         dao.upsert(deleted)
-        enqueueRemote(deleted)
+        deleted
     }
 
-    private suspend fun localWrite(block: suspend (String) -> Unit): Result<Unit> = withContext(ioDispatcher) {
+    private suspend fun localWrite(block: suspend (String) -> TransactionEntity): Result<Unit> = withContext(ioDispatcher) {
         try {
             val uid = authRepository.currentUser.first()?.uid
                 ?: return@withContext Result.failure(IllegalStateException("Please sign in"))
             mutationMutex.withLock {
                 require(activeUid == uid) { "Please sign in" }
-                block(uid)
+                val entity = database.withTransaction {
+                    require(authRepository.currentUser.first()?.uid == uid) { "Your session changed. Please try again." }
+                    val saved = block(uid)
+                    if (database.cashWalletDao.isCashLink(uid, saved.id)) checkWalletBalance(database.cashWalletDao, uid)
+                    require(authRepository.currentUser.first()?.uid == uid) { "Your session changed. Please try again." }
+                    saved
+                }
+                enqueueRemote(entity)
             }
             Result.success(Unit)
         } catch (error: Exception) {

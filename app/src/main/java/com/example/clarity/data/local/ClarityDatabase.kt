@@ -14,8 +14,9 @@ import com.example.clarity.data.local.entity.TransactionTagEntity
         com.example.clarity.data.local.entity.WalletBankAccountEntity::class,
         com.example.clarity.data.local.entity.WalletTopUpEntity::class,
         com.example.clarity.data.local.entity.WalletCashLinkEntity::class,
-        com.example.clarity.data.local.entity.WalletTopUpOptionEntity::class],
-    version = 4,
+        com.example.clarity.data.local.entity.WalletTopUpOptionEntity::class,
+        com.example.clarity.data.local.entity.WalletAdjustmentEntity::class],
+    version = 5,
     exportSchema = false
 )
 abstract class ClarityDatabase : RoomDatabase() {

@@ -31,17 +31,17 @@ class CashWalletScreenTest {
         ActivityScenario.launch(ComponentActivity::class.java).use { scenario ->
             scenario.onActivity { activity ->
                 val viewModel = CashWalletViewModel(ObserveCashWalletUseCase(repo), RecordCashTransactionUseCase(repo),
-                    TopUpCashWalletUseCase(repo), AddWalletBankAccountUseCase(repo), ConfigureWalletTopUpUseCase(repo))
+                    TopUpCashWalletUseCase(repo), ConfigureWalletTopUpUseCase(repo), AdjustCashBalanceUseCase(repo))
                 store.put("wallet", viewModel)
                 activity.setContent { ClarityTheme { CashWalletScreen({}, {}, viewModel) } }
             }
-            awaitNode { it.text?.toString() == "10.00" }
+            awaitNode { it.text?.toString() == "Rs. 10.00" }
             val amount = awaitNode { it.isEditable }
             val input = Bundle().apply { putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, "2.50") }
             assertTrue(amount.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, input))
             assertTrue(awaitNode { it.isClickable && !it.isEditable && hasText(it, "Save") }
                 .performAction(AccessibilityNodeInfo.ACTION_CLICK))
-            awaitNode { it.text?.toString() == "7.50" }
+            awaitNode { it.text?.toString() == "Rs. 7.50" }
             assertEquals(250L, repo.recordedAmount)
             assertEquals(TransactionType.EXPENSE, repo.recordedType)
             assertEquals("", repo.recordedNote)
@@ -79,8 +79,12 @@ class CashWalletScreenTest {
             wallet.value = wallet.value.copy(balanceMinor = wallet.value.balanceMinor - BigInteger.valueOf(amountMinor))
             return Result.success(Unit)
         }
-        override suspend fun topUp(bankAccountId: String, amountMinor: Long): Result<Unit> = error("Unused")
+        override suspend fun topUp(bankAccountId: String, amountMinor: Long, operationId: String): Result<Unit> = error("Unused")
         override suspend fun addBankAccount(name: String, openingBalanceMinor: Long): Result<Unit> = error("Unused")
         override suspend fun configureTopUp(option: WalletTopUpOption): Result<Unit> = error("Unused")
+        override suspend fun saveBankAccount(input: WalletBankAccountInput): Result<Unit> = error("Unused")
+        override suspend fun archiveBankAccount(id: String): Result<Unit> = error("Unused")
+        override suspend fun adjustCashBalance(targetMinor: Long, note: String, operationId: String): Result<Unit> = error("Unused")
+        override suspend fun bankActivity(id: String): Result<List<WalletActivity>> = error("Unused")
     }
 }

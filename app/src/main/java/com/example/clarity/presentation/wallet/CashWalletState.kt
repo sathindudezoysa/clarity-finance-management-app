@@ -2,7 +2,7 @@ package com.example.clarity.presentation.wallet
 
 import com.example.clarity.domain.model.CashWallet
 
-enum class WalletAction { EXPENSE, INCOME, TOP_UP, AUTOMATIC }
+enum class WalletAction { EXPENSE, INCOME, TOP_UP, AUTOMATIC, ADJUSTMENT }
 
 data class CashWalletState(
     val wallet: CashWallet = CashWallet(),
@@ -16,9 +16,9 @@ data class CashWalletState(
     val automaticEnabled: Boolean = false,
     val threshold: String = "0.00",
     val automaticAmount: String = "",
-    val showBankForm: Boolean = false,
-    val bankName: String = "",
-    val bankOpeningBalance: String = "0.00",
     val error: String? = null,
-    val message: String? = null
+    val message: String? = null,
+    val showAddCashChoices: Boolean = false,
+    val showTransferReview: Boolean = false,
+    val reminderVisible: Boolean = false
 )

@@ -14,3 +14,10 @@ abstract class CashWalletModule {
     @Binds @Singleton
     abstract fun bindCashWalletRepository(impl: CashWalletRepositoryImpl): CashWalletRepository
 }
+
+@Module
+@InstallIn(SingletonComponent::class)
+object WalletClockModule {
+    @dagger.Provides @Singleton
+    fun provideClock(): java.time.Clock = java.time.Clock.systemUTC()
+}

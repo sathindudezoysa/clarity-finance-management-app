@@ -1,53 +1,52 @@
-package com.example.clarity
+﻿package com.example.clarity
 
-import com.example.clarity.data.local.entity.*
-import com.example.clarity.data.mapper.walletSnapshot
-import com.example.clarity.domain.model.CashWalletRules
-import com.example.clarity.domain.model.WalletTopUpOption
+import com.example.clarity.data.local.WalletMoneyParts
+import com.example.clarity.domain.model.*
+import com.example.clarity.domain.util.MoneyUtils
 import org.junit.Assert.*
 import org.junit.Test
 import java.math.BigInteger
 
 class CashWalletTest {
-    private val enabled = WalletTopUpOption("bank", true, 500, 2000)
+    private val option = WalletTopUpOption("bank", true, 100000, 500000)
 
-    @Test fun spendingBelowThresholdTriggersOneTopUp() {
-        assertEquals(2000L, CashWalletRules.topUpNeeded(BigInteger.valueOf(1000), 600, enabled))
+    @Test fun lowBalanceOffersReminderWithoutCreatingMoney() {
+        assertTrue(CashWalletRules.needsReminder(BigInteger.valueOf(99999), option))
+        assertFalse(CashWalletRules.needsReminder(BigInteger.valueOf(100000), option))
+        assertFalse(CashWalletRules.needsReminder(BigInteger.valueOf(100001), option))
     }
-    @Test fun thresholdEqualityDoesNotTriggerWithdrawal() {
-        assertEquals(0L, CashWalletRules.topUpNeeded(BigInteger.valueOf(1000), 500, enabled))
+    @Test fun disabledOrMissingReminderDoesNotPrompt() {
+        assertFalse(CashWalletRules.needsReminder(BigInteger.ZERO, option.copy(enabled = false)))
+        assertFalse(CashWalletRules.needsReminder(BigInteger.ZERO, null))
     }
-    @Test fun disabledOptionNeverTriggersWithdrawal() {
-        assertEquals(0L, CashWalletRules.topUpNeeded(BigInteger.ZERO, 100, enabled.copy(enabled = false)))
-        assertEquals(0L, CashWalletRules.topUpNeeded(BigInteger.ZERO, 100, null))
+    @Test fun exactSplitSumsCanExceedLongWithoutRounding() {
+        val expected = BigInteger.valueOf(Long.MAX_VALUE).multiply(BigInteger.valueOf(2))
+        assertEquals(expected, WalletMoneyParts(18446744072L, 1709551614L).value())
+        assertEquals(BigInteger.valueOf(-1500), WalletMoneyParts(-1, 999998500).value())
     }
-    @Test fun automaticWithdrawalCanCoverExpenseFromEmptyWallet() {
-        assertEquals(2000L, CashWalletRules.topUpNeeded(BigInteger.ZERO, 1200, enabled))
+    @Test fun catalogHasSeventeenIndependentStableIds() {
+        assertEquals(17, BankCatalog.banks.size)
+        assertEquals(17, BankCatalog.banks.map { it.id }.toSet().size)
+        assertNotEquals(BankCatalog.find("hsbc")!!.id, BankCatalog.find("ntb")!!.id)
+        assertNull(BankCatalog.find("untrusted-bank-id"))
     }
-    @Test fun insufficientAutomaticAmountRejectsPurchase() {
-        assertTrue(runCatching { CashWalletRules.topUpNeeded(BigInteger.ZERO, 2100, enabled) }.isFailure)
+    @Test fun searchSupportsNamesAbbreviationsAndCase() {
+        assertEquals("hnb", BankCatalog.search("hNb").single().id)
+        assertEquals("boc", BankCatalog.search("BOC").single().id)
+        assertEquals("commercial", BankCatalog.search("Commercial").single().id)
+        assertEquals("nsb", BankCatalog.search("national savings").single().id)
+        assertEquals("hsbc", BankCatalog.search("Hongkong").single().id)
+        assertTrue(BankCatalog.search("no such institution").isEmpty())
+        assertEquals(17, BankCatalog.search(" ").size)
     }
-    @Test fun invalidMoneyIsRejected() {
-        assertTrue(runCatching { CashWalletRules.topUpNeeded(BigInteger.ZERO, 0, enabled) }.isFailure)
-        assertTrue(runCatching { CashWalletRules.topUpNeeded(BigInteger.ZERO, 100, enabled.copy(amountMinor = 0)) }.isFailure)
+    @Test fun allMoneyInputStaysExactAndRejectsInvalidValues() {
+        assertEquals(500001L, MoneyUtils.parseMinor("5000.01").getOrThrow())
+        listOf("", "1.001", "NaN", "1e9", "92233720368547758.08").forEach { assertTrue(MoneyUtils.parseMinor(it).isFailure) }
     }
-    @Test fun bankWithdrawalAndCashActivityProduceConsistentBalances() {
-        val accounts = listOf(WalletBankAccountEntity("u", "bank", "Daily", 10000))
-        val transfers = listOf(WalletTopUpEntity("u", "transfer", "bank", 2000, 1, false))
-        val expense = TransactionEntity("cash", "u", "EXPENSE", 600, "Food", "Lunch", 2, 2, 2)
-        val income = expense.copy(id = "income", type = "INCOME", amountMinor = 100)
-        val wallet = walletSnapshot(accounts, transfers, listOf(expense, income), null)
-        assertEquals(BigInteger.valueOf(1500), wallet.balanceMinor)
-        assertEquals(BigInteger.valueOf(8000), wallet.accounts.single().balanceMinor)
-        assertEquals(3, wallet.activity.size)
-        assertEquals("cash", wallet.activity.first().transactionId)
-        assertNull(wallet.activity.last().transactionId)
-        // Recalculating after a linked expense edit or deletion keeps wallet totals current.
-        assertEquals(BigInteger.valueOf(1800), walletSnapshot(accounts, transfers, listOf(expense.copy(amountMinor = 200)), null).balanceMinor)
-        assertEquals(BigInteger.valueOf(2000), walletSnapshot(accounts, transfers, emptyList(), null).balanceMinor)
-    }
-    @Test fun accumulatedBalancesDoNotOverflowLong() {
-        val cash = (1..2).map { TransactionEntity("$it", "u", "INCOME", Long.MAX_VALUE, "General", "", 1, 1, 1) }
-        assertEquals(BigInteger.valueOf(Long.MAX_VALUE).multiply(BigInteger.TWO), walletSnapshot(emptyList(), emptyList(), cash, null).balanceMinor)
+    @Test fun reminderSettingsDoNotAlterBalancesOrSuggestAnAutomaticTransfer() {
+        val wallet = CashWallet(balanceMinor = BigInteger.valueOf(700), topUpOption = option)
+        assertTrue(CashWalletRules.needsReminder(wallet.balanceMinor, option))
+        assertEquals(BigInteger.valueOf(700), wallet.balanceMinor)
+        assertTrue(wallet.topUpHistory.isEmpty())
     }
 }
