@@ -26,8 +26,8 @@ class AccountEditViewModel @Inject constructor(
     private val updateAccount: UpdateAccountUseCase
 ) : ViewModel() {
     private val id: String? = savedStateHandle["id"]
-    private val draftId = savedStateHandle.get<String>("draft_id")
-        ?: UUID.randomUUID().toString().also { savedStateHandle["draft_id"] = it }
+    private val draftId = savedStateHandle.get<String>(KEY_DRAFT_ID)
+        ?: UUID.randomUUID().toString().also { savedStateHandle[KEY_DRAFT_ID] = it }
     private val draft = Account(
         id = draftId,
         name = "", bankName = ""
@@ -35,11 +35,11 @@ class AccountEditViewModel @Inject constructor(
     private var account: Account? = null
     private val _uiState = MutableStateFlow(AccountEditState(
         isEditMode = id != null, isLoading = true, canSave = false,
-        name = savedStateHandle["name"] ?: "", bankName = savedStateHandle["bank_name"] ?: "",
-        accountType = savedStateHandle["account_type"] ?: "",
-        currency = savedStateHandle["currency"] ?: draft.currency,
-        isDefault = savedStateHandle["is_default"] ?: false,
-        isSuccess = savedStateHandle["saved"] ?: false
+        name = savedStateHandle[KEY_NAME] ?: "", bankName = savedStateHandle[KEY_BANK_NAME] ?: "",
+        accountType = savedStateHandle[KEY_ACCOUNT_TYPE] ?: "",
+        currency = savedStateHandle[KEY_CURRENCY] ?: draft.currency,
+        isDefault = savedStateHandle[KEY_IS_DEFAULT] ?: false,
+        isSuccess = savedStateHandle[KEY_SAVED] ?: false
     ))
     val uiState = _uiState.asStateFlow()
 
@@ -55,12 +55,12 @@ class AccountEditViewModel @Inject constructor(
                 if (id == null) {
                     // A commit may have completed just before process death. Do not create it twice.
                     val committed = loaded != null || _uiState.value.isSuccess
-                    savedStateHandle["saved"] = committed
+                    savedStateHandle[KEY_SAVED] = committed
                     _uiState.update { it.copy(isLoading = false, canSave = true, isSuccess = committed) }
                 } else if (loaded == null) {
                     _uiState.update { it.copy(isLoading = false, canSave = false, error = R.string.accounts_not_found) }
                 } else {
-                    val hasDraft = savedStateHandle.get<Boolean>("form_loaded") == true
+                    val hasDraft = savedStateHandle.get<Boolean>(KEY_FORM_LOADED) == true
                     _uiState.update { state -> state.copy(
                         isLoading = false, canSave = true,
                         name = if (hasDraft) state.name else loaded.name,
@@ -96,12 +96,12 @@ class AccountEditViewModel @Inject constructor(
 
     private fun persistForm() {
         val state = _uiState.value
-        savedStateHandle["name"] = state.name
-        savedStateHandle["bank_name"] = state.bankName
-        savedStateHandle["account_type"] = state.accountType
-        savedStateHandle["currency"] = state.currency
-        savedStateHandle["is_default"] = state.isDefault
-        savedStateHandle["form_loaded"] = true
+        savedStateHandle[KEY_NAME] = state.name
+        savedStateHandle[KEY_BANK_NAME] = state.bankName
+        savedStateHandle[KEY_ACCOUNT_TYPE] = state.accountType
+        savedStateHandle[KEY_CURRENCY] = state.currency
+        savedStateHandle[KEY_IS_DEFAULT] = state.isDefault
+        savedStateHandle[KEY_FORM_LOADED] = true
     }
 
     fun save() {
@@ -116,7 +116,7 @@ class AccountEditViewModel @Inject constructor(
         viewModelScope.launch {
             val result = if (id == null) createAccount(edited) else updateAccount(edited)
             result.onSuccess {
-                savedStateHandle["saved"] = true
+                savedStateHandle[KEY_SAVED] = true
                 _uiState.update { it.copy(isSaving = false, isSuccess = true) }
             }.onFailure { error ->
                 val message = accountErrorResource(error.message, R.string.accounts_save_error)
@@ -132,3 +132,12 @@ class AccountEditViewModel @Inject constructor(
         }
     }
 }
+
+private const val KEY_NAME = "account_edit_name"
+private const val KEY_BANK_NAME = "account_edit_bank_name"
+private const val KEY_ACCOUNT_TYPE = "account_edit_account_type"
+private const val KEY_CURRENCY = "account_edit_currency"
+private const val KEY_IS_DEFAULT = "account_edit_is_default"
+private const val KEY_FORM_LOADED = "account_edit_form_loaded"
+private const val KEY_SAVED = "account_edit_saved"
+private const val KEY_DRAFT_ID = "account_edit_draft_id"

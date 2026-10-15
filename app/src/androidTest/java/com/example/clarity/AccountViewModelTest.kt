@@ -125,7 +125,7 @@ class AccountViewModelTest {
         create("Daily")
         val handle = SavedStateHandle()
         val editor = editor(handle)
-        val draftId = handle.get<String>("draft_id")
+        val draftId = handle.get<String>("account_edit_draft_id")
         assertNotNull(draftId)
         ready(editor)
         instrumentation.runOnMainSync { editor.save() }
@@ -141,8 +141,11 @@ class AccountViewModelTest {
         }
         val restoredValues = mutableMapOf<String, Any?>()
         instrumentation.runOnMainSync { handle.keys().forEach { restoredValues[it] = handle.get<Any?>(it) } }
+        assertEquals(setOf("account_edit_name", "account_edit_bank_name", "account_edit_account_type",
+            "account_edit_currency", "account_edit_is_default", "account_edit_form_loaded",
+            "account_edit_saved", "account_edit_draft_id"), restoredValues.keys)
         val restored = editor(SavedStateHandle(restoredValues))
-        assertEquals(draftId, restoredValues["draft_id"])
+        assertEquals(draftId, restoredValues["account_edit_draft_id"])
         val state = ready(restored)
         assertEquals("Travel", state.name)
         assertEquals("New bank", state.bankName)
@@ -162,7 +165,7 @@ class AccountViewModelTest {
     fun restoredDraftIdIsReusedForSaveRetriesAndACommitBeforeProcessDeath() = runBlocking {
         create("Daily")
         val draftId = "restored-account-draft"
-        val handle = SavedStateHandle(mapOf("draft_id" to draftId))
+        val handle = SavedStateHandle(mapOf("account_edit_draft_id" to draftId))
         val original = editor(handle)
         ready(original)
         instrumentation.runOnMainSync { original.onNameChange("daily"); original.save() }
@@ -174,7 +177,7 @@ class AccountViewModelTest {
         val restoredHandle = SavedStateHandle(values)
         val restored = editor(restoredHandle)
         ready(restored)
-        assertEquals(draftId, restoredHandle.get<String>("draft_id"))
+        assertEquals(draftId, restoredHandle.get<String>("account_edit_draft_id"))
         instrumentation.runOnMainSync { restored.onNameChange("Travel"); restored.save() }
         withTimeout(10_000) { restored.uiState.first { it.isSuccess } }
         assertEquals("Travel", database.accountDao.getById(draftId)!!.name)
