@@ -8,7 +8,6 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -19,12 +18,13 @@ import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.clarity.R
 import com.example.clarity.presentation.theme.ClarityTheme
 
 @Composable
 fun AccountEditScreen(onBack: () -> Unit, viewModel: AccountEditViewModel = hiltViewModel()) {
-    val state by viewModel.uiState.collectAsState()
+    val state by viewModel.uiState.collectAsStateWithLifecycle()
     LaunchedEffect(state.isSuccess) { if (state.isSuccess) onBack() }
     AccountEditContent(state, onBack, viewModel::save, viewModel::onNameChange, viewModel::onBankNameChange,
         viewModel::onTypeChange, viewModel::onCurrencyChange, viewModel::onDefaultChange)

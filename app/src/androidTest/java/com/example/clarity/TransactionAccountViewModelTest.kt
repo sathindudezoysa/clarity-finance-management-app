@@ -1,10 +1,15 @@
 package com.example.clarity
 
+import android.os.SystemClock
+import android.view.accessibility.AccessibilityNodeInfo
+import androidx.activity.ComponentActivity
+import androidx.activity.compose.setContent
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.ViewModelStore
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import androidx.test.core.app.ActivityScenario
 import androidx.test.platform.app.InstrumentationRegistry
 import com.example.clarity.domain.model.Account
 import com.example.clarity.domain.model.Transaction
@@ -17,7 +22,9 @@ import com.example.clarity.domain.usecase.transaction.*
 import com.example.clarity.domain.util.Resource
 import com.example.clarity.presentation.transactions.detail.TransactionDetailViewModel
 import com.example.clarity.presentation.transactions.edit.TransactionEditViewModel
+import com.example.clarity.presentation.transactions.edit.TransactionEditScreen
 import com.example.clarity.presentation.transactions.list.TransactionListViewModel
+import com.example.clarity.presentation.theme.ClarityTheme
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
@@ -107,16 +114,84 @@ class TransactionAccountViewModelTest {
     }
 
     @Test
-    fun legacyNullAccountIsNotReplacedWithTheDefaultUntilTheUserChooses() = runBlocking {
+    fun legacyNullAccountPreselectsTheDefaultOnlyInTheFormUntilSaved() = runBlocking {
         transactions.rows.value = mapOf("legacy" to Transaction(id = "legacy", amountMinor = 1250))
         val editor = editor(SavedStateHandle(mapOf("id" to "legacy")))
+        assertEquals("daily", ready(editor).selectedAccountId)
+        assertNull(transactions.rows.value["legacy"]!!.accountId)
+        save(editor)
+        withTimeout(10_000) { editor.uiState.first { it.isSuccess } }
+        assertEquals("daily", transactions.rows.value["legacy"]!!.accountId)
+    }
+
+    @Test
+    fun unavailableSavedAccountPreselectsDefaultWithoutChangingTheStoredTransaction() = runBlocking {
+        transactions.rows.value = mapOf("legacy" to Transaction(id = "legacy", amountMinor = 1250, accountId = "missing"))
+        val editor = editor(SavedStateHandle(mapOf("id" to "legacy")))
+        assertEquals("daily", ready(editor).selectedAccountId)
+        assertEquals("missing", transactions.rows.value["legacy"]!!.accountId)
+    }
+
+    @Test
+    fun legacyTransactionWithoutADefaultShowsAnAccountErrorOnSave() = runBlocking {
+        accounts.values.value = accounts.values.value.map { it.copy(isDefault = false) }
+        val legacy = Transaction(id = "legacy", amountMinor = 1250)
+        transactions.rows.value = mapOf(legacy.id to legacy)
+        val editor = editor(SavedStateHandle(mapOf("id" to legacy.id)))
         assertNull(ready(editor).selectedAccountId)
         save(editor)
         assertEquals(R.string.transactions_account_select, editor.uiState.value.accountError)
-        instrumentation.runOnMainSync { editor.onAccountSelected("savings") }
-        save(editor)
-        withTimeout(10_000) { editor.uiState.first { it.isSuccess } }
-        assertEquals("savings", transactions.rows.value["legacy"]!!.accountId)
+        assertEquals(legacy, transactions.rows.value[legacy.id])
+    }
+
+    @Test
+    fun legacyTransactionSaveButtonRemainsEnabledAndDisplaysTheAccountFieldError() = runBlocking {
+        accounts.values.value = emptyList()
+        val legacy = Transaction(id = "legacy", amountMinor = 1250)
+        transactions.rows.value = mapOf(legacy.id to legacy)
+        val editor = editor(SavedStateHandle(mapOf("id" to legacy.id)))
+        ready(editor)
+        assertNull(editor.uiState.value.accountError)
+        ActivityScenario.launch(ComponentActivity::class.java).use { scenario ->
+            scenario.onActivity { activity ->
+                activity.setContent {
+                    ClarityTheme { TransactionEditScreen(onBack = {}, viewModel = editor) }
+                }
+            }
+            val saveLabel = instrumentation.targetContext.getString(R.string.transactions_save)
+            val saveButton = awaitNode { node ->
+                node.isClickable && findNode(node) { it.text?.toString() == saveLabel } != null
+            }
+            assertTrue(saveButton.isEnabled)
+            assertTrue(saveButton.performAction(AccessibilityNodeInfo.ACTION_CLICK))
+            withTimeout(10_000) { editor.uiState.first { it.accountError == R.string.transactions_account_required } }
+            val error = instrumentation.targetContext.getString(R.string.transactions_account_required)
+            awaitNode(scrollBack = true) { it.text?.toString() == error }
+            assertEquals(legacy, transactions.rows.value[legacy.id])
+        }
+    }
+
+    private fun awaitNode(scrollBack: Boolean = false, predicate: (AccessibilityNodeInfo) -> Boolean): AccessibilityNodeInfo {
+        val deadline = SystemClock.uptimeMillis() + 10_000
+        while (SystemClock.uptimeMillis() < deadline) {
+            instrumentation.waitForIdleSync()
+            if (android.os.Build.VERSION.SDK_INT >= 33) instrumentation.uiAutomation.clearCache()
+            instrumentation.uiAutomation.rootInActiveWindow?.let { root ->
+                findNode(root, predicate)?.let { return it }
+                findNode(root) { it.isScrollable }?.performAction(if (scrollBack)
+                    AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD else AccessibilityNodeInfo.ACTION_SCROLL_FORWARD)
+            }
+            SystemClock.sleep(50)
+        }
+        throw AssertionError("Expected transaction form control or account error was unavailable")
+    }
+
+    private fun findNode(node: AccessibilityNodeInfo, predicate: (AccessibilityNodeInfo) -> Boolean): AccessibilityNodeInfo? {
+        if (predicate(node)) return node
+        for (index in 0 until node.childCount) {
+            node.getChild(index)?.let { child -> findNode(child, predicate)?.let { return it } }
+        }
+        return null
     }
 
     @Test
@@ -147,10 +222,6 @@ class TransactionAccountViewModelTest {
     }
 
     private class MemoryAccounts : AccountRepository {
-        override suspend fun uploadPending(uid: String, afterAccounts: suspend () -> Unit): Boolean {
-            afterAccounts()
-            return true
-        }
         val values = MutableStateFlow(listOf(
             Account(id = "daily", name = "Daily", bankName = "Bank", isDefault = true),
             Account(id = "savings", name = "Savings", bankName = "Bank")

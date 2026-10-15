@@ -39,14 +39,12 @@ class TransactionEditViewModel @Inject constructor(
         viewModelScope.launch {
             getAccounts().collect { result ->
                 val accounts = if (result is Resource.Loading) _uiState.value.accounts else result.data.orEmpty()
-                if (id == null && !selectionInitialized) {
-                    accounts.firstOrNull { it.isDefault }?.let { selectAccount(it.id) }
-                }
                 _uiState.update { it.copy(accounts = accounts, isAccountsLoading = result is Resource.Loading,
                     accountsError = if (result is Resource.Error) {
                         if (result.message == "Please sign in") R.string.transactions_sign_in
                         else R.string.transactions_accounts_load_error
                     } else null) }
+                initializeAccountSelection()
             }
         }
         viewModelScope.launch {
@@ -54,7 +52,6 @@ class TransactionEditViewModel @Inject constructor(
         }
         if (id != null) viewModelScope.launch {
             getTransaction(id).collect { result ->
-                if (!selectionInitialized && result.data != null) selectAccount(result.data.accountId)
                 _uiState.update {
                     when (result) {
                         is Resource.Loading -> it.copy(isLoading = true, transaction = null, error = null)
@@ -69,8 +66,19 @@ class TransactionEditViewModel @Inject constructor(
                         )
                     }
                 }
+                initializeAccountSelection()
             }
         }
+    }
+
+    private fun initializeAccountSelection() {
+        val state = _uiState.value
+        if (state.isLoading || state.isAccountsLoading) return
+        if (selectionInitialized && state.accounts.any { it.id == state.selectedAccountId }) return
+        val savedAccountId = state.transaction?.accountId
+        val accountId = if (!selectionInitialized && state.accounts.any { it.id == savedAccountId }) savedAccountId
+            else state.accounts.firstOrNull { it.isDefault }?.id
+        if (accountId != null) selectAccount(accountId)
     }
 
     private fun selectAccount(accountId: String?) {

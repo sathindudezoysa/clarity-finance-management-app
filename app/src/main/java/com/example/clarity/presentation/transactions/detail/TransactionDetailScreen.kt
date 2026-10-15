@@ -9,6 +9,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.clarity.R
 import com.example.clarity.domain.model.TransactionType
 import com.example.clarity.domain.util.MoneyUtils
@@ -22,7 +23,7 @@ fun TransactionDetailScreen(
     onEdit: (String) -> Unit,
     viewModel: TransactionDetailViewModel = hiltViewModel()
 ) {
-    val state by viewModel.uiState.collectAsState()
+    val state by viewModel.uiState.collectAsStateWithLifecycle()
     LaunchedEffect(state.isDeleted) { if (state.isDeleted) onBack() }
 
     if (state.isDeleteDialogVisible) AlertDialog(

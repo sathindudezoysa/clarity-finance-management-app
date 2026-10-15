@@ -62,7 +62,8 @@ fun SetupNavGraph(
         composable(route = Screen.Settings.route) {
             SettingsScreen(
                 onBack = { navController.popBackStack() },
-                onBankAccounts = { navController.navigate(Screen.AccountList.route) }
+                onBankAccounts = { navController.navigate(Screen.AccountList.route) },
+                viewModel = hiltViewModel()
             )
         }
         composable(route = Screen.AccountList.route) {

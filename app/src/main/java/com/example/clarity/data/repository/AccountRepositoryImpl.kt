@@ -8,6 +8,7 @@ import com.example.clarity.data.local.entity.AccountEntity
 import com.example.clarity.data.mapper.toDomain
 import com.example.clarity.data.mapper.toEntity
 import com.example.clarity.data.remote.AccountRemoteDataSource
+import com.example.clarity.data.sync.AccountUploader
 import com.example.clarity.domain.model.Account
 import com.example.clarity.domain.repository.AccountRepository
 import com.example.clarity.domain.repository.AuthRepository
@@ -43,7 +44,7 @@ class AccountRepositoryImpl internal constructor(
     private val warnRetainedAccount: (String) -> Unit = { id ->
         Log.w("AccountRepository", "Keeping account $id missing remotely because local transactions reference it")
     }
-) : AccountRepository {
+) : AccountRepository, AccountUploader {
     @Inject
     constructor(
         database: ClarityDatabase,
@@ -78,7 +79,7 @@ class AccountRepositoryImpl internal constructor(
                         }
                     }
                     launch {
-                        remote.observeAccounts(user.uid).map { snapshot ->
+                        remote.observeAccounts(user.uid).conflate().map { snapshot ->
                             mutationMutex.withLock {
                                 reconcileRemote(user.uid, snapshot.accounts.map { it.toEntity() }, snapshot.authoritative, snapshot.remoteIds)
                             }

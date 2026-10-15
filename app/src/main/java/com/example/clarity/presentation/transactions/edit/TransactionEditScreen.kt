@@ -16,6 +16,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.clarity.R
 import com.example.clarity.domain.model.TransactionType
 import com.example.clarity.domain.util.MoneyUtils
@@ -31,7 +32,7 @@ fun TransactionEditScreen(
     onCreateAccount: () -> Unit = {},
     viewModel: TransactionEditViewModel = hiltViewModel()
 ) {
-    val state by viewModel.uiState.collectAsState()
+    val state by viewModel.uiState.collectAsStateWithLifecycle()
     LaunchedEffect(state.isSuccess) { if (state.isSuccess) onBack() }
     TransactionEditContent(state, onBack, viewModel::save, viewModel::onAccountSelected, onCreateAccount)
 }
@@ -144,7 +145,8 @@ private fun TransactionEditContent(
                     OutlinedButton(onClick = onCreateAccount, enabled = !state.isSaving) {
                         Text(stringResource(R.string.transactions_create_account))
                     }
-                } else {
+                }
+                if (!state.isAccountsLoading) {
                     TransactionAccountField(state.accounts, state.selectedAccountId, onAccountSelected,
                         enabled = !state.isSaving, error = state.accountError, modifier = Modifier.fillMaxWidth())
                 }
@@ -168,7 +170,7 @@ private fun TransactionEditContent(
                         focusManager.clearFocus()
                         onSave(TransactionType.valueOf(typeName), amount, category, note, dateEpochMillis)
                     },
-                    enabled = !state.isSaving && state.canSaveWithAccount, modifier = Modifier.fillMaxWidth()
+                    enabled = !state.isSaving, modifier = Modifier.fillMaxWidth()
                 ) { Text(stringResource(R.string.transactions_save)) }
                 if (state.isSaving) CircularProgressIndicator()
             }

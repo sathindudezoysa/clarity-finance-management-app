@@ -2,6 +2,7 @@ package com.example.clarity.di
 
 import com.example.clarity.data.repository.AuthRepositoryImpl
 import com.example.clarity.data.repository.AccountRepositoryImpl
+import com.example.clarity.data.sync.AccountUploader
 import com.example.clarity.data.remote.AccountRemoteDataSource
 import com.example.clarity.data.remote.FirestoreAccountDataSource
 import com.example.clarity.domain.repository.AccountRepository
@@ -45,6 +46,10 @@ abstract class RepositoryModule {
     @Binds
     @Singleton
     abstract fun bindAccountRepository(impl: AccountRepositoryImpl): AccountRepository
+
+    @Binds
+    @Singleton
+    internal abstract fun bindAccountUploader(impl: AccountRepositoryImpl): AccountUploader
 
     @Binds
     @Singleton

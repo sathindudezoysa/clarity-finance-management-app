@@ -10,6 +10,9 @@ import com.example.clarity.data.mapper.toAccount
 import com.example.clarity.data.remote.AccountRemoteDataSource
 import com.example.clarity.data.remote.AccountSnapshot
 import com.example.clarity.data.repository.AccountRepositoryImpl
+import com.example.clarity.data.repository.requireOwnedTransactionAccount
+import com.example.clarity.data.sync.AccountUploader
+import com.example.clarity.domain.repository.AccountRepository
 import com.example.clarity.domain.model.Account
 import com.example.clarity.domain.model.User
 import com.example.clarity.domain.repository.AuthRepository
@@ -30,8 +33,14 @@ class AccountRepositoryTest {
     private val dao = MemoryDao()
     private val auth = FakeAuth()
     private val remote = FakeRemote()
+    private var transactionGate: CompletableDeferred<Unit>? = null
+    private var onTransactionStarted: () -> Unit = {}
     private val repository = AccountRepositoryImpl(dao, remote, auth, Dispatchers.Unconfined,
-        runTransaction = { block -> block() }, warnRetainedAccount = { dao.retainedWarnings.add(it) })
+        runTransaction = { block ->
+            transactionGate?.let { gate -> onTransactionStarted(); gate.await() }
+            block()
+        }, warnRetainedAccount = { dao.retainedWarnings.add(it) })
+    private val uploader: AccountUploader = repository
 
     @After
     fun tearDown() { repository.stopSync() }
@@ -55,6 +64,92 @@ class AccountRepositoryTest {
         assertDefault("daily")
         assertEquals(3, repository.observeAccounts().filterIsInstance<Resource.Success<List<Account>>>().first().data!!.size)
         assertEquals("user-a", saved("daily").userId)
+    }
+
+    @Test
+    fun transactionOwnershipIsCheckedThroughTheAccountRepository() = runBlocking {
+        repository.createAccount(account("daily")).getOrThrow()
+        val lookups = mutableListOf<String>()
+        val accounts = object : AccountRepository by repository {
+            override suspend fun getAccount(id: String): Result<Account?> {
+                lookups.add(id)
+                return repository.getAccount(id)
+            }
+        }
+        accounts.requireOwnedTransactionAccount("daily", "user-a")
+        assertEquals(listOf("daily"), lookups)
+        for ((id, uid) in listOf("missing" to "user-a", "daily" to "user-b")) {
+            try {
+                accounts.requireOwnedTransactionAccount(id, uid)
+                fail("Missing or foreign accounts must be rejected")
+            } catch (error: IllegalArgumentException) {
+                assertEquals("Bank account not found", error.message)
+            }
+        }
+        auth.currentUser.value = User("user-b", null, null)
+        try {
+            accounts.requireOwnedTransactionAccount("daily", "user-b")
+            fail("Another user's account must remain inaccessible")
+        } catch (error: IllegalArgumentException) {
+            assertEquals("Bank account not found", error.message)
+        }
+        assertEquals(listOf("daily", "missing", "daily", "daily"), lookups)
+    }
+
+    @Test
+    fun transactionAccountValidationPropagatesRepositoryFailuresAndRejectsEmptySelections() = runBlocking {
+        val unavailable = IllegalStateException("Please sign in")
+        var lookups = 0
+        val accounts = object : AccountRepository by repository {
+            override suspend fun getAccount(id: String): Result<Account?> {
+                lookups++
+                return Result.failure(unavailable)
+            }
+        }
+        for (id in listOf(null, "", " ")) {
+            try {
+                accounts.requireOwnedTransactionAccount(id, "user-a")
+                fail("An account selection is required")
+            } catch (error: IllegalArgumentException) {
+                assertEquals("Select a bank account", error.message)
+            }
+        }
+        assertEquals(0, lookups)
+        try {
+            accounts.requireOwnedTransactionAccount("daily", "user-a")
+            fail("A failed lookup must not allow saving")
+        } catch (error: IllegalStateException) {
+            assertSame(unavailable, error)
+        }
+        assertEquals(1, lookups)
+    }
+
+    @Test
+    fun remoteSnapshotsConflateWhileReconciliationIsBlockedAndTheLatestWins() = runBlocking {
+        repository.createAccount(account("daily")).getOrThrow()
+        val original = saved("daily")
+        val gate = CompletableDeferred<Unit>()
+        val started = CompletableDeferred<Unit>()
+        transactionGate = gate
+        onTransactionStarted = { started.complete(Unit) }
+        dao.committedRows.clear()
+        val first = original.copy(bankName = "First snapshot", updatedAt = original.updatedAt + 10)
+        val middle = original.copy(bankName = "Middle snapshot", updatedAt = original.updatedAt + 20)
+        val latest = original.copy(bankName = "Latest snapshot", updatedAt = original.updatedAt + 30)
+        remote.snapshots.emit(AccountSnapshot(listOf(first), true))
+        withTimeout(2_000) { started.await() }
+        withTimeout(2_000) {
+            remote.snapshots.emit(AccountSnapshot(listOf(middle), true))
+            remote.snapshots.emit(AccountSnapshot(listOf(latest), true))
+        }
+        transactionGate = null
+        gate.complete(Unit)
+        withTimeout(2_000) {
+            repository.observeAccounts().first { it.data?.singleOrNull()?.bankName == "Latest snapshot" }
+        }
+        assertEquals(listOf("First snapshot", "Latest snapshot"),
+            dao.committedRows.flatMap { it }.map { it.bankName })
+        assertEquals(latest, saved("daily"))
     }
 
     @Test
@@ -188,7 +283,7 @@ class AccountRepositoryTest {
         remote.fail = false
         remote.gate = gate
         val sync = async(start = CoroutineStart.UNDISPATCHED) {
-            repository.uploadPending("user-a") {
+            uploader.uploadPending("user-a") {
                 assertFalse(dao.getById("daily")!!.pendingSync)
                 events.add("transaction")
             }
@@ -206,11 +301,11 @@ class AccountRepositoryTest {
         remote.fail = true
         repository.createAccount(account("daily")).getOrThrow()
         var transactionWrites = 0
-        assertFalse(repository.uploadPending("user-a") { transactionWrites++ })
+        assertFalse(uploader.uploadPending("user-a") { transactionWrites++ })
         assertEquals(0, transactionWrites)
         assertTrue(dao.getById("daily")!!.pendingSync)
         remote.fail = false
-        assertTrue(repository.uploadPending("user-a") { transactionWrites++ })
+        assertTrue(uploader.uploadPending("user-a") { transactionWrites++ })
         assertEquals(1, transactionWrites)
         assertFalse(dao.getById("daily")!!.pendingSync)
     }
@@ -244,7 +339,7 @@ class AccountRepositoryTest {
         assertTrue(dao.getById("savings")!!.pendingSync)
         remote.gate = null
         secondGate.complete(Unit)
-        withTimeout(2_000) { repository.uploadPending("user-a") }
+        withTimeout(2_000) { uploader.uploadPending("user-a") }
         assertEquals(newer.copy(pendingSync = false), dao.getById("daily"))
         assertTrue(dao.getAllForUser("user-a").none { it.pendingSync })
     }
@@ -350,12 +445,14 @@ class AccountRepositoryTest {
         val defaultCounts = mutableListOf<Int>()
         val transactions = mutableListOf<TransactionEntity>()
         val retainedWarnings = mutableListOf<String>()
+        val committedRows = mutableListOf<List<AccountEntity>>()
         override suspend fun hasTransactionReferences(accountId: String) = transactions.any { it.accountId == accountId }
         override fun observeAll(userId: String) = rows.map { it.values.filter { row -> row.userId == userId } }.distinctUntilChanged()
         override suspend fun getAllForUser(userId: String) = rows.value.values.filter { it.userId == userId }
         override suspend fun getById(id: String) = rows.value[id]
         override suspend fun getDefault(userId: String) = getAllForUser(userId).firstOrNull { it.isDefault }
         override suspend fun upsertAll(entities: List<AccountEntity>) {
+            if (entities.isNotEmpty()) committedRows.add(entities)
             val updated = rows.value + entities.associateBy { it.id }
             updated.values.groupBy { it.userId }.values.forEach { accounts ->
                 defaultCounts.add(accounts.count { it.isDefault })

@@ -2,7 +2,6 @@ package com.example.clarity.data.repository
 
 import android.util.Log
 import com.example.clarity.data.local.dao.TransactionDao
-import com.example.clarity.data.local.dao.AccountDao
 import com.example.clarity.data.local.entity.TransactionEntity
 import com.example.clarity.data.mapper.toDomain
 import com.example.clarity.data.mapper.toEntity
@@ -10,6 +9,7 @@ import com.example.clarity.data.mapper.toFirestoreMap
 import com.example.clarity.data.mapper.mapFirestoreDocuments
 import com.example.clarity.data.mapper.toTransaction
 import com.example.clarity.data.remote.FirestoreDataSource
+import com.example.clarity.data.sync.AccountUploader
 import com.example.clarity.domain.model.Transaction
 import com.example.clarity.domain.repository.AuthRepository
 import com.example.clarity.domain.repository.AccountRepository
@@ -38,13 +38,13 @@ import javax.inject.Inject
  * Never await Firestore tasks in UI writes; failures are logged and Room retains pending records.
  */
 @OptIn(ExperimentalCoroutinesApi::class)
-class TransactionRepositoryImpl @Inject constructor(
+class TransactionRepositoryImpl @Inject internal constructor(
     private val dao: TransactionDao,
     private val firestore: FirestoreDataSource,
     private val authRepository: AuthRepository,
     private val ioDispatcher: CoroutineDispatcher,
-    private val accountDao: AccountDao,
-    private val accountRepository: AccountRepository
+    private val accountRepository: AccountRepository,
+    private val accountUploader: AccountUploader
 ) : TransactionRepository {
     private val mutationMutex = Mutex()
     private val syncScope = CoroutineScope(SupervisorJob() + ioDispatcher)
@@ -221,8 +221,7 @@ class TransactionRepositoryImpl @Inject constructor(
     }
 
     private suspend fun validateAccount(accountId: String?, uid: String) {
-        require(!accountId.isNullOrBlank()) { "Select a bank account" }
-        require(accountDao.getById(accountId)?.userId == uid) { "Bank account not found" }
+        accountRepository.requireOwnedTransactionAccount(accountId, uid)
     }
 
     private suspend fun localWrite(block: suspend (String) -> Unit): Result<Unit> = withContext(ioDispatcher) {
@@ -252,7 +251,7 @@ class TransactionRepositoryImpl @Inject constructor(
         // Await account acknowledgement outside mutationMutex so local saves stay responsive.
         syncScope.launch {
             try {
-                val uploaded = accountRepository.uploadPending(entity.userId) {
+                val uploaded = accountUploader.uploadPending(entity.userId) {
                     mutationMutex.withLock {
                         if (activeUid != entity.userId) {
                             finishWrite(key, attempt, IllegalStateException("User changed before upload"))
@@ -330,4 +329,9 @@ class TransactionRepositoryImpl @Inject constructor(
         const val TAG = "TransactionRepository"
         const val RETRY_INTERVAL_MILLIS = 30_000L
     }
+}
+
+internal suspend fun AccountRepository.requireOwnedTransactionAccount(accountId: String?, uid: String) {
+    require(!accountId.isNullOrBlank()) { "Select a bank account" }
+    require(getAccount(accountId).getOrThrow()?.userId == uid) { "Bank account not found" }
 }

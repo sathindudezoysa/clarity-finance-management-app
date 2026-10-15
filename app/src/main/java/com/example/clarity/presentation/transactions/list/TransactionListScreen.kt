@@ -14,6 +14,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.clarity.R
 import com.example.clarity.domain.model.Transaction
 import com.example.clarity.domain.model.TransactionType
@@ -28,7 +29,7 @@ fun TransactionListScreen(
     onOpen: (String) -> Unit,
     viewModel: TransactionListViewModel = hiltViewModel()
 ) {
-    val state by viewModel.uiState.collectAsState()
+    val state by viewModel.uiState.collectAsStateWithLifecycle()
     TransactionListContent(state, onBack, onAdd, onOpen)
 }
 

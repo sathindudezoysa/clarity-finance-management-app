@@ -5,8 +5,6 @@ import com.example.clarity.domain.util.Resource
 import kotlinx.coroutines.flow.Flow
 
 interface AccountRepository {
-    /** Upload accounts before dependent transactions; invoke the callback only after acknowledgement. */
-    suspend fun uploadPending(uid: String, afterAccounts: suspend () -> Unit = {}): Boolean
     fun observeAccounts(): Flow<Resource<List<Account>>>
     suspend fun createAccount(account: Account): Result<Unit>
     suspend fun updateAccount(account: Account): Result<Unit>
