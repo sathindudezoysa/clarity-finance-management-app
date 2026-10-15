@@ -1,6 +1,8 @@
 package com.example.clarity.domain.usecase.transaction
 
 import com.example.clarity.domain.model.Transaction
+import com.example.clarity.domain.model.TransactionError
+import com.example.clarity.domain.model.TransactionException
 import com.example.clarity.domain.repository.TransactionRepository
 import com.example.clarity.domain.repository.AccountRepository
 import kotlinx.coroutines.CancellationException
@@ -23,14 +25,14 @@ class AddTransactionUseCase @Inject constructor(
         }
         val accountId = normalized.accountId
         if (accountId.isNullOrBlank()) {
-            return Result.failure(IllegalArgumentException("Select a bank account"))
+            return Result.failure(TransactionException(TransactionError.ACCOUNT_REQUIRED, "Select a bank account"))
         }
         val account = accountRepository.getAccount(accountId).getOrElse { error ->
             if (error is CancellationException) throw error
             return Result.failure(error)
         }
         if (account == null) {
-            return Result.failure(IllegalArgumentException("Bank account not found"))
+            return Result.failure(TransactionException(TransactionError.ACCOUNT_NOT_FOUND, "Bank account not found"))
         }
         return repository.addTransaction(normalized)
     }

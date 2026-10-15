@@ -10,6 +10,8 @@ import com.example.clarity.data.mapper.toEntity
 import com.example.clarity.data.remote.AccountRemoteDataSource
 import com.example.clarity.data.sync.AccountUploader
 import com.example.clarity.domain.model.Account
+import com.example.clarity.domain.model.AccountError
+import com.example.clarity.domain.model.AccountException
 import com.example.clarity.domain.repository.AccountRepository
 import com.example.clarity.domain.repository.AuthRepository
 import com.example.clarity.domain.util.Resource
@@ -46,6 +48,9 @@ class AccountRepositoryImpl internal constructor(
     },
     private val warnSkippedAccounts: (List<String>) -> Unit = { ids ->
         Log.w("AccountRepository", "Skipping remote accounts with duplicate names: $ids")
+    },
+    private val warnInvalidTimestamps: (List<String>) -> Unit = { ids ->
+        Log.w("AccountRepository", "Skipping remote accounts with out-of-range timestamps: $ids")
     }
 ) : AccountRepository, AccountUploader {
     @Inject
@@ -64,7 +69,7 @@ class AccountRepositoryImpl internal constructor(
     private data class SyncState(val uid: String?, val warning: String? = null)
     private val syncState = MutableStateFlow(SyncState(null))
     // Survives auth collector restarts so an old batch cannot overtake a newer one after sign-in.
-    private val uploadMutexes = mutableMapOf<String, Mutex>()
+    private val uploadMutex = Mutex()
 
     init {
         syncScope.launch {
@@ -101,7 +106,6 @@ class AccountRepositoryImpl internal constructor(
     }
 
     override suspend fun uploadPending(uid: String, afterAccounts: suspend () -> Unit): Boolean {
-        val uploadMutex = mutationMutex.withLock { uploadMutexes.getOrPut(uid) { Mutex() } }
         // The upload outlives cancellation of the auth listener. Re-signing in cannot
         // send a newer batch while an older Firestore task for this user is unresolved.
         val uploaded = syncScope.async {
@@ -151,14 +155,14 @@ class AccountRepositoryImpl internal constructor(
     }
 
     override suspend fun updateAccount(account: Account): Result<Unit> = localOperation { uid ->
-        require(account.userId == uid) { "Cannot change account owner" }
+        if (account.userId != uid) throw AccountException(AccountError.OWNER_CHANGE, "Cannot change account owner")
         saveAccount(validated(account).toEntity(), create = false)
     }
 
     override suspend fun setDefaultAccount(id: String): Result<Unit> = localOperation { uid ->
         runTransaction {
             val existing = dao.getById(id)
-            require(existing != null && existing.userId == uid) { "Account not found" }
+            if (existing == null || existing.userId != uid) throw AccountException(AccountError.NOT_FOUND, "Account not found")
             if (!existing.isDefault) saveAccountInTransaction(existing.copy(isDefault = true), create = false)
         }
     }
@@ -178,14 +182,19 @@ class AccountRepositoryImpl internal constructor(
     // Reads, validation and both sides of a default switch share one Room transaction.
     private suspend fun saveAccountInTransaction(entity: AccountEntity, create: Boolean) = with(dao) {
         val existing = getById(entity.id)
-        if (create) require(existing == null) { "Account already exists" }
-        else require(existing != null && existing.userId == entity.userId) { "Account not found" }
-        val accounts = getAllForUser(entity.userId)
-        require(entity.name.isNotBlank()) { "Account name must not be blank" }
-        require(accounts.none { it.id != entity.id && it.name.equals(entity.name, ignoreCase = true) }) {
-            "An account with this name already exists"
+        if (create) {
+            if (existing != null) throw AccountException(AccountError.ALREADY_EXISTS, "Account already exists")
+        } else if (existing == null || existing.userId != entity.userId) {
+            throw AccountException(AccountError.NOT_FOUND, "Account not found")
         }
-        require(existing?.isDefault != true || entity.isDefault) { "Select another default account first" }
+        val accounts = getAllForUser(entity.userId)
+        if (entity.name.isBlank()) throw AccountException(AccountError.NAME_BLANK, "Account name must not be blank")
+        if (accounts.any { it.id != entity.id && it.name.equals(entity.name, ignoreCase = true) }) {
+            throw AccountException(AccountError.NAME_DUPLICATE, "An account with this name already exists")
+        }
+        if (existing?.isDefault == true && !entity.isDefault) {
+            throw AccountException(AccountError.DEFAULT_REQUIRED, "Select another default account first")
+        }
         val latest = accounts.maxOfOrNull { it.updatedAt } ?: 0L
         require(latest < Long.MAX_VALUE) { "Account timestamp is out of range" }
         val now = maxOf(System.currentTimeMillis(), latest + 1)
@@ -215,8 +224,10 @@ class AccountRepositoryImpl internal constructor(
         with(dao) {
             val local = getAllForUser(userId)
             val pending = local.any { it.pendingSync }
+            val invalidTimestampIds = remote.filter { it.userId == userId && it.updatedAt >= Long.MAX_VALUE }.map { it.id }
+            if (invalidTimestampIds.isNotEmpty()) warnInvalidTimestamps(invalidTimestampIds)
             val merged = local.associateBy { it.id }.toMutableMap()
-            remote.filter { it.userId == userId }.forEach { incoming ->
+            remote.filter { it.userId == userId && it.updatedAt < Long.MAX_VALUE }.forEach { incoming ->
                 val existing = getById(incoming.id)
                 if (existing != null && existing.userId != userId) return@forEach
                 // A pending default switch is an indivisible group. Cache cannot confirm it.
@@ -255,8 +266,7 @@ class AccountRepositoryImpl internal constructor(
             val selected = defaults.maxWithOrNull(compareBy<AccountEntity> { it.updatedAt }.thenBy { it.id })
                 ?: merged.values.minWith(compareBy<AccountEntity> { it.createdAt }.thenBy { it.id })
             val latest = merged.values.maxOf { it.updatedAt }
-            require(latest < Long.MAX_VALUE) { "Account timestamp is out of range" }
-            val now = maxOf(System.currentTimeMillis(), latest + 1)
+            val now = maxOf(System.currentTimeMillis(), if (latest < Long.MAX_VALUE) latest + 1 else latest)
             val normalized = merged.values.map { account ->
                 val isDefault = account.id == selected.id
                 if (account.isDefault == isDefault) account
@@ -270,17 +280,21 @@ class AccountRepositoryImpl internal constructor(
         val normalized = account.copy(name = account.name.trim(), bankName = account.bankName.trim(),
             accountType = account.accountType?.trim())
         require(normalized.id.isNotBlank() && normalized.id.length <= 128 && '/' !in normalized.id) { "Invalid account id" }
-        require(normalized.name.isNotBlank()) { "Account name must not be blank" }
-        require(normalized.name.length <= 100 && normalized.bankName.length <= 100 &&
-            (normalized.accountType?.length ?: 0) <= 100) { "Account field is too long" }
-        require(normalized.currency.matches(Regex("[A-Z]{3}"))) { "Currency must be a three-letter uppercase code" }
+        if (normalized.name.isBlank()) throw AccountException(AccountError.NAME_BLANK, "Account name must not be blank")
+        if (normalized.name.length > 100 || normalized.bankName.length > 100 ||
+            (normalized.accountType?.length ?: 0) > 100) {
+            throw AccountException(AccountError.FIELD_TOO_LONG, "Account field is too long")
+        }
+        if (!normalized.currency.matches(Regex("[A-Z]{3}"))) {
+            throw AccountException(AccountError.CURRENCY_INVALID, "Currency must be a three-letter uppercase code")
+        }
         return normalized
     }
 
     private suspend fun <T> localOperation(block: suspend (String) -> T): Result<T> = withContext(ioDispatcher) {
         try {
             val uid = authRepository.currentUser.first()?.uid
-                ?: return@withContext Result.failure(IllegalStateException("Please sign in"))
+                ?: return@withContext Result.failure(AccountException(AccountError.SIGN_IN_REQUIRED, "Please sign in"))
             mutationMutex.withLock { Result.success(block(uid)) }
         } catch (error: Exception) {
             if (error is CancellationException) throw error

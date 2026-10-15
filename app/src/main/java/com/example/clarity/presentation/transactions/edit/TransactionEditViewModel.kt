@@ -5,6 +5,10 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.clarity.R
 import com.example.clarity.domain.model.Transaction
+import com.example.clarity.domain.model.AccountError
+import com.example.clarity.domain.model.AccountException
+import com.example.clarity.domain.model.TransactionError
+import com.example.clarity.domain.model.TransactionException
 import com.example.clarity.domain.model.TransactionType
 import com.example.clarity.domain.usecase.transaction.AddTransactionUseCase
 import com.example.clarity.domain.usecase.transaction.GetTransactionUseCase
@@ -126,10 +130,13 @@ class TransactionEditViewModel @Inject constructor(
             result.onSuccess { _uiState.update { it.copy(isSaving = false, isSuccess = true) } }
                 .onFailure { error -> _uiState.update { it.copy(
                     isSaving = false,
-                    error = when (error.message) {
-                        "Please sign in" -> R.string.transactions_sign_in
-                        "Select a bank account" -> R.string.transactions_account_select
-                        "Bank account not found" -> R.string.transactions_account_unavailable
+                    error = when {
+                        error is AccountException && error.error == AccountError.SIGN_IN_REQUIRED -> R.string.transactions_sign_in
+                        error is TransactionException -> when (error.error) {
+                            TransactionError.SIGN_IN_REQUIRED -> R.string.transactions_sign_in
+                            TransactionError.ACCOUNT_REQUIRED -> R.string.transactions_account_select
+                            TransactionError.ACCOUNT_NOT_FOUND -> R.string.transactions_account_unavailable
+                        }
                         else -> R.string.transactions_save_error
                     }
                 ) } }

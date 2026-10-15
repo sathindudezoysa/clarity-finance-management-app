@@ -17,6 +17,8 @@ import com.example.clarity.data.remote.AccountRemoteDataSource
 import com.example.clarity.data.remote.AccountSnapshot
 import com.example.clarity.data.repository.AccountRepositoryImpl
 import com.example.clarity.domain.model.Account
+import com.example.clarity.domain.model.AccountError
+import com.example.clarity.domain.model.AccountException
 import com.example.clarity.domain.model.User
 import com.example.clarity.domain.repository.AuthRepository
 import kotlinx.coroutines.Dispatchers
@@ -67,12 +69,12 @@ class AccountDaoTest {
         try {
             repository.updateAccount(other.copy(name = before.first { it.isDefault }.name, isDefault = true).toDomain()).getOrThrow()
             fail("Duplicate name must be rejected")
-        } catch (_: IllegalArgumentException) { }
+        } catch (error: AccountException) { assertEquals(AccountError.NAME_DUPLICATE, error.error) }
         assertEquals(before, dao.getAllForUser("user-a"))
         try {
             repository.updateAccount(before.first { it.isDefault }.copy(isDefault = false).toDomain()).getOrThrow()
             fail("Clearing the sole default must be rejected")
-        } catch (_: IllegalArgumentException) { }
+        } catch (error: AccountException) { assertEquals(AccountError.DEFAULT_REQUIRED, error.error) }
         assertEquals(before, dao.getAllForUser("user-a"))
     }
 
@@ -88,8 +90,7 @@ class AccountDaoTest {
         ).awaitAll()
         assertEquals(1, results.count { it.isSuccess })
         val failure = results.single { it.isFailure }.exceptionOrNull()
-        assertTrue(failure is IllegalArgumentException)
-        assertEquals("An account with this name already exists", failure!!.message)
+        assertEquals(AccountError.NAME_DUPLICATE, (failure as AccountException).error)
         assertEquals(1, db.accountDao.getAllForUser("user-a").size)
         assertEquals(1, db.accountDao.getAllForUser("user-a").count { it.isDefault })
     }

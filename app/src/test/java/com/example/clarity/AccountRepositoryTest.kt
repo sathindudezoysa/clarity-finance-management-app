@@ -12,9 +12,12 @@ import com.example.clarity.data.remote.AccountSnapshot
 import com.example.clarity.data.repository.AccountRepositoryImpl
 import com.example.clarity.data.sync.AccountUploader
 import com.example.clarity.domain.model.Account
+import com.example.clarity.domain.model.AccountError
+import com.example.clarity.domain.model.AccountException
 import com.example.clarity.domain.model.User
 import com.example.clarity.domain.repository.AuthRepository
 import com.example.clarity.domain.util.Resource
+import com.example.clarity.presentation.accounts.accountErrorResource
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.CoroutineStart
@@ -33,6 +36,7 @@ class AccountRepositoryTest {
     private val auth = FakeAuth()
     private val remote = FakeRemote()
     private val skippedAccountWarnings = mutableListOf<List<String>>()
+    private val invalidTimestampWarnings = mutableListOf<List<String>>()
     private var transactionGate: CompletableDeferred<Unit>? = null
     private var onTransactionStarted: () -> Unit = {}
     private val repository = AccountRepositoryImpl(dao, remote, auth, Dispatchers.Unconfined,
@@ -40,7 +44,8 @@ class AccountRepositoryTest {
             transactionGate?.let { gate -> onTransactionStarted(); gate.await() }
             block()
         }, warnRetainedAccount = { dao.retainedWarnings.add(it) },
-        warnSkippedAccounts = { skippedAccountWarnings.add(it) })
+        warnSkippedAccounts = { skippedAccountWarnings.add(it) },
+        warnInvalidTimestamps = { invalidTimestampWarnings.add(it) })
     private val uploader: AccountUploader = repository
 
     @After
@@ -147,16 +152,41 @@ class AccountRepositoryTest {
         repository.createAccount(account("savings")).getOrThrow()
         val before = dao.getAllForUser("user-a")
         val duplicate = repository.updateAccount(saved("savings").copy(name = " DAILY ", isDefault = true)).exceptionOrNull()
-        assertTrue(duplicate is IllegalArgumentException)
-        assertEquals("An account with this name already exists", duplicate!!.message)
+        assertEquals(AccountError.NAME_DUPLICATE, (duplicate as AccountException).error)
         val blank = repository.createAccount(account("blank", " \t ")).exceptionOrNull()
-        assertTrue(blank is IllegalArgumentException)
-        assertEquals("Account name must not be blank", blank!!.message)
+        assertEquals(AccountError.NAME_BLANK, (blank as AccountException).error)
         val clearDefault = repository.updateAccount(saved("daily").copy(isDefault = false)).exceptionOrNull()
-        assertTrue(clearDefault is IllegalArgumentException)
-        assertEquals("Select another default account first", clearDefault!!.message)
+        assertEquals(AccountError.DEFAULT_REQUIRED, (clearDefault as AccountException).error)
         assertEquals(before, dao.getAllForUser("user-a"))
         assertDefault("daily")
+    }
+
+    @Test
+    fun repositoryReturnsTypedErrorsForOwnershipAuthenticationAndInvalidFields() = runBlocking {
+        repository.createAccount(account("daily")).getOrThrow()
+        suspend fun assertError(expected: AccountError, result: Result<*>) {
+            assertEquals(expected, (result.exceptionOrNull() as AccountException).error)
+        }
+        assertError(AccountError.ALREADY_EXISTS, repository.createAccount(account("daily")))
+        assertError(AccountError.NOT_FOUND, repository.setDefaultAccount("missing"))
+        assertError(AccountError.NOT_FOUND, repository.updateAccount(account("missing").copy(userId = "user-a")))
+        assertError(AccountError.OWNER_CHANGE, repository.updateAccount(saved("daily").copy(userId = "other")))
+        for (invalid in listOf(account("long", "a".repeat(101)), account("long").copy(bankName = "a".repeat(101)),
+            account("long").copy(accountType = "a".repeat(101)))) {
+            assertError(AccountError.FIELD_TOO_LONG, repository.createAccount(invalid))
+        }
+        assertError(AccountError.CURRENCY_INVALID, repository.createAccount(account("currency").copy(currency = "usd")))
+        auth.currentUser.value = null
+        assertError(AccountError.SIGN_IN_REQUIRED, repository.createAccount(account("signed-out")))
+    }
+
+    @Test
+    fun accountErrorResourcesUseTypedErrorsRegardlessOfExceptionMessage() {
+        val fallback = R.string.accounts_save_error
+        assertEquals(R.string.accounts_name_duplicate,
+            accountErrorResource(AccountException(AccountError.NAME_DUPLICATE, "Different log text"), fallback))
+        assertEquals(fallback, accountErrorResource(IllegalArgumentException("An account with this name already exists"), fallback))
+        assertEquals(fallback, accountErrorResource(null, fallback))
     }
 
     @Test
@@ -369,6 +399,39 @@ class AccountRepositoryTest {
         repository.acknowledgeBatch(dao.getAllForUser("user-a"))
         repository.reconcileRemote("user-a", listOf(single), true)
         assertDefault(single.id)
+    }
+
+    @Test
+    fun outOfRangeRemoteTimestampsAreSkippedWithoutDeletingTheLocalCopy() = runBlocking {
+        repository.createAccount(account("daily")).getOrThrow()
+        val local = dao.getById("daily")!!
+        val invalid = local.copy(id = "invalid", name = "Invalid", updatedAt = Long.MAX_VALUE)
+        val invalidReplacement = local.copy(bankName = "Malformed update", updatedAt = Long.MAX_VALUE)
+        val valid = local.copy(id = "savings", name = "Savings", isDefault = false)
+        remote.batches.clear()
+
+        repository.reconcileRemote("user-a", listOf(invalid, invalidReplacement, valid), authoritative = true)
+
+        assertEquals(local, dao.getById(local.id))
+        assertEquals(valid, dao.getById(valid.id))
+        assertNull(dao.getById(invalid.id))
+        assertEquals(listOf(listOf(invalid.id, local.id)), invalidTimestampWarnings)
+        assertDefault(local.id)
+        assertTrue(remote.batches.isEmpty())
+    }
+
+    @Test
+    fun reconciliationSaturatesTimestampWhenExistingLocalDataIsAtTheLimit() = runBlocking {
+        val local = account("daily", default = true).copy(userId = "user-a", updatedAt = Long.MAX_VALUE).toEntity()
+        dao.upsertAll(listOf(local))
+        val incoming = local.copy(id = "savings", name = "Savings", updatedAt = 10)
+
+        repository.reconcileRemote("user-a", listOf(local, incoming), authoritative = true)
+
+        assertEquals(local, dao.getById(local.id))
+        assertEquals(Long.MAX_VALUE, dao.getById(incoming.id)!!.updatedAt)
+        assertDefault(local.id)
+        assertEquals(listOf(listOf(local.id)), invalidTimestampWarnings)
     }
 
     @Test

@@ -2,6 +2,10 @@ package com.example.clarity.domain.model
 
 import java.util.UUID
 
+enum class TransactionError { SIGN_IN_REQUIRED, ACCOUNT_REQUIRED, ACCOUNT_NOT_FOUND }
+
+class TransactionException(val error: TransactionError, message: String? = null) : Exception(message)
+
 data class Transaction(
     val id: String = UUID.randomUUID().toString(),
     val userId: String = "",

@@ -81,7 +81,7 @@ class AccountViewModelTest {
     }
 
     private fun list() = model(AccountListViewModel::class.java) {
-        AccountListViewModel(GetAccountsUseCase(repository), SetDefaultAccountUseCase(repository))
+        AccountListViewModel(GetAccountsUseCase(repository), SetDefaultAccountUseCase(repository), SignedInAuth())
     }
 
     private suspend fun ready(editor: AccountEditViewModel): AccountEditState =

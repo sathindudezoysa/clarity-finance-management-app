@@ -74,7 +74,7 @@ class AccountEditViewModel @Inject constructor(
                 }
             }.onFailure { error ->
                 _uiState.update { it.copy(isLoading = false, canSave = false,
-                    error = accountErrorResource(error.message, R.string.accounts_open_error)) }
+                    error = accountErrorResource(error, R.string.accounts_open_error)) }
             }
         }
     }
@@ -119,7 +119,7 @@ class AccountEditViewModel @Inject constructor(
                 savedStateHandle[KEY_SAVED] = true
                 _uiState.update { it.copy(isSaving = false, isSuccess = true) }
             }.onFailure { error ->
-                val message = accountErrorResource(error.message, R.string.accounts_save_error)
+                val message = accountErrorResource(error, R.string.accounts_save_error)
                 _uiState.update { it.copy(
                     isSaving = false,
                     nameError = message.takeIf { it == R.string.accounts_name_blank || it == R.string.accounts_name_duplicate },

@@ -65,6 +65,7 @@ class TransactionAccountMigrationTest {
                 legacy.execSQL("INSERT INTO transactions VALUES ('$user', '$user', 'EXPENSE', 1250, 'Food', 'Original', 100, 1, 10, 0, 0)")
             }
             legacy.execSQL("INSERT INTO transactions VALUES ('deleted', 'user-a', 'EXPENSE', 1250, 'Food', 'Keep tombstone', 100, 1, 10, 1, 1)")
+            legacy.execSQL("INSERT INTO transactions VALUES ('saturated', 'user-a', 'EXPENSE', 1250, 'Food', '', 100, 1, 9223372036854775807, 0, 0)")
             legacy.version = 4
         }
         var db = open()
@@ -73,7 +74,13 @@ class TransactionAccountMigrationTest {
         assertEquals("daily-b", db.transactionDao.getById("user-b")!!.accountId)
         assertEquals("a-first", db.transactionDao.getById("no-default")!!.accountId)
         assertTrue(userA.pendingSync)
-        assertTrue(userA.updatedAt > 10)
+        assertEquals(11L, userA.updatedAt)
+        assertEquals(11L, db.transactionDao.getById("user-b")!!.updatedAt)
+        assertEquals(11L, db.transactionDao.getById("no-default")!!.updatedAt)
+        val saturated = db.transactionDao.getById("saturated")!!
+        assertEquals(Long.MAX_VALUE, saturated.updatedAt)
+        assertEquals("daily-a", saturated.accountId)
+        assertTrue(saturated.pendingSync)
         assertEquals(1L, userA.createdAt)
         assertEquals("Original", userA.note)
         val noAccount = db.transactionDao.getById("no-accounts")!!
@@ -85,6 +92,7 @@ class TransactionAccountMigrationTest {
         assertEquals("daily-a", tombstone.accountId)
         assertTrue(tombstone.isDeleted)
         assertTrue(tombstone.pendingSync)
+        assertEquals(11L, tombstone.updatedAt)
         assertEquals("Keep tombstone", tombstone.note)
         assertEquals(listOf("Food"), db.transactionTagDao.observeTags("user-a").first())
         db.openHelper.readableDatabase.query("SELECT title FROM sample_table WHERE id = 'sample'").use {
@@ -96,7 +104,7 @@ class TransactionAccountMigrationTest {
         db.close()
         db = open()
         assertEquals(switched, db.transactionDao.observeById("user-a", "user-a").first())
-        assertEquals(5, listOf("user-a", "user-b", "no-default", "no-accounts", "deleted").mapNotNull { db.transactionDao.getById(it) }.size)
+        assertEquals(6, listOf("user-a", "user-b", "no-default", "no-accounts", "deleted", "saturated").mapNotNull { db.transactionDao.getById(it) }.size)
         assertEquals(tombstone, db.transactionDao.getById("deleted"))
     }
 

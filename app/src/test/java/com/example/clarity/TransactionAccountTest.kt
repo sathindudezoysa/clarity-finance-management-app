@@ -6,6 +6,10 @@ import com.example.clarity.data.mapper.toFirestoreMap
 import com.example.clarity.data.mapper.toTransaction
 import com.example.clarity.domain.model.Transaction
 import com.example.clarity.domain.model.Account
+import com.example.clarity.domain.model.AccountError
+import com.example.clarity.domain.model.AccountException
+import com.example.clarity.domain.model.TransactionError
+import com.example.clarity.domain.model.TransactionException
 import com.example.clarity.domain.repository.AccountRepository
 import com.example.clarity.domain.repository.TransactionRepository
 import com.example.clarity.domain.usecase.transaction.AddTransactionUseCase
@@ -64,8 +68,7 @@ class TransactionAccountTest {
                 val repository = RecordingRepository()
                 val accounts = TransactionTestAccounts()
                 val error = save(update, repository, accounts, transaction.copy(accountId = accountId)).exceptionOrNull()
-                assertTrue(error is IllegalArgumentException)
-                assertEquals("Select a bank account", error!!.message)
+                assertEquals(TransactionError.ACCOUNT_REQUIRED, (error as TransactionException).error)
                 assertTrue(accounts.lookups.isEmpty())
                 assertNull(repository.saved)
             }
@@ -79,8 +82,7 @@ class TransactionAccountTest {
                 val repository = RecordingRepository()
                 val accounts = TransactionTestAccounts()
                 val error = save(update, repository, accounts, transaction.copy(accountId = accountId)).exceptionOrNull()
-                assertTrue(error is IllegalArgumentException)
-                assertEquals("Bank account not found", error!!.message)
+                assertEquals(TransactionError.ACCOUNT_NOT_FOUND, (error as TransactionException).error)
                 assertEquals(listOf(accountId), accounts.lookups)
                 assertNull(repository.saved)
             }
@@ -104,7 +106,7 @@ class TransactionAccountTest {
         for (update in listOf(false, true)) {
             val repository = RecordingRepository()
             val accounts = TransactionTestAccounts()
-            val failure = IllegalStateException("Please sign in")
+            val failure = AccountException(AccountError.SIGN_IN_REQUIRED, "Please sign in")
             accounts.failure = failure
             assertSame(failure, save(update, repository, accounts, transaction).exceptionOrNull())
             assertNull(repository.saved)

@@ -11,6 +11,8 @@ import com.example.clarity.data.mapper.toTransaction
 import com.example.clarity.data.remote.FirestoreDataSource
 import com.example.clarity.data.sync.AccountUploader
 import com.example.clarity.domain.model.Transaction
+import com.example.clarity.domain.model.TransactionError
+import com.example.clarity.domain.model.TransactionException
 import com.example.clarity.domain.repository.AuthRepository
 import com.example.clarity.domain.repository.TransactionRepository
 import com.example.clarity.domain.util.Resource
@@ -219,9 +221,9 @@ class TransactionRepositoryImpl @Inject internal constructor(
     private suspend fun localWrite(block: suspend (String) -> Unit): Result<Unit> = withContext(ioDispatcher) {
         try {
             val uid = authRepository.currentUser.first()?.uid
-                ?: return@withContext Result.failure(IllegalStateException("Please sign in"))
+                ?: return@withContext Result.failure(TransactionException(TransactionError.SIGN_IN_REQUIRED, "Please sign in"))
             mutationMutex.withLock {
-                require(activeUid == uid) { "Please sign in" }
+                if (activeUid != uid) throw TransactionException(TransactionError.SIGN_IN_REQUIRED, "Please sign in")
                 block(uid)
             }
             Result.success(Unit)

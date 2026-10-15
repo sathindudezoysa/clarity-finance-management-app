@@ -4,6 +4,8 @@ import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.clarity.R
+import com.example.clarity.domain.model.TransactionError
+import com.example.clarity.domain.model.TransactionException
 import com.example.clarity.domain.usecase.transaction.DeleteTransactionUseCase
 import com.example.clarity.domain.usecase.transaction.GetTransactionUseCase
 import com.example.clarity.domain.usecase.account.GetAccountsUseCase
@@ -59,7 +61,7 @@ class TransactionDetailViewModel @Inject constructor(
             }.onFailure { error ->
                 _uiState.update { it.copy(
                     isDeleting = false,
-                    error = if (error.message == "Please sign in") R.string.transactions_sign_in
+                    error = if (error is TransactionException && error.error == TransactionError.SIGN_IN_REQUIRED) R.string.transactions_sign_in
                     else R.string.transactions_delete_error
                 ) }
             }
