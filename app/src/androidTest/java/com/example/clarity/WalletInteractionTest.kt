@@ -126,6 +126,41 @@ class WalletInteractionTest {
         }
     }
 
+    @Test fun accountEditorWaitsForIdentityAndRecoversWhenAccountArrives() {
+        val repo = InteractionRepository()
+        val ready = repo.wallet.value
+        repo.wallet.value = CashWallet()
+        val store = ViewModelStore()
+        ActivityScenario.launch(ComponentActivity::class.java).use { scenario ->
+            lateinit var vm: BankAccountViewModel
+            scenario.onActivity { activity ->
+                vm = BankAccountViewModel(ObserveCashWalletUseCase(repo), SaveWalletBankAccountUseCase(repo),
+                    ArchiveWalletBankAccountUseCase(repo), GetWalletBankActivityUseCase(repo), SavedStateHandle(mapOf("accountId" to "bank")))
+                store.put("account", vm)
+                activity.setContent { ClarityTheme { BankAccountScreen({}, {}, {}, vm) } }
+            }
+            await { it.text?.toString() == "Bank Account" }
+            scenario.onActivity {
+                assertTrue(vm.uiState.value.isLoading)
+                assertNull(vm.uiState.value.error)
+                repo.wallet.value = CashWallet(ownerId = "a")
+            }
+            awaitScrolled { it.text?.toString() == "This account is not available." }
+            scenario.onActivity { repo.wallet.value = ready }
+            val deadline = SystemClock.uptimeMillis() + 5000
+            while (vm.uiState.value.account == null && SystemClock.uptimeMillis() < deadline) SystemClock.sleep(20)
+            scenario.onActivity {
+                assertNotNull(vm.uiState.value.account)
+                assertNull(vm.uiState.value.error)
+                assertFalse(vm.uiState.value.isLoading)
+                vm.nickname("Retained draft")
+                repo.wallet.value = ready.copy(balanceMinor = BigInteger.TEN)
+            }
+            instrumentation.waitForIdleSync()
+            scenario.onActivity { assertEquals("Retained draft", vm.uiState.value.nickname); store.clear() }
+        }
+    }
+
     private fun walletViewModel(repo: CashWalletRepository, saved: SavedStateHandle) = CashWalletViewModel(
         ObserveCashWalletUseCase(repo), RecordCashTransactionUseCase(repo), TopUpCashWalletUseCase(repo),
         ConfigureWalletTopUpUseCase(repo), AdjustCashBalanceUseCase(repo), saved)

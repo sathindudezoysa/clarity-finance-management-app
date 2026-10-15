@@ -7,6 +7,14 @@
 /.idea/workspace.xml
 /.idea/navEditor.xml
 /.idea/assetWizardSettings.xml
+/.idea/.name
+/.idea/deploymentTargetSelector.xml
+/.idea/gradle.xml
+/.idea/misc.xml
+/.idea/runConfigurations.xml
+/.idea/migrations.xml
+/.idea/inspectionProfiles/
+/.idea/*.bak
 .DS_Store
 /build
 /captures

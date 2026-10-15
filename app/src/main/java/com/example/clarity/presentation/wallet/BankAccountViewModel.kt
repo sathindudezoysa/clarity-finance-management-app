@@ -41,6 +41,8 @@ class BankAccountViewModel @Inject constructor(
             _state.subscriptionCount.map { it > 0 }.distinctUntilChanged().collectLatest { active ->
                 if (active) observeWallet().catch { _state.update { it.copy(isLoading = false, error = "We couldn't load this account. Go back and try again.") } }
                     .collect { wallet ->
+                        // No authenticated snapshot yet: an empty initial value is not a missing account.
+                        if (ownerId == null && wallet.ownerId == null) return@collect
                         if (ownerId != null && ownerId != wallet.ownerId) {
                             sessionValid = false
                             _state.value = BankAccountState(isLoading = false, error = "Your session changed. Go back and sign in again.")
@@ -49,15 +51,16 @@ class BankAccountViewModel @Inject constructor(
                         ownerId = wallet.ownerId
                         val existing = wallet.accounts.firstOrNull { it.id == editingId }
                         if (editingId != null && existing == null) {
-                            _state.update { it.copy(isLoading = false, error = "This account is not available.") }
+                            _state.update { it.copy(account = null, isLoading = false, error = "This account is not available.") }
+                            return@collect
                         } else if (!loaded) {
                             val bank = savedState.get<String>("bankId")?.takeIf { BankCatalog.find(it) != null } ?: existing?.bankId ?: "other"
                             _state.update { it.copy(account = existing, bankId = bank,
                                 nickname = savedState["nickname"] ?: existing?.name.orEmpty(), lastFour = savedState["lastFour"] ?: existing?.lastFour.orEmpty(),
                                 type = savedState["type"] ?: existing?.accountType ?: "SAVINGS", opening = existing?.let { MoneyUtils.formatMinor(it.openingBalanceMinor) } ?: savedState["opening"] ?: "0.00",
-                                isDefault = savedState["default"] ?: existing?.isDefault ?: false, isLoading = false) }
+                                isDefault = savedState["default"] ?: existing?.isDefault ?: false, isLoading = false, error = null) }
                             loaded = true
-                        } else _state.update { it.copy(account = existing) }
+                        } else _state.update { it.copy(account = existing, isLoading = false, error = null) }
                         if (editingId != null) getActivity(editingId).onSuccess { activity -> _state.update { it.copy(activity = activity) } }
                     }
             }

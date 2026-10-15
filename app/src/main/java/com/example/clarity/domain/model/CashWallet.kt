@@ -32,7 +32,8 @@ data class WalletTopUpOption(
     val bankAccountId: String,
     val enabled: Boolean = false,
     val thresholdMinor: Long = 0,
-    val amountMinor: Long = 0
+    val amountMinor: Long = 0,
+    val automaticExecution: Boolean = false
 )
 
 data class CashWallet(
@@ -44,10 +45,26 @@ data class CashWallet(
     val ownerId: String? = null
 )
 
-/** Reminders suggest a review; they never authorize a transfer or cover an expense. */
+/** Automatic execution requires a separately saved opt-in; legacy settings remain reminders. */
 object CashWalletRules {
     fun needsReminder(balance: BigInteger, option: WalletTopUpOption?) =
-        option?.enabled == true && balance < BigInteger.valueOf(option.thresholdMinor)
+        option?.enabled == true && !option.automaticExecution && balance < BigInteger.valueOf(option.thresholdMinor)
+
+    fun needsAutomaticTopUp(balance: BigInteger, option: WalletTopUpOption?) =
+        option?.enabled == true && option.automaticExecution && balance < BigInteger.valueOf(option.thresholdMinor)
+
+    fun automaticTopUpAmount(balance: BigInteger, option: WalletTopUpOption?, bankBalance: BigInteger?, bankActive: Boolean): Long? {
+        if (!needsAutomaticTopUp(balance, option)) return null
+        val amount = requireNotNull(option).amountMinor
+        walletRequire(amount > 0, "Choose an automatic top-up amount greater than zero.")
+        walletRequire(bankActive && bankBalance != null, "The automatic top-up account is unavailable. Choose another account or turn off automatic top-ups.")
+        val transfer = BigInteger.valueOf(amount)
+        walletRequire(requireNotNull(bankBalance) >= transfer, "Your bank balance is not enough for the automatic top-up. Reduce the amount or change your top-up settings.")
+        val after = balance + transfer
+        walletRequire(after >= BigInteger.ZERO, "Your cash balance is not enough. Add cash or reduce the amount.")
+        walletRequire(after <= BigInteger.valueOf(Long.MAX_VALUE), "The wallet balance is too large. Use a smaller amount.")
+        return amount
+    }
 }
 
 class WalletValidationException(message: String) : IllegalArgumentException(message)

@@ -40,7 +40,7 @@ class CashWalletRepositoryImpl @Inject constructor(
                         activity = dao.recentActivity(user.uid).map { it.toWalletActivity() },
                         topUpOption = dao.option(user.uid)?.toWalletOption(),
                         topUpHistory = dao.topUps(user.uid).map {
-                            WalletActivity("transfer:${it.id}", "Bank to cash wallet", it.amountMinor, true,
+                            WalletActivity("transfer:${it.id}", if (it.automatic) "Automatic top-up" else "Bank to cash wallet", it.amountMinor, true,
                                 it.dateEpochMillis, kind = "TRANSFER", bankAccountId = it.bankAccountId)
                         }, ownerId = user.uid
                     )
@@ -82,7 +82,7 @@ class CashWalletRepositoryImpl @Inject constructor(
             walletRequire(dao.account(uid, option.bankAccountId)?.isActive == true, "Choose an active bank account to continue.")
             walletRequire(option.thresholdMinor >= 0 && option.amountMinor > 0, "Enter a minimum balance and a suggested top-up greater than zero.")
         }
-        dao.saveOption(WalletTopUpOptionEntity(uid, option.bankAccountId, option.enabled, option.thresholdMinor, option.amountMinor))
+        dao.saveOption(WalletTopUpOptionEntity(uid, option.bankAccountId, option.enabled, option.thresholdMinor, option.amountMinor, option.automaticExecution))
     }
 
     override suspend fun topUp(bankAccountId: String, amountMinor: Long, operationId: String) = write { uid ->
@@ -124,7 +124,18 @@ class CashWalletRepositoryImpl @Inject constructor(
             note = note.trim(), dateEpochMillis = now, createdAt = now, updatedAt = now)
         database.transactionDao.upsertWithTag(transaction.toEntity().copy(pendingSync = true))
         dao.insertCashLink(WalletCashLinkEntity(uid, transaction.id))
-        // A reminder never authorizes an implicit withdrawal or covers an expense.
+        // The saved automatic-execution opt-in authorizes one recorded withdrawal per cash expense.
+        // Expense, withdrawal, wallet credit, and pending-sync flag commit or roll back together.
+        val option = dao.option(uid)?.toWalletOption()
+        if (type == TransactionType.EXPENSE && option?.enabled == true && option.automaticExecution) {
+            val balanceAfterExpense = dao.balance(uid).value()
+            if (CashWalletRules.needsAutomaticTopUp(balanceAfterExpense, option)) {
+                val bank = dao.account(uid, option.bankAccountId)
+                val available = bank?.let { BigInteger.valueOf(it.openingBalanceMinor) - dao.withdrawn(uid, it.id).value() }
+                val amount = CashWalletRules.automaticTopUpAmount(balanceAfterExpense, option, available, bank?.isActive == true)
+                dao.insertTopUp(WalletTopUpEntity(uid, "auto:${transaction.id}", requireNotNull(bank).id, requireNotNull(amount), now, true))
+            }
+        }
         checkWalletBalance(dao, uid)
     }
 

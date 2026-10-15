@@ -19,6 +19,59 @@ class CashWalletTest {
         assertFalse(CashWalletRules.needsReminder(BigInteger.ZERO, option.copy(enabled = false)))
         assertFalse(CashWalletRules.needsReminder(BigInteger.ZERO, null))
     }
+
+    @Test fun automaticExecutionRequiresExplicitEnabledOptInAndLowBalance() {
+        val automatic = option.copy(automaticExecution = true)
+        assertFalse(CashWalletRules.needsAutomaticTopUp(BigInteger.ZERO, option))
+        assertFalse(CashWalletRules.needsAutomaticTopUp(BigInteger.ZERO, null))
+        assertFalse(CashWalletRules.needsAutomaticTopUp(BigInteger.ZERO, automatic.copy(enabled = false)))
+        assertTrue(CashWalletRules.needsAutomaticTopUp(BigInteger.valueOf(99999), automatic))
+        assertTrue(CashWalletRules.needsAutomaticTopUp(BigInteger.valueOf(-1), automatic))
+        assertFalse(CashWalletRules.needsAutomaticTopUp(BigInteger.valueOf(100000), automatic))
+        assertFalse(CashWalletRules.needsAutomaticTopUp(BigInteger.valueOf(100001), automatic))
+        assertFalse(CashWalletRules.needsReminder(BigInteger.ZERO, automatic))
+    }
+
+    @Test fun automaticTransferPreservesCombinedFundsAfterExpense() {
+        val automatic = WalletTopUpOption("bank", true, 500, 1000, true)
+        val cashAfterExpense = BigInteger.valueOf(300)
+        val bank = BigInteger.valueOf(10000)
+        val amount = CashWalletRules.automaticTopUpAmount(cashAfterExpense, automatic, bank, true)!!
+        assertEquals(1000L, amount)
+        assertEquals(BigInteger.valueOf(10300), (cashAfterExpense + BigInteger.valueOf(amount)) + (bank - BigInteger.valueOf(amount)))
+    }
+
+    @Test fun automaticTransferCanCoverExpenseButCannotLeaveCashNegative() {
+        val automatic = WalletTopUpOption("bank", true, 500, 1000, true)
+        assertEquals(1000L, CashWalletRules.automaticTopUpAmount(BigInteger.valueOf(-500), automatic, BigInteger.valueOf(10000), true))
+        assertTrue(runCatching { CashWalletRules.automaticTopUpAmount(BigInteger.valueOf(-1500), automatic, BigInteger.valueOf(10000), true) }
+            .exceptionOrNull() is WalletValidationException)
+    }
+
+    @Test fun automaticTransferRejectsInsufficientInactiveAndMissingBank() {
+        val automatic = WalletTopUpOption("bank", true, 500, 1000, true)
+        listOf(BigInteger.valueOf(999) to true, BigInteger.valueOf(10000) to false, null to false).forEach { (balance, active) ->
+            assertTrue(runCatching { CashWalletRules.automaticTopUpAmount(BigInteger.ZERO, automatic, balance, active) }
+                .exceptionOrNull() is WalletValidationException)
+        }
+    }
+
+    @Test fun automaticTransferRejectsOverflowAndNonPositiveAmounts() {
+        val maximum = BigInteger.valueOf(Long.MAX_VALUE)
+        val automatic = WalletTopUpOption("bank", true, Long.MAX_VALUE, 5, true)
+        assertTrue(runCatching { CashWalletRules.automaticTopUpAmount(maximum - BigInteger.ONE, automatic, maximum, true) }
+            .exceptionOrNull() is WalletValidationException)
+        listOf(0L, -1L).forEach { amount ->
+            assertTrue(runCatching { CashWalletRules.automaticTopUpAmount(BigInteger.ZERO, automatic.copy(amountMinor = amount), maximum, true) }
+                .exceptionOrNull() is WalletValidationException)
+        }
+    }
+
+    @Test fun reminderModeAndRecoveredBalanceNeverPlanAnAutomaticWithdrawal() {
+        assertNull(CashWalletRules.automaticTopUpAmount(BigInteger.ZERO, option, null, false))
+        val automatic = option.copy(automaticExecution = true)
+        assertNull(CashWalletRules.automaticTopUpAmount(BigInteger.valueOf(100000), automatic, null, false))
+    }
     @Test fun exactSplitSumsCanExceedLongWithoutRounding() {
         val expected = BigInteger.valueOf(Long.MAX_VALUE).multiply(BigInteger.valueOf(2))
         assertEquals(expected, WalletMoneyParts(18446744072L, 1709551614L).value())

@@ -48,6 +48,9 @@ fun CashWalletScreen(
                         Column(Modifier.padding(24.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             Text(stringResource(R.string.wallet_available_balance))
                             Text(walletMoney(state.wallet.balanceMinor), style = MaterialTheme.typography.headlineLarge)
+                            if (state.wallet.topUpOption?.enabled == true) Text(
+                                stringResource(if (state.wallet.topUpOption?.automaticExecution == true) R.string.wallet_execution_active else R.string.wallet_automatic_active),
+                                style = MaterialTheme.typography.bodySmall)
                         }
                     }
                 }
@@ -93,6 +96,11 @@ fun CashWalletScreen(
                                 Switch(state.automaticEnabled, viewModel::setAutomatic, enabled = enabled)
                             }
                             Text(stringResource(R.string.wallet_automatic_explanation))
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(stringResource(R.string.wallet_execute_automatic), Modifier.weight(1f))
+                                Switch(state.automaticExecution, viewModel::setAutomaticExecution, enabled = enabled && state.automaticEnabled)
+                            }
+                            Text(stringResource(R.string.wallet_execution_explanation), style = MaterialTheme.typography.bodySmall)
                             MoneyField(state.threshold, stringResource(R.string.wallet_threshold), enabled, viewModel::setThreshold)
                             MoneyField(state.automaticAmount, stringResource(R.string.wallet_top_up_amount), enabled, viewModel::setAutomaticAmount)
                         } else {
@@ -187,7 +195,7 @@ private fun Feedback(state: CashWalletState) {
 private fun ActivityCard(entry: WalletActivity, onOpen: (String) -> Unit, sourceAccount: String? = null) {
     OutlinedCard(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text(if (entry.kind == "TRANSFER") "Bank → Cash Wallet" else if (entry.kind == "ADJUSTMENT") "Balance adjustment" else entry.title,
+            Text(if (entry.kind == "ADJUSTMENT") "Balance adjustment" else entry.title,
                 style = MaterialTheme.typography.titleMedium)
             sourceAccount?.let { Text("From: $it", style = MaterialTheme.typography.bodySmall) }
             Text("${if (entry.isCredit) "+" else "−"}${walletMoney(entry.amountMinor)}")

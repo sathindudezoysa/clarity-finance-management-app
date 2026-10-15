@@ -18,4 +18,4 @@ fun WalletActivityRow.toWalletActivity(): WalletActivity {
         amountMinor >= 0, dateEpochMillis, transactionId, kind, bankAccountId)
 }
 
-fun WalletTopUpOptionEntity.toWalletOption() = WalletTopUpOption(bankAccountId, enabled, thresholdMinor, amountMinor)
+fun WalletTopUpOptionEntity.toWalletOption() = WalletTopUpOption(bankAccountId, enabled, thresholdMinor, amountMinor, automaticExecution)

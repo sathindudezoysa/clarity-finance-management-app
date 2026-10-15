@@ -14,6 +14,7 @@ data class CashWalletState(
     val note: String = "",
     val selectedBankId: String = "",
     val automaticEnabled: Boolean = false,
+    val automaticExecution: Boolean = false,
     val threshold: String = "0.00",
     val automaticAmount: String = "",
     val error: String? = null,

@@ -11,7 +11,7 @@ import com.example.clarity.data.local.WalletBankTotals
 import com.example.clarity.data.local.WalletActivityRow
 
 @Dao
-interface CashWalletDao {
+interface CashWalletDao : WalletBalanceReader {
     // A cheap invalidation signal, not a version counter. Do not distinctUntilChanged this signal.
     @Query("SELECT EXISTS(SELECT 1 FROM wallet_bank_accounts WHERE userId = :uid) + EXISTS(SELECT 1 FROM wallet_top_ups WHERE userId = :uid) + EXISTS(SELECT 1 FROM wallet_top_up_options WHERE userId = :uid) + EXISTS(SELECT 1 FROM wallet_cash_links WHERE userId = :uid) + EXISTS(SELECT 1 FROM transactions WHERE userId = :uid) + EXISTS(SELECT 1 FROM wallet_adjustments WHERE userId = :uid)")
     fun observeChanges(uid: String): Flow<Long>
@@ -24,9 +24,6 @@ interface CashWalletDao {
     suspend fun option(uid: String): WalletTopUpOptionEntity?
     @Query("SELECT t.* FROM transactions t INNER JOIN wallet_cash_links w ON t.id = w.transactionId AND t.userId = w.userId WHERE t.userId = :uid AND t.isDeleted = 0")
     suspend fun cash(uid: String): List<TransactionEntity>
-
-    @Query("SELECT COALESCE(SUM(value / 1000000000), 0) AS high, COALESCE(SUM(value % 1000000000), 0) AS low FROM (SELECT CASE WHEN t.type = 'INCOME' THEN t.amountMinor ELSE -t.amountMinor END AS value FROM transactions t INNER JOIN wallet_cash_links w ON t.id = w.transactionId AND t.userId = w.userId WHERE t.userId = :uid AND t.isDeleted = 0 UNION ALL SELECT amountMinor AS value FROM wallet_top_ups WHERE userId = :uid UNION ALL SELECT amountMinor AS value FROM wallet_adjustments WHERE userId = :uid)")
-    suspend fun balance(uid: String): WalletMoneyParts
 
     @Query("SELECT COALESCE(SUM(amountMinor / 1000000000),0) AS high, COALESCE(SUM(amountMinor % 1000000000),0) AS low FROM wallet_top_ups WHERE userId = :uid AND bankAccountId = :bankId")
     suspend fun withdrawn(uid: String, bankId: String): WalletMoneyParts
@@ -46,7 +43,7 @@ interface CashWalletDao {
     @Query("SELECT EXISTS(SELECT 1 FROM wallet_cash_links WHERE userId = :uid AND transactionId = :id)")
     suspend fun isCashLink(uid: String, id: String): Boolean
 
-    @Query("SELECT * FROM (SELECT 'cash:' || t.id AS id, t.category AS title, CASE WHEN t.type = 'INCOME' THEN t.amountMinor ELSE -t.amountMinor END AS amountMinor, t.dateEpochMillis, t.type AS kind, t.id AS transactionId, NULL AS bankAccountId FROM transactions t INNER JOIN wallet_cash_links w ON t.id = w.transactionId AND t.userId = w.userId WHERE t.userId = :uid AND t.isDeleted = 0 UNION ALL SELECT 'transfer:' || id AS id, 'Bank to cash wallet' AS title, amountMinor, dateEpochMillis, 'TRANSFER' AS kind, NULL AS transactionId, bankAccountId FROM wallet_top_ups WHERE userId = :uid UNION ALL SELECT 'adjustment:' || id AS id, note AS title, amountMinor, dateEpochMillis, 'ADJUSTMENT' AS kind, NULL AS transactionId, NULL AS bankAccountId FROM wallet_adjustments WHERE userId = :uid) ORDER BY dateEpochMillis DESC, id DESC LIMIT 50")
+    @Query("SELECT * FROM (SELECT 'cash:' || t.id AS id, t.category AS title, CASE WHEN t.type = 'INCOME' THEN t.amountMinor ELSE -t.amountMinor END AS amountMinor, t.dateEpochMillis, t.type AS kind, t.id AS transactionId, NULL AS bankAccountId FROM transactions t INNER JOIN wallet_cash_links w ON t.id = w.transactionId AND t.userId = w.userId WHERE t.userId = :uid AND t.isDeleted = 0 UNION ALL SELECT 'transfer:' || id AS id, CASE WHEN automatic = 1 THEN 'Automatic top-up' ELSE 'Bank to cash wallet' END AS title, amountMinor, dateEpochMillis, 'TRANSFER' AS kind, NULL AS transactionId, bankAccountId FROM wallet_top_ups WHERE userId = :uid UNION ALL SELECT 'adjustment:' || id AS id, note AS title, amountMinor, dateEpochMillis, 'ADJUSTMENT' AS kind, NULL AS transactionId, NULL AS bankAccountId FROM wallet_adjustments WHERE userId = :uid) ORDER BY dateEpochMillis DESC, id DESC LIMIT 50")
     suspend fun recentActivity(uid: String): List<WalletActivityRow>
 
     @Query("SELECT 'transfer:' || id AS id, 'Withdrawal to cash wallet' AS title, -amountMinor AS amountMinor, dateEpochMillis, 'TRANSFER' AS kind, NULL AS transactionId, bankAccountId FROM wallet_top_ups WHERE userId = :uid AND bankAccountId = :id ORDER BY dateEpochMillis DESC, id DESC LIMIT 50")

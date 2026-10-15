@@ -26,6 +26,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.withTimeout
 import org.junit.After
 import org.junit.Assert.*
 import org.junit.Test
@@ -45,7 +46,7 @@ class CashWalletPersistenceTest {
     private fun open(): ClarityDatabase = Room.databaseBuilder(context, ClarityDatabase::class.java, name)
         .addMigrations(com.example.clarity.data.local.TransactionHistoryMigration,
             com.example.clarity.data.local.TransactionTagMigration, CashWalletMigration,
-            com.example.clarity.data.local.WalletCompletionMigration).build().also { database = it }
+            com.example.clarity.data.local.WalletCompletionMigration, com.example.clarity.data.local.WalletAutomationMigration).build().also { database = it }
     private val clock = Clock.fixed(Instant.ofEpochMilli(123456789), ZoneOffset.UTC)
     private fun repository(db: ClarityDatabase) = CashWalletRepositoryImpl(db, auth, Dispatchers.IO, clock)
     @After fun cleanUp() { database?.close(); context.deleteDatabase(name) }
@@ -87,6 +88,120 @@ class CashWalletPersistenceTest {
         assertEquals(BigInteger.ZERO, repo.observeWallet().first().balanceMinor)
     }
 
+    @Test fun optedInAutomaticTopUpCommitsWithExpenseAndConservesCombinedFunds() = runBlocking {
+        context.deleteDatabase(name)
+        val db = open(); val repo = repository(db)
+        repo.saveBankAccount(WalletBankAccountInput("bank", "hnb", "Savings", openingBalanceMinor = 10000)).getOrThrow()
+        repo.adjustCashBalance(2000, "Starting cash", "opening").getOrThrow()
+        repo.configureTopUp(WalletTopUpOption("bank", true, 500, 1000, automaticExecution = true)).getOrThrow()
+        assertTrue(db.cashWalletDao.topUps("a").isEmpty())
+        repo.recordCash(1700, TransactionType.EXPENSE, "Food", "Lunch").getOrThrow()
+        val wallet = repo.observeWallet().first()
+        assertEquals(BigInteger.valueOf(1300), wallet.balanceMinor)
+        assertEquals(BigInteger.valueOf(9000), wallet.accounts.single().balanceMinor)
+        assertEquals(BigInteger.valueOf(10300), wallet.balanceMinor + wallet.accounts.single().balanceMinor)
+        val transfer = db.cashWalletDao.topUps("a").single()
+        assertTrue(transfer.automatic)
+        assertEquals(clock.millis(), transfer.dateEpochMillis)
+        assertTrue(transfer.id.startsWith("auto:"))
+        val records = db.transactionDao.observeAll("a").first()
+        assertEquals(1, records.size)
+        assertEquals("EXPENSE", records.single().type)
+        assertEquals(1700L, records.single().amountMinor)
+        assertTrue(records.single().pendingSync)
+        assertEquals("Automatic top-up", wallet.topUpHistory.single().title)
+        assertFalse(com.example.clarity.domain.model.CashWalletRules.needsReminder(wallet.balanceMinor, wallet.topUpOption))
+    }
+
+    @Test fun failedAutomaticWithdrawalRollsBackExpenseTagsAndTransfer() = runBlocking {
+        context.deleteDatabase(name)
+        val db = open(); val repo = repository(db)
+        repo.addBankAccount("Bank", 100).getOrThrow()
+        val bank = db.cashWalletDao.accounts("a").single().id
+        repo.adjustCashBalance(2000, "Starting", "opening").getOrThrow()
+        repo.configureTopUp(WalletTopUpOption(bank, true, 500, 1000, true)).getOrThrow()
+        assertTrue(repo.recordCash(1700, TransactionType.EXPENSE, "New tag", "").isFailure)
+        assertEquals(BigInteger.valueOf(2000), repo.observeWallet().first().balanceMinor)
+        assertTrue(db.cashWalletDao.topUps("a").isEmpty())
+        assertTrue(db.transactionDao.getPendingForUser("a").isEmpty())
+        assertTrue(db.transactionTagDao.observeTags("a").first().isEmpty())
+    }
+
+    @Test fun automaticTopUpCannotOverdrawWalletAndIsIsolatedByOwner() = runBlocking {
+        context.deleteDatabase(name)
+        val db = open(); val repo = repository(db)
+        repo.addBankAccount("Bank", 10000).getOrThrow()
+        val bank = db.cashWalletDao.accounts("a").single().id
+        repo.configureTopUp(WalletTopUpOption(bank, true, 500, 1000, true)).getOrThrow()
+        assertTrue(repo.recordCash(1500, TransactionType.EXPENSE, "Food", "").isFailure)
+        assertTrue(db.cashWalletDao.topUps("a").isEmpty())
+        assertEquals(BigInteger.ZERO, repo.observeWallet().first().balanceMinor)
+        auth.currentUser.value = User("b", null, null)
+        assertTrue(repo.recordCash(1, TransactionType.EXPENSE, "Food", "").isFailure)
+        assertTrue(db.cashWalletDao.topUps("a").isEmpty())
+        assertTrue(db.cashWalletDao.topUps("b").isEmpty())
+    }
+
+    @Test fun cashWritesImmediatelyInvalidateTheUserScopedSyncOutbox() = runBlocking {
+        context.deleteDatabase(name)
+        val db = open(); val repo = repository(db)
+        assertTrue(db.transactionDao.observePendingForUser("a").first().isEmpty())
+        val next = async(Dispatchers.IO) {
+            withTimeout(5000) { db.transactionDao.observePendingForUser("a").first { it.isNotEmpty() } }
+        }
+        repo.recordCash(1000, TransactionType.INCOME, "Cash", "").getOrThrow()
+        assertEquals(1000L, next.await().single().amountMinor)
+        assertTrue(db.transactionDao.observePendingForUser("b").first().isEmpty())
+    }
+
+    @Test fun concurrentAutomaticExpensesCreateOneWithdrawalPerExpense() = runBlocking {
+        context.deleteDatabase(name)
+        val db = open(); val repo = repository(db)
+        repo.saveBankAccount(WalletBankAccountInput("bank", "hnb", "Savings", openingBalanceMinor = 10000)).getOrThrow()
+        repo.configureTopUp(WalletTopUpOption("bank", true, 1000, 500, true)).getOrThrow()
+        val results = (1..4).map { async(Dispatchers.IO) { repo.recordCash(100, TransactionType.EXPENSE, "Food", "") } }.awaitAll()
+        assertTrue(results.all { it.isSuccess })
+        val wallet = repo.observeWallet().first()
+        assertEquals(BigInteger.valueOf(1100), wallet.balanceMinor)
+        assertEquals(BigInteger.valueOf(8500), wallet.accounts.single().balanceMinor)
+        val transfers = db.cashWalletDao.topUps("a")
+        assertEquals(3, transfers.size)
+        assertEquals(3, transfers.map { it.id }.distinct().size)
+        assertTrue(transfers.all { it.automatic })
+        assertEquals(4, db.transactionDao.getPendingForUser("a").size)
+        db.close()
+        assertTrue(repository(open()).observeWallet().first().topUpOption!!.automaticExecution)
+    }
+
+    @Test fun versionFiveMigrationPreservesReminderWithoutAuthorizingAutomaticWithdrawals() = runBlocking {
+        context.deleteDatabase(name)
+        val helper = androidx.sqlite.db.framework.FrameworkSQLiteOpenHelperFactory().create(
+            androidx.sqlite.db.SupportSQLiteOpenHelper.Configuration.builder(context).name(name)
+                .callback(object : androidx.sqlite.db.SupportSQLiteOpenHelper.Callback(5) {
+                    override fun onCreate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
+                        db.execSQL("CREATE TABLE sample_table (id TEXT NOT NULL PRIMARY KEY, title TEXT NOT NULL, description TEXT NOT NULL)")
+                        com.example.clarity.data.local.TransactionHistoryMigration.migrate(db)
+                        com.example.clarity.data.local.TransactionTagMigration.migrate(db)
+                        CashWalletMigration.migrate(db)
+                        com.example.clarity.data.local.WalletCompletionMigration.migrate(db)
+                        db.execSQL("INSERT INTO wallet_bank_accounts (userId,id,name,openingBalanceMinor) VALUES ('a','bank','Keep bank',50000)")
+                        db.execSQL("INSERT INTO wallet_top_up_options VALUES ('a','bank',1,1000,500)")
+                    }
+                    override fun onUpgrade(db: androidx.sqlite.db.SupportSQLiteDatabase, oldVersion: Int, newVersion: Int) {
+                        error("Fixture must stay at version five")
+                    }
+                }).build())
+        helper.writableDatabase
+        helper.close()
+        val wallet = repository(open()).observeWallet().first()
+        assertTrue(wallet.topUpOption!!.enabled)
+        assertFalse(wallet.topUpOption!!.automaticExecution)
+        assertEquals("Keep bank", wallet.accounts.single().name)
+        assertEquals(BigInteger.valueOf(50000), wallet.accounts.single().balanceMinor)
+        assertEquals(BigInteger.ZERO, wallet.balanceMinor)
+        assertTrue(wallet.topUpHistory.isEmpty())
+    }
+
     @Test fun editingAndDeletingExistingCashTransactionUpdatesWallet() = runBlocking {
         context.deleteDatabase(name)
         val db = open(); val repo = repository(db)
@@ -110,7 +225,7 @@ class CashWalletPersistenceTest {
         val firestore = FirebaseFirestore.getInstance(app).apply { useEmulator("127.0.0.1", 1) }
         try {
             val transactions = TransactionRepositoryImpl(db.transactionDao, FirestoreDataSource(firestore), auth,
-                Dispatchers.Unconfined, db, clock)
+                Dispatchers.Unconfined).apply { this.clock = this@CashWalletPersistenceTest.clock }
             val rows = db.transactionDao.observeAll("a").first()
             val income = rows.single { it.type == "INCOME" }.toDomain()
             val expense = rows.single { it.type == "EXPENSE" }.toDomain()
@@ -276,6 +391,7 @@ class CashWalletPersistenceTest {
         assertEquals(BigInteger.valueOf(700000), wallet.balanceMinor)
         assertEquals(1, wallet.topUpHistory.size)
         assertTrue(wallet.topUpOption!!.enabled)
+        assertFalse(wallet.topUpOption!!.automaticExecution)
         db.openHelper.readableDatabase.query("EXPLAIN QUERY PLAN SELECT amountMinor FROM wallet_top_ups WHERE userId = 'a' AND bankAccountId = 'legacy-bank'").use { cursor ->
             assertTrue(cursor.moveToFirst())
             assertTrue(cursor.getString(3).contains("index_wallet_top_ups_userId_bankAccountId_dateEpochMillis"))

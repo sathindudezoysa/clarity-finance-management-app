@@ -28,7 +28,8 @@ data class WalletCashLinkEntity(val userId: String, val transactionId: String)
 @Entity(tableName = "wallet_top_up_options", primaryKeys = ["userId"])
 data class WalletTopUpOptionEntity(
     val userId: String, val bankAccountId: String, val enabled: Boolean,
-    val thresholdMinor: Long, val amountMinor: Long
+    val thresholdMinor: Long, val amountMinor: Long,
+    @androidx.room.ColumnInfo(defaultValue = "0") val automaticExecution: Boolean = false
 )
 
 @Entity(tableName = "wallet_adjustments", primaryKeys = ["userId", "id"])

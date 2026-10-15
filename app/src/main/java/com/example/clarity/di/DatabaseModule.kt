@@ -29,7 +29,8 @@ object DatabaseModule {
             ClarityDatabase.DATABASE_NAME
         ).addMigrations(com.example.clarity.data.local.TransactionHistoryMigration,
             TransactionTagMigration, com.example.clarity.data.local.CashWalletMigration,
-            com.example.clarity.data.local.WalletCompletionMigration).build()
+            com.example.clarity.data.local.WalletCompletionMigration,
+            com.example.clarity.data.local.WalletAutomationMigration).build()
     }
 
     @Provides

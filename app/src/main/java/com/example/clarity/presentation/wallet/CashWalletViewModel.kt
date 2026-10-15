@@ -69,7 +69,8 @@ class CashWalletViewModel @Inject constructor(
         edit { state ->
             val option = state.wallet.topUpOption
             state.copy(action = action, amount = "", showAddCashChoices = false, showTransferReview = false,
-                automaticEnabled = option?.enabled ?: false, threshold = MoneyUtils.formatMinor(option?.thresholdMinor ?: 0),
+                automaticEnabled = option?.enabled ?: false, automaticExecution = option?.automaticExecution ?: false,
+                threshold = MoneyUtils.formatMinor(option?.thresholdMinor ?: 0),
                 automaticAmount = option?.amountMinor?.let(MoneyUtils::formatMinor).orEmpty(),
                 selectedBankId = option?.bankAccountId?.takeIf { id -> state.wallet.accounts.any { it.id == id && it.isActive } }
                     ?: state.selectedBankId)
@@ -81,6 +82,7 @@ class CashWalletViewModel @Inject constructor(
     fun setNote(value: String) = edit { it.copy(note = value) }
     fun selectBank(value: String) = edit { it.copy(selectedBankId = value, showTransferReview = false) }
     fun setAutomatic(value: Boolean) = edit { it.copy(automaticEnabled = value) }
+    fun setAutomaticExecution(value: Boolean) = edit { it.copy(automaticExecution = value) }
     fun setThreshold(value: String) = edit { it.copy(threshold = value) }
     fun setAutomaticAmount(value: String) = edit { it.copy(automaticAmount = value) }
     fun cancelReview() { if (!_uiState.value.isSaving) { clearDraft(); edit { it.copy(showTransferReview = false) } } }
@@ -124,7 +126,7 @@ class CashWalletViewModel @Inject constructor(
                     if (state.action == WalletAction.EXPENSE) TransactionType.EXPENSE else TransactionType.INCOME, state.category, state.note)
                 WalletAction.AUTOMATIC -> configureTopUp(WalletTopUpOption(state.selectedBankId, state.automaticEnabled,
                     if (state.automaticEnabled) parseMoney(state.threshold) else 0,
-                    if (state.automaticEnabled) parseMoney(state.automaticAmount) else 0))
+                    if (state.automaticEnabled) parseMoney(state.automaticAmount) else 0, state.automaticExecution))
                 WalletAction.ADJUSTMENT -> adjustCash(parseMoney(state.amount), state.note, UUID.randomUUID().toString())
                 WalletAction.TOP_UP -> error("Use transfer review")
             }
