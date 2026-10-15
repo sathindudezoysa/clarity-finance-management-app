@@ -216,7 +216,9 @@ private fun RegisteredAccountSelector(state: CashWalletState, enabled: Boolean, 
             Text(selected?.let { "${it.bankName} — ${it.name}" } ?: stringResource(R.string.wallet_select_bank))
         }
         DropdownMenu(expanded, onDismissRequest = { expanded = false }) {
-            accounts.forEach { bank -> DropdownMenuItem(text = { Column { BankMark(); BankAccountLabel(bank) } },
+            accounts.forEach { bank -> DropdownMenuItem(text = {
+                Text("${bank.bankName} \u2014 ${bank.name}" + (if (bank.lastFour.isBlank()) "" else " \u2022\u2022\u2022\u2022 ${bank.lastFour}") + "\n${walletMoney(bank.balanceMinor)}")
+            }, leadingIcon = { BankMark() },
                 onClick = { onSelect(bank.id); expanded = false }) }
         }
     }

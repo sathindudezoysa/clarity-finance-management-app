@@ -73,7 +73,9 @@ class BankAccountViewModel @Inject constructor(
     fun nickname(value: String) = edit("nickname", value) { it.copy(nickname = value) }
     fun lastFour(value: String) = edit("lastFour", value) { it.copy(lastFour = value) }
     fun type(value: String) = edit("type", value) { it.copy(type = value) }
-    fun opening(value: String) = edit("opening", value) { it.copy(opening = value) }
+    fun opening(value: String) {
+        if (editingId == null) edit("opening", value) { it.copy(opening = value) }
+    }
     fun default(value: Boolean) = edit("default", value) { it.copy(isDefault = value) }
     fun chooseBank(id: String) {
         if (BankCatalog.find(id) != null) edit("bankId", id) { it.copy(bankId = id) }

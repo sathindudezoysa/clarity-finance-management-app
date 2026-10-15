@@ -1,0 +1,107 @@
+name: Clarity AI PR & Breaking Changes Reviewer
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+  issue_comment:
+    types: [created]
+
+permissions:
+  issues: write
+  pull-requests: write
+  contents: read
+
+jobs:
+  ai_pr_review:
+    if: >-
+      github.event.sender.type != 'Bot' &&
+      (github.event_name == 'pull_request' ||
+       (github.event.issue.pull_request && startsWith(github.event.comment.body, '/')))
+    concurrency:
+      group: ai-review-${{ github.event_name }}-${{ github.event.pull_request.number || github.event.issue.number || github.ref }}
+      cancel-in-progress: true
+    runs-on: ubuntu-latest
+    name: Qodo AI Architecture & Bug Review
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Inject Skill File & Breaking Change Rules
+        run: |
+          # Update this path to match where your skill file is located in your repo
+          SKILL_FILE_PATH=".agents/skills/feature-implementation/SKILL.md"
+
+          {
+            echo "EXTRA_INSTRUCTIONS<<EOF"
+            echo "You are a strict Senior Android Architect reviewing a Pull Request for the Clarity app."
+            echo ""
+            echo "CRITICAL OUTPUT REQUIREMENT FOR QODO MERGE:"
+            echo "Report only verified findings in the current diff; an empty findings list is valid when no actionable issue is found. Do not invent issues to meet a minimum count."
+            echo "Return only the tool-requested YAML schema, with no Markdown fences or surrounding commentary."
+            echo "Use consistent two-space indentation. Keys within each finding, including issue_header and issue_content, must align exactly."
+            echo "Before responding, verify that every mapping, sequence, and multiline block is valid YAML."
+            echo "Keep findings concise. Check the registered migration chain and exact money types before alleging missing migrations or precision loss."
+            echo ""
+            echo "### 1. BREAKING CHANGES & MISTAKES TO REPORT IN 'key_issues_to_review':"
+            echo "- Contract & Signature Breaks: Changed method signatures, return types, or deleted functions in Domain UseCases, Repository interfaces, or State classes."
+            echo "- Room Database Breaks: Modified @Entity classes or database schemas without updating the Room database version or providing a Migration."
+            echo "- Firebase / Serialization Breaks: Renamed fields in remote DTOs/Models without @PropertyName annotations."
+            echo "- Navigation Breaks: Changed Jetpack Compose Navigation route strings or argument keys."
+            echo "- Kotlin & Android Mistakes: Unsafe null calls (!!), memory leaks (Context in ViewModel), improper Coroutine scope/Dispatcher usage, missing lifecycle-aware Flow collection, or mutating State directly from Compose UI."
+            echo ""
+            echo "### 2. CLARITY FEATURE IMPLEMENTATION SKILL (STRICT AUDIT):"
+            echo "Audit every file path, package declaration, and import statement against these rules. Report ANY deviation as a 'Skill Violation' item inside 'key_issues_to_review':"
+            if [ -f "$SKILL_FILE_PATH" ]; then
+              cat "$SKILL_FILE_PATH"
+            else
+              echo "Warning: Skill file not found at $SKILL_FILE_PATH"
+            fi
+            echo ""
+            echo "EOF"
+          } >> "$GITHUB_ENV"
+
+      - name: Run Qodo Merge (PR-Agent)
+        uses: Codium-ai/pr-agent@main
+        env:
+          OPENAI_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GOOGLE_AI_STUDIO.GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          
+          # This model completed inference in the failed run; the previous primaries hit daily quotas.
+          # Repository variables allow choosing a model with available quota without editing this workflow.
+          CONFIG.MODEL: ${{ vars.PR_REVIEW_MODEL || 'gemini/gemini-3.5-flash-lite' }}
+          # Retry the working model once if its YAML is malformed, then retain provider fallbacks.
+          CONFIG.FALLBACK_MODELS: ${{ vars.PR_REVIEW_FALLBACK_MODELS || '["gemini/gemini-3.5-flash-lite", "gemini/gemini-3.8-flash", "gemini/gemini-3.6-flash", "gemini/gemini-3-flash-preview"]' }}
+
+          LITELLM.DROP_PARAMS: "true"
+          CONFIG.NUM_RETRIES: "0"
+          CONFIG.RETRY_SAME_MODEL_ON_TIMEOUT: "false"
+          CONFIG.AI_TIMEOUT: "120"
+
+          # Fit the whole PR into 1 request (up to 200K tokens)
+          CONFIG.MAX_MODEL_TOKENS: "200000"
+          CONFIG.CUSTOM_MODEL_MAX_TOKENS: "200000"
+          
+          # Enable BOTH /review (table + key issues) AND /improve (inline code suggestions)
+          GITHUB_ACTION_CONFIG.AUTO_REVIEW: "true"
+          GITHUB_ACTION_CONFIG.AUTO_IMPROVE: "true"
+          GITHUB_ACTION_CONFIG.AUTO_DESCRIBE: "false"
+          GITHUB_ACTION_CONFIG.HANDLE_PUSH_TRIGGER: "true"
+          GITHUB_ACTION_CONFIG.PUSH_COMMANDS: '["/review", "/improve"]'
+          
+          # Ignore generated/binary Android files
+          IGNORE.GLOB: '["*.lock", "*.apk", "*.aab", "*.png", "*.webp", "**/schemas/**", "**/build/**", "gradle/wrapper/**"]'
+          
+          # Reviewer settings: increase max findings so it doesn't hide minor issues
+          PR_REVIEWER.REQUIRE_SCORE_REVIEW: "true"
+          PR_REVIEWER.REQUIRE_SECURITY_REVIEW: "true"
+          PR_REVIEWER.REQUIRE_ESTIMATE_EFFORT_TO_REVIEW: "true"
+          PR_REVIEWER.NUM_MAX_FINDINGS: "8"
+          PR_REVIEWER.EXTRA_INSTRUCTIONS: ${{ env.EXTRA_INSTRUCTIONS }}
+          
+          # Code Suggestions (/improve) settings: lower threshold so it always posts actionable Kotlin suggestions
+          PR_CODE_SUGGESTIONS.NUM_CODE_SUGGESTIONS: "5"
+          PR_CODE_SUGGESTIONS.SUGGESTIONS_SCORE_THRESHOLD: "3"
+          PR_CODE_SUGGESTIONS.MAX_CALLS_PER_PR: "1"
+          PR_CODE_SUGGESTIONS.EXTRA_INSTRUCTIONS: ${{ env.EXTRA_INSTRUCTIONS }}

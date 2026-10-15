@@ -217,6 +217,8 @@ class WalletInteractionTest {
             scenario.onActivity {
                 assertTrue(vm.uiState.value.isLoading)
                 assertNull(vm.uiState.value.error)
+                // A restored draft must survive the first delayed account snapshot.
+                vm.nickname("Restored draft")
                 repo.wallet.value = CashWallet(ownerId = "a")
             }
             awaitScrolled { it.text?.toString() == "This account is not available." }
@@ -227,6 +229,10 @@ class WalletInteractionTest {
                 assertNotNull(vm.uiState.value.account)
                 assertNull(vm.uiState.value.error)
                 assertFalse(vm.uiState.value.isLoading)
+                assertEquals("Restored draft", vm.uiState.value.nickname)
+                val opening = vm.uiState.value.opening
+                vm.opening("99999.00")
+                assertEquals(opening, vm.uiState.value.opening)
                 vm.nickname("Retained draft")
                 repo.wallet.value = ready.copy(balanceMinor = BigInteger.TEN)
             }
