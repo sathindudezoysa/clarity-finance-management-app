@@ -14,6 +14,9 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import com.example.clarity.presentation.auth.register.RegisterScreen
 import com.example.clarity.presentation.main.MainScreen
+import com.example.clarity.presentation.accounts.list.AccountListScreen
+import com.example.clarity.presentation.accounts.edit.AccountEditScreen
+import com.example.clarity.presentation.settings.SettingsScreen
 
 import com.example.clarity.presentation.auth.login.LoginScreen
 
@@ -55,7 +58,8 @@ fun SetupNavGraph(
         composable(route = Screen.Main.route) {
             MainScreen(
                 onNavigateToTransactions = { navController.navigate(Screen.TransactionList.route) },
-                onNavigateToCashWallet = { navController.navigate(Screen.CashWallet.route) }
+                onNavigateToCashWallet = { navController.navigate(Screen.CashWallet.route) },
+                onNavigateToSettings = { navController.navigate(Screen.Settings.route) }
             )
         }
         composable(route = Screen.CashWallet.route) {
@@ -91,6 +95,27 @@ fun SetupNavGraph(
                 selectedBankId = selectedBank
             )
         }
+        composable(route = Screen.Settings.route) {
+            SettingsScreen(
+                onBack = { navController.popBackStack() },
+                onBankAccounts = { navController.navigate(Screen.AccountList.route) },
+                viewModel = hiltViewModel()
+            )
+        }
+        composable(route = Screen.AccountList.route) {
+            AccountListScreen(
+                onBack = { navController.popBackStack() },
+                onAdd = { navController.navigate(Screen.AccountEdit.createRoute()) },
+                onEdit = { id -> navController.navigate(Screen.AccountEdit.createRoute(id)) },
+                viewModel = hiltViewModel()
+            )
+        }
+        composable(
+            route = Screen.AccountEdit.route,
+            arguments = listOf(navArgument("id") { type = NavType.StringType; nullable = true; defaultValue = null })
+        ) {
+            AccountEditScreen(onBack = { navController.popBackStack() }, viewModel = hiltViewModel())
+        }
         composable(route = Screen.TransactionList.route) {
             TransactionListScreen(
                 onBack = { navController.popBackStack() },
@@ -104,7 +129,11 @@ fun SetupNavGraph(
             arguments = listOf(navArgument("id") { type = NavType.StringType })
         ) {
             TransactionDetailScreen(
-                onBack = { navController.popBackStack() },
+                onBack = {
+                    if (!navController.popBackStack()) navController.navigate(Screen.TransactionList.route) {
+                        launchSingleTop = true
+                    }
+                },
                 onEdit = { id -> navController.navigate(Screen.TransactionEdit.createRoute(id)) },
                 viewModel = hiltViewModel()
             )
@@ -113,7 +142,11 @@ fun SetupNavGraph(
             route = Screen.TransactionEdit.route,
             arguments = listOf(navArgument("id") { type = NavType.StringType; nullable = true; defaultValue = null })
         ) {
-            TransactionEditScreen(onBack = { navController.popBackStack() }, viewModel = hiltViewModel())
+            TransactionEditScreen(
+                onBack = { navController.popBackStack() },
+                onCreateAccount = { navController.navigate(Screen.AccountEdit.createRoute()) },
+                viewModel = hiltViewModel()
+            )
         }
     }
 }

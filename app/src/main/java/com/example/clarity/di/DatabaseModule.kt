@@ -3,9 +3,9 @@ package com.example.clarity.di
 import android.content.Context
 import androidx.room.Room
 import com.example.clarity.data.local.ClarityDatabase
+import com.example.clarity.data.local.dao.AccountDao
 import com.example.clarity.data.local.dao.SampleDao
 import com.example.clarity.data.local.dao.TransactionDao
-import com.example.clarity.data.local.TransactionTagMigration
 import com.example.clarity.data.local.dao.TransactionTagDao
 import dagger.Module
 import dagger.Provides
@@ -27,10 +27,7 @@ object DatabaseModule {
             context,
             ClarityDatabase::class.java,
             ClarityDatabase.DATABASE_NAME
-        ).addMigrations(com.example.clarity.data.local.TransactionHistoryMigration,
-            TransactionTagMigration, com.example.clarity.data.local.CashWalletMigration,
-            com.example.clarity.data.local.WalletCompletionMigration,
-            com.example.clarity.data.local.WalletAutomationMigration).build()
+        ).addMigrations(*com.example.clarity.data.local.IntegratedMigrations.all).build()
     }
 
     @Provides
@@ -46,4 +43,8 @@ object DatabaseModule {
     @Provides
     @Singleton
     fun provideTransactionTagDao(database: ClarityDatabase): TransactionTagDao = database.transactionTagDao
+
+    @Provides
+    @Singleton
+    fun provideAccountDao(database: ClarityDatabase): AccountDao = database.accountDao
 }

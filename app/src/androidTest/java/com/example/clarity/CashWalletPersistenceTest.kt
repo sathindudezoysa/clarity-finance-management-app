@@ -46,9 +46,7 @@ class CashWalletPersistenceTest {
     private val auth = TestAuth()
 
     private fun open(): ClarityDatabase = Room.databaseBuilder(context, ClarityDatabase::class.java, name)
-        .addMigrations(com.example.clarity.data.local.TransactionHistoryMigration,
-            com.example.clarity.data.local.TransactionTagMigration, CashWalletMigration,
-            com.example.clarity.data.local.WalletCompletionMigration, com.example.clarity.data.local.WalletAutomationMigration).build().also { database = it }
+        .addMigrations(*com.example.clarity.data.local.IntegratedMigrations.all).build().also { database = it }
     private val clock = Clock.fixed(Instant.ofEpochMilli(123456789), ZoneOffset.UTC)
     private fun repository(db: ClarityDatabase) = CashWalletRepositoryImpl(db, auth, Dispatchers.IO, clock)
     @After fun cleanUp() { database?.close(); context.deleteDatabase(name) }
@@ -227,7 +225,9 @@ class CashWalletPersistenceTest {
         val firestore = FirebaseFirestore.getInstance(app).apply { useEmulator("127.0.0.1", 1) }
         try {
             val transactions = TransactionRepositoryImpl(db.transactionDao, FirestoreDataSource(firestore), auth,
-                Dispatchers.Unconfined, clock)
+                Dispatchers.Unconfined, object : com.example.clarity.data.sync.AccountUploader {
+                    override suspend fun uploadPending(uid: String, afterAccounts: suspend () -> Unit): Boolean { afterAccounts(); return true }
+                }, this, clock)
             val rows = db.transactionDao.observeAll("a").first()
             val income = rows.single { it.type == "INCOME" }.toDomain()
             val expense = rows.single { it.type == "EXPENSE" }.toDomain()
@@ -242,6 +242,7 @@ class CashWalletPersistenceTest {
             assertEquals(BigInteger.valueOf(1000), wallet.observeWallet().first().balanceMinor)
             transactions.deleteTransaction(income.id).getOrThrow()
             assertEquals(BigInteger.ZERO, wallet.observeWallet().first().balanceMinor)
+            transactions.stopSync().join()
         } finally {
             auth.signOut()
             firestore.terminate()

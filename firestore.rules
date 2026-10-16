@@ -4,10 +4,16 @@ rules_version = '2';
 // Required fields: id and userId (strings, immutable, 1..128 characters);
 // type (INCOME or EXPENSE); amountMinor (positive int, minor units);
 // category (string, 1..100); note (string, 0..2000);
+// accountId (optional nullable string, 1..128, referencing an account owned by this user).
 // dateEpochMillis (epoch-millisecond int); createdAt/updatedAt (non-negative ints).
 // createdAt is immutable. Client timestamps permit delayed offline writes;
 // they are not proof of server time. No parent user document is required.
 // Room-only pendingSync/isDeleted fields are excluded from the remote schema.
+// Accounts: users/{uid}/accounts/{accountId}, owner-private. Immutable id/userId (1..128),
+// name (nonblank, <=100), bankName (<=100), optional nullable accountType (<=100),
+// currency (three uppercase letters), isDefault (bool), immutable createdAt and updatedAt (epoch ints).
+// Default pointer: users/{uid}/account_settings/default, accountId (string, 1..128).
+// Room validates unique names; getAfter enforces one default across concurrent batch writes.
 service cloud.firestore {
   match /databases/{database}/documents {
     function isAuthenticated() {
@@ -29,7 +35,7 @@ service cloud.firestore {
     function isValidTransaction(data, transactionId) {
       let fields = ['id', 'userId', 'type', 'amountMinor', 'category', 'note',
                     'dateEpochMillis', 'createdAt', 'updatedAt'];
-      return data.keys().hasAll(fields) && data.keys().hasOnly(fields)
+      return data.keys().hasAll(fields) && data.keys().hasOnly(fields.concat(['accountId']))
         && data.id is string && data.id.size() > 0 && data.id.size() <= 128
         && data.id == transactionId
         && data.userId is string && data.userId.size() > 0 && data.userId.size() <= 128
@@ -40,7 +46,11 @@ service cloud.firestore {
         && data.note is string && data.note.size() <= 2000
         && data.dateEpochMillis is int
         && data.createdAt is int && data.createdAt >= 0
-        && data.updatedAt is int && data.updatedAt >= data.createdAt;
+        && data.updatedAt is int && data.updatedAt >= data.createdAt
+        && (!('accountId' in data) || data.accountId == null
+          || (data.accountId is string && data.accountId.size() > 0 && data.accountId.size() <= 128
+            && !data.accountId.matches('.*[/].*')
+            && getAfter(/databases/$(database)/documents/users/$(data.userId)/accounts/$(data.accountId)).data.userId == data.userId));
     }
 
     match /users/{userId}/transactions/{transactionId} {
@@ -51,6 +61,57 @@ service cloud.firestore {
         && uidNotModified(request.resource.data)
         && request.resource.data.id == resource.data.id
         && request.resource.data.createdAt == resource.data.createdAt;
+    }
+
+    function isValidAccount(data, accountId) {
+      let fields = ['id', 'userId', 'name', 'bankName', 'currency', 'isDefault', 'createdAt', 'updatedAt'];
+      return data.keys().hasAll(fields) && data.keys().hasOnly(fields.concat(['accountType']))
+        && data.id is string && data.id.size() > 0 && data.id.size() <= 128 && data.id == accountId
+        && data.userId is string && data.userId.size() > 0 && data.userId.size() <= 128
+        && uidUnchanged(data)
+        && data.name is string && data.name.size() > 0 && data.name.size() <= 100
+        && data.name.matches('(?s).*[^\\s].*')
+        && data.bankName is string && data.bankName.size() <= 100
+        && (!('accountType' in data) || data.accountType == null
+          || (data.accountType is string && data.accountType.size() <= 100))
+        && data.currency is string && data.currency.matches('[A-Z]{3}')
+        && data.isDefault is bool
+        && data.createdAt is int && data.createdAt >= 0
+        && data.updatedAt is int && data.updatedAt >= data.createdAt;
+    }
+
+    match /users/{userId}/accounts/{accountId} {
+      allow read: if isOwner(userId);
+      allow delete: if isOwner(userId) && !resource.data.isDefault;
+      allow create: if isOwner(userId) && isValidAccount(request.resource.data, accountId)
+        && agreesWithDefault(userId, accountId, request.resource.data);
+      allow update: if isOwner(userId)
+        && isValidAccount(request.resource.data, accountId)
+        && uidNotModified(request.resource.data)
+        && request.resource.data.id == resource.data.id
+        && request.resource.data.createdAt == resource.data.createdAt
+        && agreesWithDefault(userId, accountId, request.resource.data);
+    }
+
+    function agreesWithDefault(userId, accountId, data) {
+      return data.isDefault == (getAfter(
+        /databases/$(database)/documents/users/$(userId)/account_settings/default
+      ).data.accountId == accountId);
+    }
+
+    function isValidDefault(userId, data) {
+      return data.keys().hasAll(['accountId']) && data.keys().hasOnly(['accountId'])
+        && data.accountId is string && data.accountId.size() > 0 && data.accountId.size() <= 128
+        && getAfter(/databases/$(database)/documents/users/$(userId)/accounts/$(data.accountId)).data.isDefault == true
+        && getAfter(/databases/$(database)/documents/users/$(userId)/accounts/$(data.accountId)).data.userId == userId;
+    }
+
+    match /users/{userId}/account_settings/default {
+      allow read: if isOwner(userId);
+      allow create: if isOwner(userId) && isValidDefault(userId, request.resource.data);
+      allow update: if isOwner(userId) && isValidDefault(userId, request.resource.data)
+        && (resource.data.accountId == request.resource.data.accountId
+          || getAfter(/databases/$(database)/documents/users/$(userId)/accounts/$(resource.data.accountId)).data.isDefault == false);
     }
 
     match /{document=**} {

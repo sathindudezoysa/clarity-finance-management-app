@@ -14,6 +14,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.clarity.R
 import com.example.clarity.domain.model.Transaction
 import com.example.clarity.domain.model.TransactionType
@@ -28,7 +29,7 @@ fun TransactionListScreen(
     onOpen: (String) -> Unit,
     viewModel: TransactionListViewModel = hiltViewModel()
 ) {
-    val state by viewModel.uiState.collectAsState()
+    val state by viewModel.uiState.collectAsStateWithLifecycle()
     TransactionListContent(state, onBack, onAdd, onOpen)
 }
 
@@ -75,6 +76,10 @@ private fun TransactionListContent(
                 Card(modifier = Modifier.fillMaxWidth().clickable { onOpen(transaction.id) }) {
                     Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         Text(transaction.category, style = MaterialTheme.typography.titleMedium)
+                        Text(stringResource(R.string.transactions_account_value,
+                            state.accountNames[transaction.accountId] ?: stringResource(
+                                if (transaction.accountId == null) R.string.transactions_account_unassigned
+                                else R.string.transactions_account_unavailable)), style = MaterialTheme.typography.bodyMedium)
                         Text(
                             stringResource(
                                 if (transaction.type == TransactionType.INCOME) R.string.transactions_income_amount

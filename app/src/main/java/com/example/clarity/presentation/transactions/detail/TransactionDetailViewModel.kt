@@ -6,11 +6,14 @@ import androidx.lifecycle.viewModelScope
 import com.example.clarity.R
 import com.example.clarity.domain.usecase.transaction.DeleteTransactionUseCase
 import com.example.clarity.domain.usecase.transaction.GetTransactionUseCase
+import com.example.clarity.domain.usecase.account.GetAccountsUseCase
 import com.example.clarity.domain.util.Resource
+import com.example.clarity.domain.util.isSignInRequired
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
@@ -18,23 +21,34 @@ import javax.inject.Inject
 class TransactionDetailViewModel @Inject constructor(
     savedStateHandle: SavedStateHandle,
     private val getTransaction: GetTransactionUseCase,
-    private val deleteTransaction: DeleteTransactionUseCase
+    private val deleteTransaction: DeleteTransactionUseCase,
+    private val getAccounts: GetAccountsUseCase
 ) : ViewModel() {
-    private val id: String = checkNotNull(savedStateHandle["id"])
-    private val _uiState = MutableStateFlow(TransactionDetailState())
+    // get<String> inserts a throwing cast for malformed saved/navigation state; check the runtime type first.
+    private val id = (savedStateHandle.get<Any?>("id") as? String)
+        ?.takeIf { it.isNotBlank() && it.length <= 128 && '/' !in it }
+    private val _uiState = MutableStateFlow(TransactionDetailState(
+        isLoading = id != null,
+        error = if (id == null) R.string.transactions_not_found else null
+    ))
     val uiState = _uiState.asStateFlow()
 
     init {
-        viewModelScope.launch {
-            getTransaction(id).collect { result ->
+        if (id != null) viewModelScope.launch {
+            combine(getTransaction(id), getAccounts()) { transaction, accounts -> transaction to accounts }.collect { (result, accounts) ->
                 _uiState.update {
+                    val transaction = result.data ?: it.transaction.takeIf {
+                        result is Resource.Loading || (result is Resource.Error && !result.cause.isSignInRequired())
+                    }
+                    val accountName = if (transaction == null) null else if (accounts.data == null) it.accountName
+                        else accounts.data.firstOrNull { account -> account.id == transaction.accountId }?.name
                     when (result) {
-                        is Resource.Loading -> TransactionDetailState()
-                        is Resource.Success -> it.copy(isLoading = false, transaction = result.data, error = null)
+                        is Resource.Loading -> it.copy(isLoading = true, accountName = accountName)
+                        is Resource.Success -> it.copy(isLoading = false, transaction = result.data, error = null, accountName = accountName)
                         is Resource.Error -> it.copy(
-                            isLoading = false, transaction = result.data,
-                            error = if (result.message == "Please sign in") R.string.transactions_sign_in
-                            else R.string.transactions_load_error
+                            isLoading = false, transaction = transaction,
+                            error = if (result.cause.isSignInRequired()) R.string.transactions_sign_in
+                            else R.string.transactions_load_error, accountName = accountName
                         )
                     }
                 }
@@ -42,19 +56,23 @@ class TransactionDetailViewModel @Inject constructor(
         }
     }
 
-    fun showDeleteDialog() { _uiState.update { it.copy(isDeleteDialogVisible = true) } }
+    fun showDeleteDialog() {
+        if (id == null || _uiState.value.transaction == null || _uiState.value.isDeleting) return
+        _uiState.update { it.copy(isDeleteDialogVisible = true) }
+    }
     fun hideDeleteDialog() { _uiState.update { it.copy(isDeleteDialogVisible = false) } }
 
     fun confirmDelete() {
+        val transactionId = id ?: return
         if (_uiState.value.isDeleting || _uiState.value.transaction == null) return
         _uiState.update { it.copy(isDeleting = true, isDeleteDialogVisible = false, error = null) }
         viewModelScope.launch {
-            deleteTransaction(id).onSuccess {
+            deleteTransaction(transactionId).onSuccess {
                 _uiState.update { it.copy(isDeleting = false, isDeleted = true) }
             }.onFailure { error ->
                 _uiState.update { it.copy(
                     isDeleting = false,
-                    error = if (error.message == "Please sign in") R.string.transactions_sign_in
+                    error = if (error.isSignInRequired()) R.string.transactions_sign_in
                     else R.string.transactions_delete_error
                 ) }
             }

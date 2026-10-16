@@ -6,11 +6,17 @@ import com.example.clarity.data.local.entity.TransactionEntity
 import com.example.clarity.data.mapper.toDomain
 import com.example.clarity.data.mapper.toEntity
 import com.example.clarity.data.mapper.toFirestoreMap
+import com.example.clarity.data.mapper.mapFirestoreDocuments
+import com.example.clarity.data.mapper.toTransaction
 import com.example.clarity.data.remote.FirestoreDataSource
+import com.example.clarity.data.sync.AccountUploader
 import com.example.clarity.domain.model.Transaction
+import com.example.clarity.domain.model.TransactionError
+import com.example.clarity.domain.model.TransactionException
 import com.example.clarity.domain.repository.AuthRepository
 import com.example.clarity.domain.repository.TransactionRepository
 import com.example.clarity.domain.util.Resource
+import com.example.clarity.di.ApplicationScope
 import com.google.firebase.firestore.MetadataChanges
 import com.google.firebase.firestore.QuerySnapshot
 import kotlinx.coroutines.*
@@ -20,6 +26,7 @@ import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import javax.inject.Inject
+import javax.inject.Singleton
 
 /**
  * Room alone supplies UI records; its pending flags and tombstones form a durable outbox.
@@ -34,18 +41,19 @@ import javax.inject.Inject
  * Never await Firestore tasks in UI writes; failures are logged and Room retains pending records.
  */
 @OptIn(ExperimentalCoroutinesApi::class)
-class TransactionRepositoryImpl @Inject constructor(
+@Singleton
+class TransactionRepositoryImpl @Inject internal constructor(
     private val dao: TransactionDao,
     private val firestore: FirestoreDataSource,
     private val authRepository: AuthRepository,
     private val ioDispatcher: CoroutineDispatcher,
-    private val clock: java.time.Clock
+    private val accountUploader: AccountUploader,
+    @ApplicationScope applicationScope: CoroutineScope,
+    private val clock: java.time.Clock = java.time.Clock.systemUTC()
 ) : TransactionRepository {
-    // Preserve existing manual wiring while Hilt and tests use an immutable injected clock.
-    constructor(dao: TransactionDao, firestore: FirestoreDataSource, authRepository: AuthRepository,
-        ioDispatcher: CoroutineDispatcher) : this(dao, firestore, authRepository, ioDispatcher, java.time.Clock.systemUTC())
     private val mutationMutex = Mutex()
-    private val syncScope = CoroutineScope(SupervisorJob() + ioDispatcher)
+    // Application ownership keeps synchronization independent of screen subscriptions.
+    private val syncScope = CoroutineScope(applicationScope.coroutineContext + SupervisorJob(applicationScope.coroutineContext[Job]))
     private val users = authRepository.currentUser.distinctUntilChangedBy { it?.uid }
         .shareIn(syncScope, SharingStarted.Eagerly, replay = 1)
     private data class SyncState(val uid: String?, val warning: String? = null)
@@ -112,32 +120,34 @@ class TransactionRepositoryImpl @Inject constructor(
 
     override fun observeTransactions(): Flow<Resource<List<Transaction>>> =
         users.flatMapLatest { user ->
-            if (user == null) flowOf(Resource.Error("Please sign in"))
+            if (user == null) flowOf(Resource.Error("Please sign in",
+                cause = TransactionException(TransactionError.SIGN_IN_REQUIRED, "Please sign in")))
             else combine(
                 dao.observeAll(user.uid), syncState.filter { it.uid == user.uid }
             ) { local, status ->
-                val transactions = local.map { it.toDomain() }
+                val transactions = local.map { it.toDomain().copy(isCash = dao.isWalletCash(user.uid, it.id)) }
                 if (status.warning == null) Resource.Success(transactions)
                 else Resource.Error(status.warning, transactions)
             }.onStart { emit(Resource.Loading()) }
         }.onStart { emit(Resource.Loading()) }.catch { error ->
             if (error is CancellationException) throw error
-            emit(Resource.Error("Unable to load transactions"))
+            emit(Resource.Error("Unable to load transactions", cause = error))
         }.flowOn(ioDispatcher)
 
     override fun observeTransaction(id: String): Flow<Resource<Transaction?>> =
         users.flatMapLatest { user ->
-            if (user == null) flowOf<Resource<Transaction?>>(Resource.Error("Please sign in"))
+            if (user == null) flowOf<Resource<Transaction?>>(Resource.Error("Please sign in",
+                cause = TransactionException(TransactionError.SIGN_IN_REQUIRED, "Please sign in")))
             else combine(
                 dao.observeById(id, user.uid), syncState.filter { it.uid == user.uid }
             ) { local, status ->
-                val transaction = local?.toDomain()
+                val transaction = local?.toDomain()?.copy(isCash = dao.isWalletCash(user.uid, local.id))
                 if (status.warning == null) Resource.Success<Transaction?>(transaction)
                 else Resource.Error<Transaction?>(status.warning, transaction)
             }.onStart { emit(Resource.Loading()) }
         }.onStart { emit(Resource.Loading()) }.catch { error ->
             if (error is CancellationException) throw error
-            emit(Resource.Error("Unable to load transaction"))
+            emit(Resource.Error("Unable to load transaction", cause = error))
         }.flowOn(ioDispatcher)
 
     private fun observeRemote(uid: String): Flow<String?> =
@@ -155,9 +165,10 @@ class TransactionRepositoryImpl @Inject constructor(
                     if (activeUid == uid && generation == listenerGeneration.value) {
                         val authoritative = !snapshot.metadata.isFromCache && !snapshot.metadata.hasPendingWrites()
                         val remoteIds = snapshot.documents.map { it.id }.toSet()
-                        val remote = snapshot.documents.mapNotNull { doc ->
-                            doc.toDomain()?.takeIf { it.userId == uid }?.toEntity()
-                        }
+                        val remote = snapshot.documents.map { it.id to it.data }.mapFirestoreDocuments(
+                            { data, id -> data.toTransaction(id)?.takeIf { it.userId == uid }?.toEntity() },
+                            { id -> Log.w(TAG, "Skipping malformed transaction document $id") }
+                        )
                         val confirmedDeletes = dao.getPendingForUser(uid).filter { entity ->
                             entity.isDeleted && acknowledged[WriteKey(uid, entity.id)] == entity
                         }.map { it.id }.toSet()
@@ -200,6 +211,11 @@ class TransactionRepositoryImpl @Inject constructor(
         }
     }
 
+    override suspend fun isCashTransaction(id: String): Boolean = withContext(ioDispatcher) {
+        val uid = authRepository.currentUser.first()?.uid ?: return@withContext false
+        dao.isWalletCash(uid, id)
+    }
+
     override suspend fun addTransaction(t: Transaction): Result<Unit> = localWrite { uid ->
         require(t.amountMinor > 0) { "Amount must be greater than zero" }
         require(dao.getById(t.id) == null) { "Transaction already exists" }
@@ -215,6 +231,7 @@ class TransactionRepositoryImpl @Inject constructor(
         require(t.userId == existing.userId) { "Cannot change transaction owner" }
         require(t.amountMinor > 0) { "Amount must be greater than zero" }
         require(existing.updatedAt < Long.MAX_VALUE) { "Transaction timestamp is out of range" }
+        require(!dao.isWalletCash(uid, t.id) || t.accountId == null) { "Cash transactions cannot be assigned to a bank account" }
         val entity = t.copy(
             userId = uid, createdAt = existing.createdAt,
             updatedAt = maxOf(clock.millis(), existing.updatedAt + 1)
@@ -232,9 +249,9 @@ class TransactionRepositoryImpl @Inject constructor(
     private suspend fun localWrite(block: suspend (String) -> TransactionEntity): Result<Unit> = withContext(ioDispatcher) {
         try {
             val uid = authRepository.currentUser.first()?.uid
-                ?: return@withContext Result.failure(IllegalStateException("Please sign in"))
+                ?: return@withContext Result.failure(TransactionException(TransactionError.SIGN_IN_REQUIRED, "Please sign in"))
             mutationMutex.withLock {
-                require(activeUid == uid) { "Please sign in" }
+                if (activeUid != uid) throw TransactionException(TransactionError.SIGN_IN_REQUIRED, "Please sign in")
                 val entity = block(uid)
                 require(authRepository.currentUser.first()?.uid == uid) { "Your session changed. Please try again." }
                 dao.persistLocal(entity)
@@ -256,31 +273,48 @@ class TransactionRepositoryImpl @Inject constructor(
         acknowledged.remove(key)
         val attempt = WriteAttempt(entity)
         inFlight[key] = attempt
-        try {
-            val document = firestore.getCollection("users/" + entity.userId + "/transactions").document(entity.id)
-            // Room is the offline queue. Server transactions fail offline and are retried above;
-            // their read/compare/write prevents timestamp-older edits from blindly overwriting.
-            // Neither transaction tasks nor delete tasks are awaited by the local write path.
-            val task = if (entity.isDeleted) document.delete() else document.firestore.runTransaction { transaction ->
-                val snapshot = transaction.get(document)
-                val remote = snapshot.toDomain()
-                require(!snapshot.exists() || (remote != null && remote.userId == entity.userId)) {
-                    "Remote transaction is malformed or belongs to another user"
+        // Await account acknowledgement outside mutationMutex so local saves stay responsive.
+        syncScope.launch {
+            try {
+                val uploaded = accountUploader.uploadPending(entity.userId) {
+                    mutationMutex.withLock {
+                        if (activeUid != entity.userId) {
+                            finishWrite(key, attempt, IllegalStateException("User changed before upload"))
+                        } else {
+                            startRemoteWrite(key, attempt)
+                        }
+                    }
                 }
-                if (remote == null || remote.updatedAt < entity.updatedAt) {
-                    transaction.set(document, entity.toDomain().toFirestoreMap())
-                }
-                Unit
-            }
-            task.addOnSuccessListener { finishWrite(key, attempt, null) }
-            task.addOnFailureListener { error ->
-                Log.w(TAG, "Remote transaction write failed; local change retained for retry", error)
+                if (!uploaded) finishWrite(key, attempt, IllegalStateException("Accounts remain pending"))
+            } catch (error: Exception) {
+                if (error is CancellationException) throw error
+                Log.w(TAG, "Could not queue transaction write; local change retained for retry", error)
                 finishWrite(key, attempt, error)
             }
-        } catch (error: Exception) {
-            inFlight.remove(key)
-            Log.w(TAG, "Could not queue transaction write; local change retained for retry", error)
-            syncState.value = SyncState(entity.userId, "Unable to sync transactions")
+        }
+    }
+
+    private fun startRemoteWrite(key: WriteKey, attempt: WriteAttempt) {
+        val entity = attempt.entity
+        val document = firestore.getCollection("users/" + entity.userId + "/transactions").document(entity.id)
+        // Room is the offline queue. Server transactions fail offline and are retried above;
+        // their read/compare/write prevents timestamp-older edits from blindly overwriting.
+        // Neither transaction tasks nor delete tasks are awaited by the local write path.
+        val task = if (entity.isDeleted) document.delete() else document.firestore.runTransaction { transaction ->
+            val snapshot = transaction.get(document)
+            val remote = snapshot.toDomain()
+            require(!snapshot.exists() || (remote != null && remote.userId == entity.userId)) {
+                "Remote transaction is malformed or belongs to another user"
+            }
+            if (remote == null || remote.updatedAt < entity.updatedAt) {
+                transaction.set(document, entity.toDomain().toFirestoreMap())
+            }
+            Unit
+        }
+        task.addOnSuccessListener { finishWrite(key, attempt, null) }
+        task.addOnFailureListener { error ->
+            Log.w(TAG, "Remote transaction write failed; local change retained for retry", error)
+            finishWrite(key, attempt, error)
         }
     }
 
@@ -315,6 +349,8 @@ class TransactionRepositoryImpl @Inject constructor(
             }
         }
     }
+
+    internal fun stopSync(): Job = checkNotNull(syncScope.coroutineContext[Job]).also { it.cancel() }
 
     private companion object {
         const val TAG = "TransactionRepository"
