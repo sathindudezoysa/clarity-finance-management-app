@@ -31,7 +31,7 @@ fun TransactionTagField(
     Column(modifier) {
         Text(stringResource(R.string.transactions_tag), style = MaterialTheme.typography.labelLarge)
         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            tags.forEach { tag ->
+            tags.forEach { tag -> 
                 FilterChip(
                     selected = value.trim().ifBlank { "General" }.equals(tag, ignoreCase = true),
                     onClick = {

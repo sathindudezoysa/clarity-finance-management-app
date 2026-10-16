@@ -109,5 +109,5 @@ class TransactionAccountMigrationTest {
     }
 
     private fun open() = Room.databaseBuilder(context, ClarityDatabase::class.java, databaseName)
-        .addMigrations(TransactionAccountMigration, TransactionAccountIndexMigration).build().also { database = it }
+        .addMigrations(*com.example.clarity.data.local.IntegratedMigrations.all).build().also { database = it }
 }

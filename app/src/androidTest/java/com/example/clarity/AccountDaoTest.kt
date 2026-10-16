@@ -267,7 +267,7 @@ class AccountDaoTest {
     }
 
     private fun openDatabase() = Room.databaseBuilder(context, ClarityDatabase::class.java, databaseName)
-        .addMigrations(InitialTransactionMigration, TransactionTagMigration, AccountMigration, TransactionAccountMigration, TransactionAccountIndexMigration)
+        .addMigrations(*com.example.clarity.data.local.IntegratedMigrations.all)
         .build().also { database = it }
 
     private fun repository(db: ClarityDatabase, userId: String = "user-a",

@@ -95,6 +95,7 @@ class TransactionEditViewModel @Inject constructor(
 
     // Called with stateLock held; once chosen, even a missing account requires an explicit replacement.
     private fun initializeAccountSelection(state: TransactionEditState): TransactionEditState {
+        if (state.transaction?.isCash == true) return state.copy(selectedAccountId = null, accountError = null)
         var next = state
         if (!selectionInitialized && hasAccountData && !state.isAccountsLoading && !state.isLoading &&
             (!state.isEditMode || state.transaction != null)) {
@@ -133,7 +134,7 @@ class TransactionEditViewModel @Inject constructor(
     fun save(type: TransactionType, amountText: String, category: String, note: String, dateEpochMillis: Long) {
         val transaction = synchronized(stateLock) {
             val state = _uiState.value
-            if (state.isSaving || state.isSuccess || state.isLoading || state.isAccountsLoading) return
+            if (state.isSaving || state.isSuccess || state.isLoading || (state.isAccountsLoading && state.transaction?.isCash != true)) return
             if (state.isEditMode && state.transaction == null) {
                 updateState { it.copy(error = R.string.transactions_not_found) }
                 return
@@ -158,7 +159,7 @@ class TransactionEditViewModel @Inject constructor(
             if (amountError != null || categoryError != null || noteError != null) return
             val saved = (state.transaction ?: Transaction(amountMinor = checkNotNull(amount))).copy(
                 type = type, amountMinor = checkNotNull(amount), category = category, note = note,
-                dateEpochMillis = dateEpochMillis, accountId = state.selectedAccountId
+                dateEpochMillis = dateEpochMillis, accountId = if (state.transaction?.isCash == true) null else state.selectedAccountId
             )
             updateState { it.copy(isSaving = true) }
             saved

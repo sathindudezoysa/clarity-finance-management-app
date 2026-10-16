@@ -5,10 +5,6 @@ import androidx.room.Room
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.example.clarity.data.local.ClarityDatabase
-import com.example.clarity.data.local.TransactionTagMigration
-import com.example.clarity.data.local.AccountMigration
-import com.example.clarity.data.local.TransactionAccountMigration
-import com.example.clarity.data.local.TransactionAccountIndexMigration
 import com.example.clarity.data.local.entity.TransactionEntity
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
@@ -36,7 +32,7 @@ class TransactionTagsPersistenceTest {
 
     private fun openDatabase(): ClarityDatabase = Room.databaseBuilder(
         context, ClarityDatabase::class.java, databaseName
-    ).addMigrations(TransactionTagMigration, AccountMigration, TransactionAccountMigration, TransactionAccountIndexMigration).build().also { database = it }
+    ).addMigrations(*com.example.clarity.data.local.IntegratedMigrations.all).build().also { database = it }
 
     private fun row(id: String, tag: String, description: String = "", user: String = "user-a") =
         TransactionEntity(id, user, "EXPENSE", 1250, tag, description, 100, 1, 10, pendingSync = true)
