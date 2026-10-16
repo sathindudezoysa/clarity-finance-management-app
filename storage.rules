@@ -1,0 +1,28 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    function owns(uid) {
+      return request.auth != null && request.auth.uid == uid;
+    }
+    function validProof() {
+      let data = request.resource;
+      return data.size > 0 && data.size <= 10 * 1024 * 1024
+        && data.contentType in ['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'image/heic', 'image/heif', 'application/pdf']
+        && data.metadata.keys().hasAll(['displayName', 'createdAt', 'revision', 'verifiedAmountMinor'])
+        && data.metadata.keys().hasOnly(['displayName', 'createdAt', 'revision', 'verifiedAmountMinor'])
+        && data.metadata.displayName.size() > 0 && data.metadata.displayName.size() <= 120
+        && data.metadata.createdAt.matches('[0-9]{1,19}')
+        && data.metadata.revision.matches('[0-9]{1,19}')
+        && (data.metadata.verifiedAmountMinor == '' || data.metadata.verifiedAmountMinor.matches('[1-9][0-9]{0,18}'));
+    }
+    // Proof metadata and media share one protected object. No public download URLs are stored.
+    // 'verifiedAmountMinor' records the owner's review, not a trusted OCR/server attestation.
+    match /users/{uid}/transactions/{transactionId}/proofs/{proofId} {
+      allow read: if owns(uid);
+      allow create, update: if owns(uid)
+        && transactionId.matches('[^/]{1,128}') && transactionId != '.' && transactionId != '..'
+        && proofId.matches('[A-Za-z0-9_-]{1,128}') && validProof();
+      allow delete: if owns(uid);
+    }
+  }
+}

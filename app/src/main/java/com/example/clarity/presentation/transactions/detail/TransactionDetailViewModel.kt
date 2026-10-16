@@ -1,5 +1,7 @@
 package com.example.clarity.presentation.transactions.detail
 
+import com.example.clarity.presentation.navigation.transactionIdArgument
+import com.example.clarity.presentation.navigation.TRANSACTION_ID_ARGUMENT
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -25,8 +27,7 @@ class TransactionDetailViewModel @Inject constructor(
     private val getAccounts: GetAccountsUseCase
 ) : ViewModel() {
     // get<String> inserts a throwing cast for malformed saved/navigation state; check the runtime type first.
-    private val id = (savedStateHandle.get<Any?>("id") as? String)
-        ?.takeIf { it.isNotBlank() && it.length <= 128 && '/' !in it }
+    private val id = savedStateHandle.transactionIdArgument()
     private val _uiState = MutableStateFlow(TransactionDetailState(
         isLoading = id != null,
         error = if (id == null) R.string.transactions_not_found else null
