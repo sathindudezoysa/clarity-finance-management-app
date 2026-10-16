@@ -14,4 +14,7 @@ class ClarityApp : Application() {
 
     @Inject
     lateinit var accountRepository: AccountRepository
+
+    @Inject
+    lateinit var transactionProofRepository: com.example.clarity.domain.repository.TransactionProofRepository
 }

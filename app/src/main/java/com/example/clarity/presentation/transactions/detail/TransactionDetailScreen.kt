@@ -66,6 +66,7 @@ fun TransactionDetailScreen(
                     Field(R.string.transactions_updated, formatTransactionTimestamp(transaction.updatedAt))
                     Field(R.string.transactions_id, transaction.id)
                     Field(R.string.transactions_owner, transaction.userId)
+                    com.example.clarity.presentation.transactions.proofs.TransactionProofSection(transaction.amountMinor, !state.isDeleting)
                     Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                         Button(onClick = { onEdit(transaction.id) }, enabled = !state.isDeleting) {
                             Text(stringResource(R.string.transactions_edit))

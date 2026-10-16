@@ -12,8 +12,8 @@ import com.example.clarity.data.local.dao.TransactionTagDao
 import com.example.clarity.data.local.entity.TransactionTagEntity
 
 @Database(
-    entities = [SampleEntity::class, TransactionEntity::class, TransactionTagEntity::class, AccountEntity::class],
-    version = 6,
+    entities = [SampleEntity::class, TransactionEntity::class, TransactionTagEntity::class, AccountEntity::class, com.example.clarity.data.local.entity.TransactionProofEntity::class],
+    version = 8,
     exportSchema = false
 )
 abstract class ClarityDatabase : RoomDatabase() {
@@ -21,6 +21,7 @@ abstract class ClarityDatabase : RoomDatabase() {
     abstract val transactionDao: TransactionDao
     abstract val transactionTagDao: TransactionTagDao
     abstract val accountDao: AccountDao
+    abstract val transactionProofDao: com.example.clarity.data.local.dao.TransactionProofDao
 
     companion object {
         const val DATABASE_NAME = "clarity_db"

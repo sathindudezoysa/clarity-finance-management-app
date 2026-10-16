@@ -32,7 +32,7 @@ object DatabaseModule {
             context,
             ClarityDatabase::class.java,
             ClarityDatabase.DATABASE_NAME
-        ).addMigrations(InitialTransactionMigration, TransactionTagMigration, AccountMigration, TransactionAccountMigration, TransactionAccountIndexMigration).build()
+        ).addMigrations(InitialTransactionMigration, TransactionTagMigration, AccountMigration, TransactionAccountMigration, TransactionAccountIndexMigration, com.example.clarity.data.local.TransactionProofMigration(), com.example.clarity.data.local.TransactionProofMigration(7)).build()
     }
 
     @Provides

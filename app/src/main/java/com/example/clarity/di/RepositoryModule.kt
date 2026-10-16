@@ -41,6 +41,14 @@ abstract class RepositoryModule {
 
     @Binds
     @Singleton
+    abstract fun bindTransactionProofRepository(impl: com.example.clarity.data.repository.TransactionProofRepositoryImpl): com.example.clarity.domain.repository.TransactionProofRepository
+
+    @Binds
+    @Singleton
+    abstract fun bindProofRemoteDataSource(impl: com.example.clarity.data.remote.FirebaseProofDataSource): com.example.clarity.data.remote.ProofRemoteDataSource
+
+    @Binds
+    @Singleton
     abstract fun bindSampleRepository(
         impl: SampleRepositoryImpl
     ): SampleRepository
