@@ -1,5 +1,7 @@
 package com.example.clarity.presentation.transactions.proofs
 
+import com.example.clarity.presentation.navigation.transactionIdArgument
+import com.example.clarity.domain.model.ProofPolicy
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -22,7 +24,7 @@ class TransactionProofViewModel @Inject constructor(
     private val verify: VerifyReceiptAmountUseCase,
     private val refresh: RefreshTransactionProofsUseCase
 ) : ViewModel() {
-    private val id = (savedState.get<Any?>("id") as? String)?.takeIf { runCatching { com.example.clarity.domain.model.ProofPolicy.requireId(it) }.isSuccess }
+    private val id = savedState.transactionIdArgument()?.takeIf { runCatching { ProofPolicy.requireId(it) }.isSuccess }
     private val state = MutableStateFlow(TransactionProofState())
     val uiState = state.asStateFlow()
     private val opens = Channel<ProofOpenFile>(Channel.BUFFERED)

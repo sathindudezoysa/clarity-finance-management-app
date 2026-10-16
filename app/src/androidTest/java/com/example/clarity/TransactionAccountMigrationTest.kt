@@ -1,5 +1,6 @@
 package com.example.clarity
 
+import com.example.clarity.data.local.TransactionProofMigration
 import android.database.sqlite.SQLiteDatabase
 import androidx.room.Room
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -109,5 +110,5 @@ class TransactionAccountMigrationTest {
     }
 
     private fun open() = Room.databaseBuilder(context, ClarityDatabase::class.java, databaseName)
-        .addMigrations(TransactionAccountMigration, TransactionAccountIndexMigration, com.example.clarity.data.local.TransactionProofMigration()).build().also { database = it }
+        .addMigrations(TransactionAccountMigration, TransactionAccountIndexMigration, TransactionProofMigration()).build().also { database = it }
 }

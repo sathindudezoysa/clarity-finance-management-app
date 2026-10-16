@@ -1,20 +1,18 @@
 package com.example.clarity.data.repository
 
-import android.util.Log
 import androidx.room.withTransaction
 import com.example.clarity.data.local.ClarityDatabase
 import com.example.clarity.data.local.ProofFileStore
+import com.example.clarity.data.sync.ProofSyncProcessor
+import com.example.clarity.data.local.entity.TransactionEntity
 import com.example.clarity.data.local.entity.TransactionProofEntity
 import com.example.clarity.data.mapper.toDomain
 import com.example.clarity.data.remote.ProofRemoteDataSource
-import com.example.clarity.di.ApplicationScope
 import com.example.clarity.domain.model.*
 import com.example.clarity.domain.repository.AuthRepository
 import com.example.clarity.domain.repository.TransactionProofRepository
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
 import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -27,30 +25,9 @@ class TransactionProofRepositoryImpl @Inject constructor(
     private val remote: ProofRemoteDataSource,
     private val auth: AuthRepository,
     private val ioDispatcher: CoroutineDispatcher,
-    @ApplicationScope applicationScope: CoroutineScope
+    private val sync: ProofSyncProcessor
 ) : TransactionProofRepository {
     private val dao get() = database.transactionProofDao
-    private val syncMutex = Mutex()
-
-    init {
-        applicationScope.launch {
-            auth.currentUser.distinctUntilChangedBy { it?.uid }.collectLatest { user ->
-                if (user == null) return@collectLatest
-                val tick = flow { while (currentCoroutineContext().isActive) { emit(Unit); delay(30_000) } }
-                combine(dao.observePending(user.uid), tick) { pending, _ -> pending }.conflate().collect { pending ->
-                    for (row in pending) {
-                        try {
-                            syncMutex.withLock { upload(row) }
-                        } catch (error: Exception) {
-                            if (error is CancellationException) throw error
-                            Log.w("ProofSync", "Proof upload pending; will retry", error)
-                        }
-                    }
-                }
-            }
-        }
-    }
-
     override fun observeProofs(transactionId: String): Flow<List<TransactionProof>> =
         auth.currentUser.distinctUntilChangedBy { it?.uid }.flatMapLatest { user ->
             if (user == null) flowOf(emptyList())
@@ -106,8 +83,8 @@ class TransactionProofRepositoryImpl @Inject constructor(
     override suspend fun refresh(transactionId: String) = operation {
         val uid = owner()
         availableTransaction(uid, transactionId)
-        syncMutex.withLock {
-            dao.observePending(uid).first().filter { it.transactionId == transactionId }.forEach { upload(it) }
+        sync.withSync {
+            dao.observePending(uid).first().filter { it.transactionId == transactionId }.forEach { sync.upload(it) }
             val rows = remote.list(uid, transactionId)
             database.withTransaction {
                 requireOwner(uid)
@@ -121,24 +98,9 @@ class TransactionProofRepositoryImpl @Inject constructor(
         }
     }
 
-    private suspend fun upload(pending: TransactionProofEntity) {
-        val row = dao.get(pending.userId, pending.transactionId, pending.id) ?: return
-        if (!row.pendingUpload) return
-        requireOwner(row.userId)
-        val transaction = database.transactionDao.getById(row.transactionId)
-        if (transaction?.userId != row.userId || transaction.isDeleted) return
-        val file = files.file(row.userId, row.id)
-        if (!file.isFile) remote.download(row, file)
-        requireOwner(row.userId)
-        remote.upload(row, file)
-        requireOwner(row.userId)
-        // Verification edits made during an upload remain in the durable outbox.
-        dao.acknowledge(row.userId, row.transactionId, row.id, row.revision)
-    }
-
     private suspend fun owner(): String = requireNotNull(auth.currentUser.first()?.uid) { "Please sign in" }
     private suspend fun requireOwner(uid: String) = check(auth.currentUser.first()?.uid == uid) { "Your session changed" }
-    private suspend fun availableTransaction(uid: String, id: String): com.example.clarity.data.local.entity.TransactionEntity {
+    private suspend fun availableTransaction(uid: String, id: String): TransactionEntity {
         ProofPolicy.requireId(id)
         return requireNotNull(database.transactionDao.getById(id)?.takeIf { it.userId == uid && !it.isDeleted }) { "Transaction is unavailable" }
     }

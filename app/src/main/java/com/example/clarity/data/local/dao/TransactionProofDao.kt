@@ -9,8 +9,11 @@ interface TransactionProofDao {
     @Query("SELECT * FROM transaction_proofs WHERE userId = :uid AND transactionId = :transactionId ORDER BY createdAt, id")
     fun observe(uid: String, transactionId: String): Flow<List<TransactionProofEntity>>
 
-    @Query("SELECT * FROM transaction_proofs WHERE userId = :uid AND pendingUpload = 1 ORDER BY createdAt, id")
+    @Query("SELECT p.* FROM transaction_proofs p WHERE p.userId = :uid AND p.pendingUpload = 1 AND EXISTS (SELECT 1 FROM transactions t WHERE t.id = p.transactionId AND t.userId = p.userId AND t.isDeleted = 0) ORDER BY p.createdAt, p.id")
     fun observePending(uid: String): Flow<List<TransactionProofEntity>>
+
+    @Query("SELECT p.* FROM transaction_proofs p WHERE p.userId = :uid AND p.pendingUpload = 1 AND EXISTS (SELECT 1 FROM transactions t WHERE t.id = p.transactionId AND t.userId = p.userId AND t.isDeleted = 0) ORDER BY p.createdAt, p.id")
+    suspend fun pending(uid: String): List<TransactionProofEntity>
 
     @Query("SELECT * FROM transaction_proofs WHERE userId = :uid AND transactionId = :transactionId AND id = :id")
     suspend fun get(uid: String, transactionId: String, id: String): TransactionProofEntity?

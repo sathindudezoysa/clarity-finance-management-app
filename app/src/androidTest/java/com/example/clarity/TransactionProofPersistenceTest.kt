@@ -10,6 +10,7 @@ import androidx.test.platform.app.InstrumentationRegistry
 import com.example.clarity.data.local.*
 import com.example.clarity.data.local.entity.*
 import com.example.clarity.data.remote.ProofRemoteDataSource
+import com.example.clarity.data.sync.ProofSyncProcessor
 import com.example.clarity.data.repository.TransactionProofRepositoryImpl
 import com.example.clarity.domain.model.User
 import com.example.clarity.domain.repository.AuthRepository
@@ -69,7 +70,8 @@ class TransactionProofPersistenceTest {
         val importedIds = mutableListOf<String>()
         try {
             db.transactionDao.upsertWithTag(TransactionEntity("transaction", "owner", "EXPENSE", 1250, "Hobby", "Paint", 100, 1, 10))
-            val repository = TransactionProofRepositoryImpl(db, files, remote, auth, Dispatchers.IO, scope)
+            val repository = TransactionProofRepositoryImpl(db, files, remote, auth, Dispatchers.IO,
+                ProofSyncProcessor(db, files, remote, auth, Dispatchers.IO))
             for ((extension, bytes) in listOf("pdf" to "%PDF-1.4 receipt".toByteArray(), "jpg" to byteArrayOf(0xff.toByte(), 0xd8.toByte(), 0xff.toByte(), 1))) {
                 val source = File(context.cacheDir, "proof-previews/fixture-${UUID.randomUUID()}.$extension").apply { parentFile!!.mkdirs(); writeBytes(bytes) }
                 try {
@@ -80,6 +82,8 @@ class TransactionProofPersistenceTest {
                     assertTrue(proof.pendingUpload)
                     assertFalse(proof.verifies(1250))
                     val opened = repository.open("transaction", proof.id).getOrThrow()
+                    assertEquals("${context.packageName}.proofs", android.net.Uri.parse(opened.uri).authority)
+                    assertEquals(proof.mimeType, context.contentResolver.getType(android.net.Uri.parse(opened.uri)))
                     assertArrayEquals(bytes, context.contentResolver.openInputStream(android.net.Uri.parse(opened.uri))!!.use { it.readBytes() })
                     source.delete() // Reopening no longer depends on the original picker URI.
                     repository.open("transaction", proof.id).getOrThrow()
@@ -107,6 +111,32 @@ class TransactionProofPersistenceTest {
             importedIds.forEach { files.file("owner", it).delete() }
             db.close()
         }
+    }
+
+    @Test fun backgroundUploadsRetryWithoutLosingVerificationAndIgnoreDeletedTransactions() = runBlocking {
+        val db = Room.inMemoryDatabaseBuilder(context, ClarityDatabase::class.java).build()
+        val files = ProofFileStore(context)
+        val id = UUID.randomUUID().toString()
+        try {
+            db.transactionDao.upsert(TransactionEntity("transaction", "owner", "EXPENSE", 1250, "Hobby", "Paint", 100, 1, 10))
+            val row = TransactionProofEntity("owner", "transaction", id, "Receipt.pdf", "application/pdf", 8, 1, 1250, true, 2)
+            files.file("owner", id).writeText("%PDF-1.4")
+            db.transactionProofDao.upsert(row)
+            val auth = TestAuth()
+            val remote = FakeRemote()
+            val processor = ProofSyncProcessor(db, files, remote, auth, Dispatchers.IO)
+            assertFalse(processor.syncPending("owner"))
+            assertTrue(db.transactionProofDao.get("owner", "transaction", id)!!.pendingUpload)
+            remote.offline = false
+            assertTrue(processor.syncPending("owner"))
+            assertEquals(1250L, remote.rows.getValue(id).verifiedAmountMinor)
+            assertFalse(db.transactionProofDao.get("owner", "transaction", id)!!.pendingUpload)
+            db.transactionProofDao.upsert(row.copy(revision = 3))
+            db.transactionDao.upsert(db.transactionDao.getById("transaction")!!.copy(isDeleted = true))
+            assertTrue(db.transactionProofDao.pending("owner").isEmpty())
+            assertTrue(processor.syncPending("owner"))
+            assertEquals(2L, remote.rows.getValue(id).revision)
+        } finally { files.file("owner", id).delete(); db.close() }
     }
 
     @Test fun uploadAcknowledgementCannotClearANewerVerificationEdit() = runBlocking {

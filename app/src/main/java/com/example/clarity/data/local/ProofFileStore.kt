@@ -54,6 +54,8 @@ class ProofFileStore @Inject constructor(@ApplicationContext private val context
         } catch (error: Exception) { target.delete(); throw error }
     }
 
+    fun prunePreviews() = ProofPreviewCache.prune(File(context.cacheDir, "proof-previews"))
+
     fun share(uid: String, id: String, mimeType: String, displayName: String): String {
         val source = file(uid, id)
         require(source.isFile) { "This proof is unavailable" }
@@ -64,7 +66,13 @@ class ProofFileStore @Inject constructor(@ApplicationContext private val context
             else -> error("Unsupported proof type")
         }
         val target = File(context.cacheDir, "proof-previews/$owner/$id.$extension").also { it.parentFile!!.mkdirs() }
-        source.copyTo(target, overwrite = true)
+        val root = File(context.cacheDir, "proof-previews")
+        ProofPreviewCache.prune(root, keep = target)
+        if (!target.isFile || target.length() != source.length() || target.lastModified() < source.lastModified()) {
+            source.copyTo(target, overwrite = true)
+        }
+        target.setLastModified(System.currentTimeMillis())
+        ProofPreviewCache.prune(root, keep = target)
         return FileProvider.getUriForFile(context, "${context.packageName}.proofs", target, displayName).toString()
     }
 }

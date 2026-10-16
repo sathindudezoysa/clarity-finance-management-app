@@ -1,5 +1,6 @@
 package com.example.clarity.data.remote
 
+import com.example.clarity.data.local.ProofFileSignature
 import android.net.Uri
 import com.example.clarity.data.local.entity.TransactionProofEntity
 import com.example.clarity.domain.model.ProofPolicy
@@ -59,7 +60,7 @@ class FirebaseProofDataSource @Inject constructor() : ProofRemoteDataSource {
     override suspend fun download(proof: TransactionProofEntity, destination: File): Unit = request {
         val bytes = reference(proof).getBytes(ProofPolicy.MAX_BYTES).await()
         ProofPolicy.validate(proof.mimeType, bytes.size.toLong())
-        require(com.example.clarity.data.local.ProofFileSignature.matches(proof.mimeType, bytes)) { "Invalid proof contents" }
+        require(ProofFileSignature.matches(proof.mimeType, bytes)) { "Invalid proof contents" }
         val temporary = File(destination.parentFile, destination.name + "." + java.util.UUID.randomUUID() + ".download")
         try {
             temporary.writeBytes(bytes)
