@@ -1,5 +1,6 @@
 package com.example.clarity.di
 
+import com.example.clarity.data.local.ProofRecoveryMigration
 import com.example.clarity.data.local.TransactionProofMigration
 import android.content.Context
 import androidx.room.Room
@@ -33,7 +34,7 @@ object DatabaseModule {
             context,
             ClarityDatabase::class.java,
             ClarityDatabase.DATABASE_NAME
-        ).addMigrations(InitialTransactionMigration, TransactionTagMigration, AccountMigration, TransactionAccountMigration, TransactionAccountIndexMigration, TransactionProofMigration(), TransactionProofMigration(7)).build()
+        ).addMigrations(InitialTransactionMigration, TransactionTagMigration, AccountMigration, TransactionAccountMigration, TransactionAccountIndexMigration, TransactionProofMigration(), ProofRecoveryMigration, TransactionProofMigration(7)).build()
     }
 
     @Provides

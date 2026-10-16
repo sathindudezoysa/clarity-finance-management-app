@@ -5,6 +5,7 @@ import android.net.Uri
 import com.example.clarity.data.local.entity.TransactionProofEntity
 import com.example.clarity.domain.model.ProofPolicy
 import com.google.firebase.storage.FirebaseStorage
+import com.google.firebase.storage.StorageException
 import com.google.firebase.storage.StorageMetadata
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.tasks.await
@@ -23,14 +24,25 @@ class FirebaseProofDataSource @Inject constructor() : ProofRemoteDataSource {
 
     override suspend fun upload(proof: TransactionProofEntity, file: File): Unit = request {
         ProofPolicy.requireId(proof.id)
-        val metadata = StorageMetadata.Builder().setContentType(proof.mimeType)
+        val task = reference(proof).putFile(Uri.fromFile(file), metadata(proof))
+        try { task.await() } catch (cancel: CancellationException) { task.cancel(); throw cancel }
+        Unit
+    }
+
+    private fun metadata(proof: TransactionProofEntity) = StorageMetadata.Builder().setContentType(proof.mimeType)
             .setCustomMetadata("displayName", proof.displayName)
             .setCustomMetadata("createdAt", proof.createdAt.toString())
             .setCustomMetadata("revision", proof.revision.toString())
             .setCustomMetadata("verifiedAmountMinor", proof.verifiedAmountMinor?.toString().orEmpty()).build()
-        val task = reference(proof).putFile(Uri.fromFile(file), metadata)
-        try { task.await() } catch (cancel: CancellationException) { task.cancel(); throw cancel }
-        Unit
+
+    override suspend fun updateMetadata(proof: TransactionProofEntity): Boolean = request {
+        ProofPolicy.requireId(proof.id)
+        try {
+            reference(proof).updateMetadata(metadata(proof)).await()
+            true
+        } catch (error: StorageException) {
+            if (error.errorCode == StorageException.ERROR_OBJECT_NOT_FOUND) false else throw error
+        }
     }
 
     override suspend fun list(uid: String, transactionId: String): List<TransactionProofEntity> = request {
@@ -58,12 +70,22 @@ class FirebaseProofDataSource @Inject constructor() : ProofRemoteDataSource {
     }
 
     override suspend fun download(proof: TransactionProofEntity, destination: File): Unit = request {
-        val bytes = reference(proof).getBytes(ProofPolicy.MAX_BYTES).await()
-        ProofPolicy.validate(proof.mimeType, bytes.size.toLong())
-        require(ProofFileSignature.matches(proof.mimeType, bytes)) { "Invalid proof contents" }
-        val temporary = File(destination.parentFile, destination.name + "." + java.util.UUID.randomUUID() + ".download")
+        val ref = reference(proof)
+        val metadata = ref.metadata.await()
+        ProofPolicy.validate(proof.mimeType, metadata.sizeBytes)
+        require(metadata.contentType == proof.mimeType) { "Unexpected proof type" }
+        val parent = requireNotNull(destination.parentFile) { "Proof directory is unavailable" }
+        check(parent.isDirectory || parent.mkdirs()) { "Could not create proof directory" }
+        val temporary = File(parent, destination.name + "." + java.util.UUID.randomUUID() + ".download")
+        val task = ref.getFile(temporary)
+        task.addOnProgressListener { snapshot ->
+            if (snapshot.bytesTransferred > ProofPolicy.MAX_BYTES || snapshot.totalByteCount > ProofPolicy.MAX_BYTES) task.cancel()
+        }
         try {
-            temporary.writeBytes(bytes)
+            try { task.await() } catch (cancel: CancellationException) { task.cancel(); throw cancel }
+            ProofPolicy.validate(proof.mimeType, temporary.length())
+            val header = temporary.inputStream().use { input -> ByteArray(64).also { input.read(it) } }
+            require(ProofFileSignature.matches(proof.mimeType, header)) { "Invalid proof contents" }
             check(temporary.renameTo(destination)) { "Could not save proof" }
         } finally { temporary.delete() }
         Unit

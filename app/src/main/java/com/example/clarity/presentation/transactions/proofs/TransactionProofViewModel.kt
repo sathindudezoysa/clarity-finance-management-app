@@ -22,7 +22,8 @@ class TransactionProofViewModel @Inject constructor(
     private val attach: AttachTransactionProofUseCase,
     private val open: OpenTransactionProofUseCase,
     private val verify: VerifyReceiptAmountUseCase,
-    private val refresh: RefreshTransactionProofsUseCase
+    private val refresh: RefreshTransactionProofsUseCase,
+    private val removeUnavailable: RemoveUnavailableProofUseCase
 ) : ViewModel() {
     private val id = savedState.transactionIdArgument()?.takeIf { runCatching { ProofPolicy.requireId(it) }.isSuccess }
     private val state = MutableStateFlow(TransactionProofState())
@@ -49,6 +50,7 @@ class TransactionProofViewModel @Inject constructor(
     fun verifyAmount(proofId: String, amount: Long, verified: Boolean) = action(R.string.proofs_verify_error) {
         verify(checkNotNull(id), proofId, amount, verified).getOrThrow()
     }
+    fun removeMissing(proofId: String) = action(R.string.proofs_remove_error) { removeUnavailable(checkNotNull(id), proofId).getOrThrow() }
     fun retry() = action(R.string.proofs_sync_error) { refresh(checkNotNull(id)).getOrThrow() }
     fun viewerUnavailable() { state.update { it.copy(error = R.string.proofs_viewer_error) } }
 

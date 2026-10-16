@@ -19,6 +19,7 @@ class TransactionProofTest {
         val verified = proof.copy(verifiedAmountMinor = 1250)
         assertTrue(verified.verifies(1250))
         assertFalse(verified.verifies(1251))
+        assertFalse(verified.copy(unavailable = true).verifies(1250))
         assertFalse(verified.copy(verifiedAmountMinor = null).verifies(1250))
         assertFalse(verified.copy(verifiedAmountMinor = 0).verifies(0))
     }
@@ -60,5 +61,6 @@ class TransactionProofTest {
         val row = TransactionProofEntity("owner", "transaction", "proof", "Receipt.pdf", "application/pdf", 100, 1, 1250, true, 2)
         assertEquals(proof.copy(verifiedAmountMinor = 1250), row.toDomain())
         assertFalse(row.copy(pendingUpload = false).toDomain().pendingUpload)
+        assertTrue(row.copy(unavailable = true).toDomain().unavailable)
     }
 }

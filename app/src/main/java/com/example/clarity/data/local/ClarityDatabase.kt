@@ -15,7 +15,7 @@ import com.example.clarity.data.local.entity.TransactionTagEntity
 
 @Database(
     entities = [SampleEntity::class, TransactionEntity::class, TransactionTagEntity::class, AccountEntity::class, TransactionProofEntity::class],
-    version = 8,
+    version = 9,
     exportSchema = false
 )
 abstract class ClarityDatabase : RoomDatabase() {

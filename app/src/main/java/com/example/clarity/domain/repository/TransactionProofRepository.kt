@@ -9,5 +9,6 @@ interface TransactionProofRepository {
     suspend fun attach(transactionId: String, contentUri: String): Result<Unit>
     suspend fun open(transactionId: String, proofId: String): Result<ProofOpenFile>
     suspend fun setVerified(transactionId: String, proofId: String, amountMinor: Long, verified: Boolean): Result<Unit>
+    suspend fun removeUnavailable(transactionId: String, proofId: String): Result<Unit>
     suspend fun refresh(transactionId: String): Result<Unit>
 }

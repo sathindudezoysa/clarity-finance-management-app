@@ -53,13 +53,14 @@ fun TransactionProofSection(amountMinor: Long, enabled: Boolean, viewModel: Tran
     }
     TransactionProofContent(state, amountMinor, enabled,
         onAttach = { picker.launch(ProofPolicy.mimeTypes.toTypedArray()) },
-        onOpen = viewModel::openFile, onVerify = { id, verified -> viewModel.verifyAmount(id, amountMinor, verified) }, onRetry = viewModel::retry)
+        onOpen = viewModel::openFile, onVerify = { id, verified -> viewModel.verifyAmount(id, amountMinor, verified) }, onRetry = viewModel::retry, onRemoveUnavailable = viewModel::removeMissing)
 }
 
 @Composable
 fun TransactionProofContent(
     state: TransactionProofState, amountMinor: Long, enabled: Boolean,
-    onAttach: () -> Unit, onOpen: (String) -> Unit, onVerify: (String, Boolean) -> Unit, onRetry: () -> Unit
+    onAttach: () -> Unit, onOpen: (String) -> Unit, onVerify: (String, Boolean) -> Unit, onRetry: () -> Unit,
+    onRemoveUnavailable: (String) -> Unit = {}
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Divider()
@@ -78,12 +79,19 @@ fun TransactionProofContent(
                 Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Text(proof.displayName, style = MaterialTheme.typography.titleSmall)
                     Text(stringResource(R.string.proofs_file_info, proof.mimeType, (proof.sizeBytes + 1023) / 1024), style = MaterialTheme.typography.bodySmall)
-                    Text(stringResource(if (proof.pendingUpload) R.string.proofs_pending else R.string.proofs_uploaded), style = MaterialTheme.typography.bodySmall)
-                    if (proof.verifies(amountMinor)) ReceiptVerifiedIcon()
-                    TextButton(onClick = { onOpen(proof.id) }, enabled = canAct) { Text(stringResource(R.string.proofs_open)) }
-                    TextButton(onClick = { onVerify(proof.id, !proof.verifies(amountMinor)) }, enabled = canAct) {
-                        Text(if (proof.verifies(amountMinor)) stringResource(R.string.proofs_unverify)
-                            else stringResource(R.string.proofs_verify, MoneyUtils.formatMinor(amountMinor)))
+                    if (proof.unavailable) {
+                        Text(stringResource(R.string.proofs_missing), color = MaterialTheme.colorScheme.error)
+                        TextButton(onClick = { onRemoveUnavailable(proof.id) }, enabled = canAct) {
+                            Text(stringResource(R.string.proofs_remove_missing))
+                        }
+                    } else {
+                        Text(stringResource(if (proof.pendingUpload) R.string.proofs_pending else R.string.proofs_uploaded), style = MaterialTheme.typography.bodySmall)
+                        if (proof.verifies(amountMinor)) ReceiptVerifiedIcon()
+                        TextButton(onClick = { onOpen(proof.id) }, enabled = canAct) { Text(stringResource(R.string.proofs_open)) }
+                        TextButton(onClick = { onVerify(proof.id, !proof.verifies(amountMinor)) }, enabled = canAct) {
+                            Text(if (proof.verifies(amountMinor)) stringResource(R.string.proofs_unverify)
+                                else stringResource(R.string.proofs_verify, MoneyUtils.formatMinor(amountMinor)))
+                        }
                     }
                 }
             }

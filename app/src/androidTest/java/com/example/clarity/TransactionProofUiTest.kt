@@ -21,6 +21,17 @@ class TransactionProofUiTest {
         compose.onAllNodesWithContentDescription("Receipt amount verified by you").assertCountEquals(0)
         compose.onNodeWithText("Receipt.pdf").assertIsDisplayed()
     }
+    @Test fun unavailableProofOffersRecoveryAndHidesOpenAndVerification() {
+        var removed: String? = null
+        compose.setContent { ClarityTheme {
+            TransactionProofContent(TransactionProofState(listOf(proof.copy(unavailable = true, verifiedAmountMinor = 1250)), false),
+                1250, true, {}, {}, { _, _ -> }, {}, onRemoveUnavailable = { removed = it })
+        } }
+        compose.onAllNodesWithContentDescription("Receipt amount verified by you").assertCountEquals(0)
+        compose.onNodeWithText("Remove missing proof").performClick()
+        org.junit.Assert.assertEquals("proof", removed)
+        compose.onNodeWithText("Open proof").assertDoesNotExist()
+    }
     @Test fun verifiedProofShowsAccessibleIconAndChangedAmountHidesIt() {
         val amount = androidx.compose.runtime.mutableStateOf(1250L)
         compose.setContent { ClarityTheme { TransactionProofContent(TransactionProofState(listOf(proof.copy(verifiedAmountMinor = 1250)), false), amount.value, true, {}, {}, { _, _ -> }, {}) } }

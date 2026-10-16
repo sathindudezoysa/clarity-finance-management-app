@@ -21,7 +21,7 @@ After reviewing a receipt, the owner can explicitly mark the displayed transacti
 - Transaction routes and detail/edit/proof ViewModels share `TRANSACTION_ID_ARGUMENT` and safe SavedStateHandle extraction; malformed restored values still fail safely.
 - Firebase Storage holds each file and its metadata at `users/{uid}/transactions/{transactionId}/proofs/{proofId}`. UUID paths remain stable across retries. No public download URLs are persisted. Refresh preserves unsynced local verification edits.
 - Attachment writes never update transaction amounts, account associations, categories, descriptions or transaction sync flags. Existing transaction create/edit/delete workflows retain their implementation.
-- Room version 8 adds only the proof table. Existing migrations 1–6 remain registered. A 7→8 path adds the same table for compatibility with the pending wallet schema; wallet tables are retained. Transaction deletion hides its evidence through owner-scoped observation; it does not cascade-delete financial records or remote objects.
+- Room version 8 adds only the proof table; version 9 adds a non-null `unavailable` flag with a default of false. The additive 8-to-9 migration preserves existing proof metadata and upload state. Existing migrations 1â€“6 remain registered. A 7â†’8 path adds the same table for compatibility with the pending wallet schema; wallet tables are retained. Transaction deletion hides its evidence through owner-scoped observation; it does not cascade-delete financial records or remote objects.
 
 ## Firebase setup required for cloud uploads
 
@@ -54,7 +54,7 @@ npm test
 
 This uses the isolated `demo-clarity-proofs` project and deploys nothing. In this environment, npm registry access fails with `UNABLE_TO_VERIFY_LEAF_SIGNATURE`, including with Node's system CA support; TLS verification has not been disabled. Storage rule runtime tests and a live Firebase upload therefore remain unverified. Local file selection, external viewer behavior and accessibility also require device verification.
 
-## Local validation results
+## Previous validation results (commit 2bdf3ef)
 
 - Final Gradle run: `BUILD SUCCESSFUL`; app APK and instrumentation APK built.
 - 69 JUnit tests passed, with zero failures, errors or skipped tests.
@@ -73,3 +73,17 @@ Proof integration points use ordinary Kotlin imports. `LocalLifecycleOwner` stay
 `ProofSyncReviewTest` covers queue change detection, no extra work on acknowledgements, owner separation, cache age/byte/count bounds, active-preview retention and original-file preservation. Device tests add background upload retry, deleted-parent handling, provider URI MIME checks and shared navigation argument validation. Physical-device battery behavior and external-viewer traversal remain manual checks.
 
 Review validation: both APK builds, 69 unit tests, lint (zero errors), and release manifest generation passed. Debug and release manifests both resolve the private provider to `com.example.clarity.proofs`. No device is connected, so background execution/battery behavior and viewer UI tests are compiled checks only, pending physical-device verification.
+
+
+## PR #39 follow-up to commit 2bdf3ef
+
+- The upload worker retries when authentication is still restoring (null), including auth loss while uploading. A known different signed-in owner retires the old work without uploading. Cancellation still propagates.
+- Firebase downloads use `getFile()` into a temporary file rather than allocating the entire attachment on the heap. Metadata size/type checks precede transfer, transfer progress enforces the size bound, and file length/header checks precede the final rename. Cancellation cancels the transfer; temporary files are removed on failure.
+- Pending verification changes use Storage `updateMetadata()` for an existing object. Media is uploaded only after a confirmed object-not-found response and a locally available original. Transient network, permission and service errors keep the upload pending.
+- A confirmed cloud 404 plus a missing local original records an unavailable proof and removes that revision from the retry queue. The detail view explains recovery and offers **Remove missing proof**, after which the user can attach the original again. Unavailable proofs cannot show a verification icon. Conditional revision updates protect newer edits; the removal action never modifies the financial transaction.
+- Parent directories are checked explicitly. Preview cleanup runs before recreating the destination directory, and content-provider display-name lookup checks the returned column index.
+- New regression coverage includes worker auth decisions, metadata-only verification when the local copy is absent, missing-file recovery, stale terminal updates, the version 8-to-9 migration, and recovery UI controls. The review's exception-parameter suggestion did not identify a reproducible syntax error; the existing typed Kotlin catch parameters are retained and checked by compilation.
+
+The implementation follows Firebase's documented [file download API](https://firebase.google.com/docs/storage/android/download-files) and [metadata update API](https://firebase.google.com/docs/storage/android/file-metadata).
+
+Validation for this follow-up: `BUILD SUCCESSFUL` for the debug APK, instrumentation APK, unit tests and lint. All 75 JVM tests passed (zero failures, errors or skips). Lint reports zero errors and 24 warnings. Host SQLite migration checks passed for versions 1 through 6 and for existing version 8 proofs, using Room-generated schema SQL. No Android device is connected, so Room instrumentation, recovery UI and external-viewer tests were compiled but not executed. Live Firebase uploads and Storage rule runtime tests remain unverified; the previously documented npm certificate-trust blocker remains.

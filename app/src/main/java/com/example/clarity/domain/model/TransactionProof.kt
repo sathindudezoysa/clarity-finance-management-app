@@ -8,9 +8,10 @@ data class TransactionProof(
     val sizeBytes: Long,
     val createdAt: Long,
     val verifiedAmountMinor: Long? = null,
-    val pendingUpload: Boolean = true
+    val pendingUpload: Boolean = true,
+    val unavailable: Boolean = false
 ) {
-    fun verifies(amountMinor: Long): Boolean = amountMinor > 0 && verifiedAmountMinor == amountMinor
+    fun verifies(amountMinor: Long): Boolean = !unavailable && amountMinor > 0 && verifiedAmountMinor == amountMinor
 }
 
 data class ProofOpenFile(val uri: String, val mimeType: String)

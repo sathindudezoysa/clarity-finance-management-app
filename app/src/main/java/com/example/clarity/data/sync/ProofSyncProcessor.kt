@@ -44,14 +44,20 @@ class ProofSyncProcessor @Inject constructor(
     suspend fun upload(pending: TransactionProofEntity) {
         val dao = database.transactionProofDao
         val row = dao.get(pending.userId, pending.transactionId, pending.id) ?: return
-        if (!row.pendingUpload) return
+        if (!row.pendingUpload || row.unavailable) return
         requireOwner(row.userId)
         val transaction = database.transactionDao.getById(row.transactionId)
         if (transaction?.userId != row.userId || transaction.isDeleted) return
-        val file = files.file(row.userId, row.id)
-        if (!file.isFile) remote.download(row, file)
-        requireOwner(row.userId)
-        remote.upload(row, file)
+        if (!remote.updateMetadata(row)) {
+            val file = files.file(row.userId, row.id)
+            requireOwner(row.userId)
+            if (!file.isFile) {
+                // Only a confirmed remote 404 plus a missing local original is terminal.
+                dao.markUnavailable(row.userId, row.transactionId, row.id, row.revision)
+                return
+            }
+            remote.upload(row, file)
+        }
         requireOwner(row.userId)
         dao.acknowledge(row.userId, row.transactionId, row.id, row.revision)
     }

@@ -8,22 +8,17 @@ import dagger.hilt.EntryPoint
 import dagger.hilt.InstallIn
 import dagger.hilt.android.EntryPointAccessors
 import dagger.hilt.components.SingletonComponent
-import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.flow.first
 
 /** Default WorkManager construction, with dependencies resolved from the application's Hilt graph. */
 class ProofUploadWorker(context: Context, parameters: WorkerParameters) : CoroutineWorker(context, parameters) {
     override suspend fun doWork(): Result {
         val uid = inputData.getString(OWNER_UID) ?: return Result.failure()
         val dependencies = EntryPointAccessors.fromApplication(applicationContext, Dependencies::class.java)
-        val auth = dependencies.authRepository()
-        if (auth.currentUser.first()?.uid != uid) return Result.success()
-        return try {
-            val complete = dependencies.proofSyncProcessor().syncPending(uid)
-            if (complete || auth.currentUser.first()?.uid != uid) Result.success() else Result.retry()
-        } catch (error: Exception) {
-            if (error is CancellationException) throw error
-            if (auth.currentUser.first()?.uid != uid) Result.success() else Result.retry()
+        return when (proofUploadDecision(uid, dependencies.authRepository().currentUser) {
+            dependencies.proofSyncProcessor().syncPending(uid)
+        }) {
+            ProofUploadDecision.COMPLETE -> Result.success()
+            ProofUploadDecision.RETRY -> Result.retry()
         }
     }
 

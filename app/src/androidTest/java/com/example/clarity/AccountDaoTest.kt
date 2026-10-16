@@ -1,5 +1,6 @@
 package com.example.clarity
 
+import com.example.clarity.data.local.ProofRecoveryMigration
 import com.example.clarity.data.local.TransactionProofMigration
 import android.database.sqlite.SQLiteDatabase
 import androidx.room.Room
@@ -268,7 +269,7 @@ class AccountDaoTest {
     }
 
     private fun openDatabase() = Room.databaseBuilder(context, ClarityDatabase::class.java, databaseName)
-        .addMigrations(InitialTransactionMigration, TransactionTagMigration, AccountMigration, TransactionAccountMigration, TransactionAccountIndexMigration, TransactionProofMigration())
+        .addMigrations(InitialTransactionMigration, TransactionTagMigration, AccountMigration, TransactionAccountMigration, TransactionAccountIndexMigration, TransactionProofMigration(), ProofRecoveryMigration)
         .build().also { database = it }
 
     private fun repository(db: ClarityDatabase, userId: String = "user-a",

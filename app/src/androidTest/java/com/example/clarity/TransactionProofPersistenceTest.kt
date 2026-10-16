@@ -46,7 +46,7 @@ class TransactionProofPersistenceTest {
                 }).build())
             helper.writableDatabase
             helper.close()
-            val db = Room.databaseBuilder(context, ClarityDatabase::class.java, name).addMigrations(TransactionProofMigration()).build()
+            val db = Room.databaseBuilder(context, ClarityDatabase::class.java, name).addMigrations(TransactionProofMigration(), ProofRecoveryMigration).build()
             try {
                 val transaction = db.transactionDao.getById("transaction")!!
                 assertEquals("Paint", transaction.note)
@@ -57,6 +57,38 @@ class TransactionProofPersistenceTest {
                 assertTrue(db.accountDao.getById("bank")!!.pendingSync)
                 assertEquals(0, db.transactionProofDao.count("owner", "transaction"))
                 assertEquals(listOf("Hobby"), db.transactionTagDao.observeTags("owner").first())
+            } finally { db.close() }
+        } finally { context.deleteDatabase(name) }
+    }
+
+    @Test fun versionEightProofsMigrateWithoutLosingVerificationOrQueueState() = runBlocking {
+        val name = "proof-recovery-migration-${UUID.randomUUID()}"
+        try {
+            val helper = FrameworkSQLiteOpenHelperFactory().create(SupportSQLiteOpenHelper.Configuration.builder(context)
+                .name(name).callback(object : SupportSQLiteOpenHelper.Callback(8) {
+                    override fun onCreate(db: SupportSQLiteDatabase) {
+                        db.execSQL("CREATE TABLE sample_table (id TEXT NOT NULL PRIMARY KEY, title TEXT NOT NULL, description TEXT NOT NULL)")
+                        InitialTransactionMigration.migrate(db)
+                        TransactionTagMigration.migrate(db)
+                        AccountMigration.migrate(db)
+                        TransactionAccountMigration.migrate(db)
+                        TransactionAccountIndexMigration.migrate(db)
+                        TransactionProofMigration().migrate(db)
+                        db.execSQL("INSERT INTO transactions VALUES ('transaction', 'owner', 'EXPENSE', 1250, 'Hobby', 'Paint', 100, 1, 10, 1, 0, NULL)")
+                        db.execSQL("INSERT INTO transaction_proofs VALUES ('owner', 'transaction', 'proof', 'Receipt.pdf', 'application/pdf', 100, 1, 1250, 1, 2)")
+                    }
+                    override fun onUpgrade(db: SupportSQLiteDatabase, oldVersion: Int, newVersion: Int) = error("Fixture only")
+                }).build())
+            helper.writableDatabase
+            helper.close()
+            val db = Room.databaseBuilder(context, ClarityDatabase::class.java, name).addMigrations(ProofRecoveryMigration).build()
+            try {
+                val row = db.transactionProofDao.get("owner", "transaction", "proof")!!
+                assertFalse(row.unavailable)
+                assertTrue(row.pendingUpload)
+                assertEquals(1250L, row.verifiedAmountMinor)
+                assertEquals(2L, row.revision)
+                assertEquals("Paint", db.transactionDao.getById("transaction")!!.note)
             } finally { db.close() }
         } finally { context.deleteDatabase(name) }
     }
@@ -99,6 +131,13 @@ class TransactionProofPersistenceTest {
             remote.offline = false
             repository.refresh("transaction").getOrThrow()
             assertEquals(2, remote.rows.size)
+            assertEquals(2, remote.mediaUploads)
+            repository.setVerified("transaction", id, 1500, true).getOrThrow()
+            files.file("owner", id).delete()
+            repository.refresh("transaction").getOrThrow()
+            assertEquals(2, remote.mediaUploads)
+            assertEquals(1, remote.metadataUpdates)
+            assertEquals(1500L, remote.rows.getValue(id).verifiedAmountMinor)
             assertTrue(repository.observeProofs("transaction").first().none { it.pendingUpload })
             files.file("owner", id).delete()
             repository.open("transaction", id).getOrThrow() // Restored from uploaded object.
@@ -145,6 +184,8 @@ class TransactionProofPersistenceTest {
             val row = TransactionProofEntity("owner", "transaction", "proof", "Receipt.pdf", "application/pdf", 100, 1, null, true, 1)
             db.transactionProofDao.upsert(row)
             db.transactionProofDao.upsert(row.copy(verifiedAmountMinor = 1250, revision = 2))
+            db.transactionProofDao.markUnavailable("owner", "transaction", "proof", 1)
+            assertFalse(db.transactionProofDao.get("owner", "transaction", "proof")!!.unavailable)
             db.transactionProofDao.acknowledge("owner", "transaction", "proof", 1)
             assertTrue(db.transactionProofDao.get("owner", "transaction", "proof")!!.pendingUpload)
             db.transactionProofDao.acknowledge("owner", "transaction", "proof", 2)
@@ -152,14 +193,49 @@ class TransactionProofPersistenceTest {
         } finally { db.close() }
     }
 
+    @Test fun missingOriginalIsRecoverableAndDoesNotRetryForever() = runBlocking {
+        val db = Room.inMemoryDatabaseBuilder(context, ClarityDatabase::class.java).build()
+        val files = ProofFileStore(context)
+        try {
+            db.transactionDao.upsert(TransactionEntity("transaction", "owner", "EXPENSE", 1250, "Hobby", "Paint", 100, 1, 10))
+            val row = TransactionProofEntity("owner", "transaction", UUID.randomUUID().toString(), "Missing.pdf", "application/pdf", 8, 1, 1250, true, 1)
+            db.transactionProofDao.upsert(row)
+            val remote = FakeRemote().apply { offline = false }
+            val auth = TestAuth()
+            val processor = ProofSyncProcessor(db, files, remote, auth, Dispatchers.IO)
+            assertTrue(processor.syncPending("owner"))
+            val missing = db.transactionProofDao.get("owner", "transaction", row.id)!!
+            assertTrue(missing.unavailable)
+            assertFalse(missing.pendingUpload)
+            assertNull(missing.verifiedAmountMinor)
+            assertTrue(db.transactionProofDao.pending("owner").isEmpty())
+            assertTrue(processor.syncPending("owner"))
+            val repository = TransactionProofRepositoryImpl(db, files, remote, auth, Dispatchers.IO, processor)
+            assertTrue(repository.setVerified("transaction", row.id, 1250, true).isFailure)
+            repository.removeUnavailable("transaction", row.id).getOrThrow()
+            assertNull(db.transactionProofDao.get("owner", "transaction", row.id))
+            assertEquals(1250L, db.transactionDao.getById("transaction")!!.amountMinor)
+        } finally { db.close() }
+    }
+
     private class FakeRemote : ProofRemoteDataSource {
         @Volatile var offline = true
+        var mediaUploads = 0
+        var metadataUpdates = 0
         val rows = mutableMapOf<String, TransactionProofEntity>()
         private val contents = mutableMapOf<String, ByteArray>()
         override suspend fun upload(proof: TransactionProofEntity, file: File) {
             check(!offline) { "Offline" }
+            mediaUploads++
             rows[proof.id] = proof.copy(pendingUpload = false)
             contents[proof.id] = file.readBytes()
+        }
+        override suspend fun updateMetadata(proof: TransactionProofEntity): Boolean {
+            check(!offline) { "Offline" }
+            if (proof.id !in rows) return false
+            metadataUpdates++
+            rows[proof.id] = proof.copy(pendingUpload = false)
+            return true
         }
         override suspend fun list(uid: String, transactionId: String): List<TransactionProofEntity> {
             check(!offline) { "Offline" }

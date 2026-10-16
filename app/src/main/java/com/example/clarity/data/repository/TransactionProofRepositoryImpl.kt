@@ -60,6 +60,7 @@ class TransactionProofRepositoryImpl @Inject constructor(
             val transaction = availableTransaction(uid, transactionId)
             require(transaction.amountMinor == amountMinor) { "The amount changed. Review it again" }
             val row = requireNotNull(dao.get(uid, transactionId, proofId)) { "Proof not found" }
+            require(!row.unavailable) { "Attach the original proof again" }
             requireOwner(uid)
             dao.upsert(row.copy(verifiedAmountMinor = if (verified) amountMinor else null, pendingUpload = true,
                 revision = maxOf(System.currentTimeMillis(), Math.addExact(row.revision, 1))))
@@ -71,6 +72,7 @@ class TransactionProofRepositoryImpl @Inject constructor(
         availableTransaction(uid, transactionId)
         ProofPolicy.requireId(proofId)
         val row = requireNotNull(dao.get(uid, transactionId, proofId)) { "Proof not found" }
+        require(!row.unavailable) { "Attach the original proof again" }
         val file = files.file(uid, proofId)
         if (!file.isFile) {
             try { remote.download(row, file) } catch (error: Exception) { file.delete(); throw error }
@@ -78,6 +80,19 @@ class TransactionProofRepositoryImpl @Inject constructor(
         requireOwner(uid)
         availableTransaction(uid, transactionId)
         ProofOpenFile(files.share(uid, proofId, row.mimeType, row.displayName), row.mimeType)
+    }
+
+    override suspend fun removeUnavailable(transactionId: String, proofId: String) = operation {
+        val uid = owner()
+        ProofPolicy.requireId(proofId)
+        database.withTransaction {
+            availableTransaction(uid, transactionId)
+            val row = requireNotNull(dao.get(uid, transactionId, proofId)) { "Proof not found" }
+            require(row.unavailable && !row.pendingUpload) { "Only missing proofs can be removed" }
+            requireOwner(uid)
+            dao.removeUnavailable(uid, transactionId, proofId)
+        }
+        Unit
     }
 
     override suspend fun refresh(transactionId: String) = operation {
