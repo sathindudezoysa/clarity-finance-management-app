@@ -12,6 +12,7 @@ import dagger.hilt.InstallIn
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import javax.inject.Singleton
 
@@ -31,20 +32,20 @@ object FirebaseModule {
         @ApplicationContext context: Context,
         @ApplicationScope applicationScope: CoroutineScope
     ): FirebaseFirestore {
+        applicationScope.launch(Dispatchers.IO) {
+            val prefs = context.getSharedPreferences(SCHEMA_PREFS, Context.MODE_PRIVATE)
+            if (prefs.getInt(KEY_SCHEMA_VERSION, -1) != ClarityDatabase.SCHEMA_VERSION) {
+                context.databaseList()
+                    .filter { it.startsWith("firestore.") }
+                    .forEach { context.deleteDatabase(it) }
+                prefs.edit().putInt(KEY_SCHEMA_VERSION, ClarityDatabase.SCHEMA_VERSION).apply()
+            }
+        }
         return FirebaseFirestore.getInstance().apply {
             try {
                 firestoreSettings = FirebaseFirestoreSettings.Builder()
                     .setLocalCacheSettings(MemoryCacheSettings.newBuilder().build())
                     .build()
-                applicationScope.launch {
-                    val prefs = context.getSharedPreferences(SCHEMA_PREFS, Context.MODE_PRIVATE)
-                    if (prefs.getInt(KEY_SCHEMA_VERSION, -1) != ClarityDatabase.SCHEMA_VERSION) {
-                        context.databaseList()
-                            .filter { it.startsWith("firestore.") }
-                            .forEach { context.deleteDatabase(it) }
-                        prefs.edit().putInt(KEY_SCHEMA_VERSION, ClarityDatabase.SCHEMA_VERSION).apply()
-                    }
-                }
             } catch (_: IllegalStateException) {
                 // Firestore was already started earlier in the process lifecycle.
             }

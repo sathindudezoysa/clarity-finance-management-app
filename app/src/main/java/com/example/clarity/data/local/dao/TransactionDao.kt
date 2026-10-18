@@ -82,7 +82,7 @@ abstract class TransactionDao {
             replacements.mapNotNull {
                 val tag = it.category.trim()
                 if (!it.isDeleted && tag.length in 1..100) TransactionTagEntity(it.userId, tag) else null
-            }
+            }.distinct()
         )
         // An incomplete cache snapshot is never evidence of a remote deletion.
         if (authoritative) {

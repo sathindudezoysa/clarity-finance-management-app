@@ -72,6 +72,7 @@ class TransactionTagsPersistenceTest {
 
     @Test
     fun schemaChangeCleansLegacyTablesAndRebuildsTagsFromRemoteReconciliation() = runBlocking {
+        context.deleteDatabase(databaseName)
         val path = context.getDatabasePath(databaseName)
         path.parentFile!!.mkdirs()
         SQLiteDatabase.openOrCreateDatabase(path, null).use { legacy ->
