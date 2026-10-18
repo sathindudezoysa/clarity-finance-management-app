@@ -3,9 +3,6 @@ package com.example.clarity.di
 import android.content.Context
 import androidx.room.Room
 import com.example.clarity.data.local.ClarityDatabase
-import com.example.clarity.data.local.AccountMigration
-import com.example.clarity.data.local.TransactionAccountMigration
-import com.example.clarity.data.local.TransactionAccountIndexMigration
 import com.example.clarity.data.local.InitialTransactionMigration
 import com.example.clarity.data.local.dao.AccountDao
 import com.example.clarity.data.local.dao.SampleDao
@@ -32,7 +29,7 @@ object DatabaseModule {
             context,
             ClarityDatabase::class.java,
             ClarityDatabase.DATABASE_NAME
-        ).addMigrations(InitialTransactionMigration, TransactionTagMigration, AccountMigration, TransactionAccountMigration, TransactionAccountIndexMigration).build()
+        ).addMigrations(InitialTransactionMigration, TransactionTagMigration).fallbackToDestructiveMigration().build()
     }
 
     @Provides
