@@ -16,3 +16,9 @@ local.properties
 
 # Firebase Secrets
 app/google-services.json
+
+.idea
+
+# Local MCP Secrets
+.agents/mcp_config.json
+.agents/plugins/stitch/mcp_config.json

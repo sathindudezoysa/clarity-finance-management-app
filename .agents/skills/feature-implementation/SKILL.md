@@ -59,3 +59,8 @@ All code must be placed within the existing top-level packages:
 
 **Dependency Rules:**
 Only add new dependencies to `build.gradle.kts` if absolutely required to fulfill a requirement. Do not bump versions or overhaul `build.gradle.kts` indiscriminately. Do not introduce Gradle Version Catalogs unless explicitly told to.
+
+## 4. Database & Schema Hygiene Rules
+- **No Unnecessary Migrations or Temporary Fixes:** During active development, do NOT write custom Room `Migration(X, Y)` classes, cross-table SQL backfill scripts, or defensive schema workarounds unless explicitly requested. Rely on `.fallbackToDestructiveMigration()` in `DatabaseModule.kt` so Room recreates tables cleanly from scratch.
+- **Keep Local & Remote Schemas Clean:** Never add temporary compatibility shims or legacy field fallbacks in Room entities or Firestore mappers to tolerate stale development data. Instead, reset the local (`clarity_db`) and remote (Firestore `users/{userId}`) databases cleanly. See `.agents/skills/database-schema-hygiene/SKILL.md` for full details and reset commands.
+
