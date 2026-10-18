@@ -75,6 +75,9 @@ abstract class TransactionDao {
             }
         }
         upsertAll(replacements)
+        replacements.filter { !it.isDeleted && it.category.trim().length in 1..100 }.forEach {
+            insertTag(TransactionTagEntity(it.userId, it.category.trim()))
+        }
         // An incomplete cache snapshot is never evidence of a remote deletion.
         if (authoritative) {
             (getIdsForUser(userId) - remoteIds).forEach { id ->
