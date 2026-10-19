@@ -14,9 +14,7 @@ import com.example.clarity.data.sync.AccountUploader
 import com.example.clarity.data.remote.AccountRemoteDataSource
 import com.example.clarity.data.remote.FirestoreAccountDataSource
 import com.example.clarity.domain.repository.AccountRepository
-import com.example.clarity.data.repository.SampleRepositoryImpl
 import com.example.clarity.domain.repository.AuthRepository
-import com.example.clarity.domain.repository.SampleRepository
 import com.example.clarity.data.repository.TransactionRepositoryImpl
 import com.example.clarity.domain.repository.TransactionRepository
 import com.example.clarity.data.repository.TransactionTagRepositoryImpl
@@ -74,12 +72,6 @@ abstract class RepositoryModule {
     @Binds
     @Singleton
     abstract fun bindProofRemoteDataSource(impl: FirebaseProofDataSource): ProofRemoteDataSource
-
-    @Binds
-    @Singleton
-    abstract fun bindSampleRepository(
-        impl: SampleRepositoryImpl
-    ): SampleRepository
 
     @Binds
     @Singleton

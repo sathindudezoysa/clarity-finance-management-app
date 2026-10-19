@@ -4,7 +4,6 @@ import android.content.Context
 import androidx.room.Room
 import com.example.clarity.data.local.ClarityDatabase
 import com.example.clarity.data.local.dao.AccountDao
-import com.example.clarity.data.local.dao.SampleDao
 import com.example.clarity.data.local.dao.TransactionDao
 import com.example.clarity.data.local.dao.TransactionTagDao
 import dagger.Module
@@ -33,12 +32,6 @@ object DatabaseModule {
             .fallbackToDestructiveMigration()
             .fallbackToDestructiveMigrationOnDowngrade()
             .build()
-    }
-
-    @Provides
-    @Singleton
-    fun provideSampleDao(database: ClarityDatabase): SampleDao {
-        return database.sampleDao
     }
 
     @Provides
