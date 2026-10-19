@@ -69,23 +69,29 @@ abstract class TransactionDao {
         return true
     }
 
-    @Query("SELECT * FROM transactions WHERE userId = :userId AND accountId = :accountId AND isDeleted = 0")
-    abstract suspend fun getActiveForAccount(userId: String, accountId: String): List<TransactionEntity>
+    @Query("SELECT * FROM transactions WHERE userId = :userId AND isDeleted = 0")
+    abstract suspend fun getActiveForUser(userId: String): List<TransactionEntity>
 
     @Transaction
     open suspend fun persistLocal(entity: TransactionEntity) {
         val previousAccountId = getById(entity.id)?.accountId
         upsertWithTag(entity)
+        val active = getActiveForUser(entity.userId)
+        fun netMinor(txs: List<TransactionEntity>): java.math.BigInteger {
+            var total = java.math.BigInteger.ZERO
+            for (tx in txs) {
+                val amount = java.math.BigInteger.valueOf(tx.conversion?.amountMinor ?: tx.amountMinor)
+                if (tx.type == "INCOME") total += amount else total -= amount
+            }
+            return total
+        }
+        require(netMinor(active) >= java.math.BigInteger.ZERO) { "Insufficient net worth balance" }
         listOfNotNull(previousAccountId, entity.accountId)
             .distinct()
-            .filter { it.startsWith(com.example.clarity.domain.model.Account.CASH_WALLET_PREFIX) }
-            .forEach { cashAccountId ->
-                var netMinor = java.math.BigInteger.ZERO
-                for (tx in getActiveForAccount(entity.userId, cashAccountId)) {
-                    val amount = java.math.BigInteger.valueOf(tx.conversion?.amountMinor ?: tx.amountMinor)
-                    if (tx.type == "INCOME") netMinor += amount else netMinor -= amount
+            .forEach { accountId ->
+                require(netMinor(active.filter { it.accountId == accountId }) >= java.math.BigInteger.ZERO) {
+                    "Insufficient account balance"
                 }
-                require(netMinor >= java.math.BigInteger.ZERO) { "Insufficient cash wallet balance" }
             }
     }
 
