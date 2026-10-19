@@ -15,8 +15,27 @@ data class Account(
     val name: String,
     val bankName: String,
     val accountType: String? = null,
-    val currency: String = "LKR",
+    val currency: String = Currencies.supported.first(),
     val isDefault: Boolean = false,
     val createdAt: Long = System.currentTimeMillis(),
     val updatedAt: Long = createdAt
-)
+) {
+    val isCashWallet: Boolean
+        get() = id.startsWith(CASH_WALLET_PREFIX)
+
+    val displayLabel: String
+        get() = if (bankName.isBlank() || bankName.equals(name, ignoreCase = true)) name else "$name ($bankName)"
+
+    companion object {
+        const val CASH_WALLET_PREFIX = "cash_wallet_"
+
+        fun defaultCashWallet(currency: String, isDefault: Boolean = false): Account = Account(
+            id = "$CASH_WALLET_PREFIX${UUID.randomUUID()}",
+            name = "Cash Wallet",
+            bankName = "Cash",
+            accountType = "CASH",
+            currency = currency,
+            isDefault = isDefault
+        )
+    }
+}

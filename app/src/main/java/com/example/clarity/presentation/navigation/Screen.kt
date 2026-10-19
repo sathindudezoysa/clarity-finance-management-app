@@ -9,13 +9,6 @@ sealed class Screen(val route: String) {
     object IncomeSources : Screen("income_sources")
     object Main : Screen("main_screen")
     object CashWallet : Screen("cash_wallet")
-    object BankSelection : Screen("wallet/banks?accountId={accountId}") {
-        fun createRoute(accountId: String? = null) = "wallet/banks" + (accountId?.let { "?accountId=${Uri.encode(it)}" } ?: "")
-    }
-    object WalletBankAccount : Screen("wallet/accounts/edit?bankId={bankId}&accountId={accountId}") {
-        fun createRoute(bankId: String = "", accountId: String? = null) =
-            "wallet/accounts/edit?bankId=${Uri.encode(bankId)}" + (accountId?.let { "&accountId=${Uri.encode(it)}" } ?: "")
-    }
     object Register : Screen("register_screen")
     object Login : Screen("login_screen")
     object TransactionList : Screen("transactions")

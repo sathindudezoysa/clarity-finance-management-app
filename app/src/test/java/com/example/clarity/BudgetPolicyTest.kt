@@ -40,7 +40,7 @@ class BudgetPolicyTest {
         val entries = listOf(base, expense(200, "2026-10-01T00:00:00Z"),
             expense(900, "2026-11-01T00:00:00Z"), expense(900, "2026-09-30T23:59:59.999Z"),
             base.copy(type = TransactionType.INCOME), base.copy(userId = "other"), base.copy(category = "Travel"),
-            base.copy(id = "cash", isCash = true),
+            base.copy(id = "cash", accountId = "cash_wallet_default"),
             base.copy(id = "converted", amountMinor = 999, currency = "USD", targetCurrency = "LKR", conversion = ConversionSnapshot(300, "0.3003", "ExchangeRate-API", 1, 2, true)),
             base.copy(id = "wrong-target", currency = "USD", targetCurrency = "EUR", conversion = ConversionSnapshot(777, "7.77", "ExchangeRate-API", 1, 2, true)),
             base.copy(id = "pending", currency = "USD", conversion = null, pendingConversion = true),

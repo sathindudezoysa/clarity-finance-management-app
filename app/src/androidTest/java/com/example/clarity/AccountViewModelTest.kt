@@ -15,6 +15,8 @@ import com.example.clarity.domain.model.Account
 import com.example.clarity.presentation.accounts.AccountMessages
 import com.example.clarity.domain.model.User
 import com.example.clarity.domain.repository.AuthRepository
+import com.example.clarity.domain.repository.CurrencyPreference
+import com.example.clarity.domain.repository.CurrencyPreferenceRepository
 import com.example.clarity.domain.usecase.account.CreateAccountUseCase
 import com.example.clarity.domain.usecase.account.GetAccountUseCase
 import com.example.clarity.domain.usecase.account.GetAccountsUseCase
@@ -87,7 +89,7 @@ class AccountViewModelTest {
     }
 
     private fun list() = model(AccountListViewModel::class.java) {
-        AccountListViewModel(GetAccountsUseCase(repository), SetDefaultAccountUseCase(repository), SignedInAuth())
+        AccountListViewModel(GetAccountsUseCase(repository, FakeCurrencyPreferences()), SetDefaultAccountUseCase(repository), SignedInAuth())
     }
 
     private suspend fun ready(editor: AccountEditViewModel): AccountEditState =
@@ -106,10 +108,10 @@ class AccountViewModelTest {
 
     @Test
     fun addEditAndDefaultSwitchUpdateTheListAndReloadFromRoom() = runBlocking {
-        val list = list()
         create("Daily")
         create("Savings")
-        val accounts = withTimeout(10_000) { list.uiState.first { it.accounts.size == 2 } }.accounts
+        val list = list()
+        val accounts = withTimeout(10_000) { list.uiState.first { it.accounts.count { account -> !account.isCashWallet } == 2 } }.accounts
         assertEquals("Daily", accounts.single { it.isDefault }.name)
         val savings = accounts.single { it.name == "Savings" }
         val editor = editor(SavedStateHandle(mapOf("id" to savings.id)))
@@ -122,7 +124,7 @@ class AccountViewModelTest {
         repository.stopSync().join()
         database.close()
         openDatabase()
-        val restored = withTimeout(10_000) { list().uiState.first { it.accounts.size == 2 } }.accounts
+        val restored = withTimeout(10_000) { list().uiState.first { it.accounts.count { account -> !account.isCashWallet } == 2 } }.accounts
         assertEquals("Travel", restored.single { it.isDefault }.name)
     }
 
@@ -207,5 +209,11 @@ class AccountViewModelTest {
         override suspend fun signInWithGoogle(idToken: String): Result<User> = error("Unused")
         override suspend fun sendPasswordResetEmail(email: String): Result<Unit> = error("Unused")
         override suspend fun signOut() = Unit
+    }
+
+    private class FakeCurrencyPreferences : CurrencyPreferenceRepository {
+        override fun observe(): Flow<CurrencyPreference> = flowOf(CurrencyPreference())
+        override suspend fun set(currency: String): Result<Unit> = Result.success(Unit)
+        override suspend fun current(): String = "LKR"
     }
 }

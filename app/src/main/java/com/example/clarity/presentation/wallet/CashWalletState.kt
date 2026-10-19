@@ -1,25 +1,20 @@
 package com.example.clarity.presentation.wallet
 
-import com.example.clarity.domain.model.CashWallet
+import com.example.clarity.domain.model.Account
 
-enum class WalletAction { EXPENSE, INCOME, TOP_UP, AUTOMATIC, ADJUSTMENT }
+enum class WalletActionMode {
+    TOP_UP,
+    EXPENSE,
+    INCOME
+}
 
 data class CashWalletState(
-    val wallet: CashWallet = CashWallet(),
-    val isLoading: Boolean = true,
-    val isSaving: Boolean = false,
-    val action: WalletAction = WalletAction.EXPENSE,
+    val currency: String = "LKR",
+    val balance: String = "0.00",
+    val cashAccount: Account? = null,
+    val sourceAccounts: List<Account> = emptyList(),
+    val selectedSourceAccountId: String = "",
+    val mode: WalletActionMode = WalletActionMode.TOP_UP,
     val amount: String = "",
-    val category: String = "",
-    val note: String = "",
-    val selectedBankId: String = "",
-    val automaticEnabled: Boolean = false,
-    val automaticExecution: Boolean = false,
-    val threshold: String = "0.00",
-    val automaticAmount: String = "",
-    val error: String? = null,
-    val message: String? = null,
-    val showAddCashChoices: Boolean = false,
-    val showTransferReview: Boolean = false,
-    val reminderVisible: Boolean = false
+    val isSaving: Boolean = false
 )

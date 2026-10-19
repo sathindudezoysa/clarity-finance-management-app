@@ -14,11 +14,15 @@ import androidx.test.platform.app.InstrumentationRegistry
 import com.example.clarity.domain.model.Account
 import com.example.clarity.domain.model.AccountError
 import com.example.clarity.domain.model.AccountException
+import com.example.clarity.domain.model.ExchangeRate
 import com.example.clarity.domain.model.Transaction
 import com.example.clarity.domain.model.TransactionError
 import com.example.clarity.domain.model.TransactionException
 import com.example.clarity.domain.model.TransactionType
 import com.example.clarity.domain.repository.AccountRepository
+import com.example.clarity.domain.repository.CurrencyPreference
+import com.example.clarity.domain.repository.CurrencyPreferenceRepository
+import com.example.clarity.domain.repository.ExchangeRateRepository
 import com.example.clarity.domain.repository.TransactionRepository
 import com.example.clarity.domain.repository.TransactionTagRepository
 import com.example.clarity.domain.usecase.account.GetAccountsUseCase
@@ -47,7 +51,16 @@ class TransactionAccountViewModelTest {
     private var nextKey = 0
     private val transactions = MemoryTransactions()
     private val accounts = MemoryAccounts()
-    private val getAccounts = GetAccountsUseCase(accounts)
+    private val preferences = object : CurrencyPreferenceRepository {
+        override fun observe() = flowOf(CurrencyPreference("LKR"))
+        override suspend fun set(currency: String) = Result.success(Unit)
+        override suspend fun current() = "LKR"
+    }
+    private val rates = object : ExchangeRateRepository {
+        override suspend fun cached(source: String, target: String) = ExchangeRate(source, target, "1", "ExchangeRate-API", 100, 100, 86_500_000)
+        override suspend fun latest(source: String, target: String) = cached(source, target)!!
+    }
+    private val getAccounts = GetAccountsUseCase(accounts, preferences)
 
     @After
     fun tearDown() { instrumentation.runOnMainSync { store.clear() } }
@@ -68,7 +81,7 @@ class TransactionAccountViewModelTest {
         TransactionEditViewModel(handle, GetTransactionUseCase(transactions), AddTransactionUseCase(transactions, accounts),
             UpdateTransactionUseCase(transactions, accounts), GetTransactionTagsUseCase(object : TransactionTagRepository {
                 override fun observeTags() = flowOf(emptyList<String>())
-            }), getAccounts, com.example.clarity.domain.usecase.currency.ObserveCurrencyPreferenceUseCase(TestCurrencies.preferences), PreviewConversionUseCase(TestCurrencies.rates))
+            }), getAccounts, com.example.clarity.domain.usecase.currency.ObserveCurrencyPreferenceUseCase(preferences), PreviewConversionUseCase(rates))
     }
 
     private suspend fun ready(editor: TransactionEditViewModel) = withTimeout(10_000) {
@@ -549,8 +562,8 @@ class TransactionAccountViewModelTest {
         }
         override suspend fun getAccount(id: String) = Result.success(values.value.firstOrNull { it.id == id })
         override suspend fun getDefaultAccount() = Result.success(values.value.firstOrNull { it.isDefault })
-        override suspend fun createAccount(account: Account): Result<Unit> = error("Unused")
-        override suspend fun updateAccount(account: Account): Result<Unit> = error("Unused")
+        override suspend fun createAccount(account: Account): Result<Unit> = Result.success(Unit)
+        override suspend fun updateAccount(account: Account): Result<Unit> = Result.success(Unit)
         override suspend fun setDefaultAccount(id: String): Result<Unit> = error("Unused")
     }
 }

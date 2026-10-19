@@ -137,28 +137,24 @@ internal fun TransactionEditContent(
                     modifier = Modifier.fillMaxWidth().focusRequester(amountFocus)
                 )
                 com.example.clarity.presentation.transactions.CurrencyPicker(state.currency, onCurrencySelected,
-                    enabled = !state.isSaving && state.transaction?.isCash != true)
+                    enabled = !state.isSaving)
                 if (state.previewLoading) CircularProgressIndicator()
                 com.example.clarity.presentation.transactions.ConversionInfo(state.targetCurrency, state.preview,
                     pending = false)
                 if (state.previewError) Text("Conversion unavailable. You can save the original amount now; conversion will remain pending until a valid rate is available.")
                 if (state.previewError) TextButton(onClick = { onPreview(amount) }) { Text("Retry conversion") }
                 Text("Daily reference rates. A missing rate does not prevent saving offline. Amounts that overflow or round to zero require editing the original amount.")
-                if (state.transaction?.isCash == true) {
-                    Text("Cash Wallet")
-                } else {
-                    state.accountsError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
-                    if (state.isAccountsLoading) CircularProgressIndicator()
-                    else if (state.accounts.isEmpty()) {
-                        Text("Create a bank account before saving a transaction.", color = MaterialTheme.colorScheme.error)
-                        OutlinedButton(onClick = onCreateAccount, enabled = !state.isSaving) {
-                            Text("Create bank account")
-                        }
+                state.accountsError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+                if (state.isAccountsLoading) CircularProgressIndicator()
+                else if (state.accounts.isEmpty()) {
+                    Text("Create a bank account before saving a transaction.", color = MaterialTheme.colorScheme.error)
+                    OutlinedButton(onClick = onCreateAccount, enabled = !state.isSaving) {
+                        Text("Create bank account")
                     }
-                    if (!state.isAccountsLoading) {
-                        TransactionAccountField(state.accounts, state.selectedAccountId, onAccountSelected,
-                            enabled = !state.isSaving, error = state.accountError, modifier = Modifier.fillMaxWidth())
-                    }
+                }
+                if (!state.isAccountsLoading) {
+                    TransactionAccountField(state.accounts, state.selectedAccountId, onAccountSelected,
+                        enabled = !state.isSaving, error = state.accountError, modifier = Modifier.fillMaxWidth())
                 }
                 TransactionTagField(
                     value = category, tags = state.tags, onValueChange = { category = it },
