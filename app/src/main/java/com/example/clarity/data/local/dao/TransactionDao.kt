@@ -69,9 +69,24 @@ abstract class TransactionDao {
         return true
     }
 
+    @Query("SELECT * FROM transactions WHERE userId = :userId AND accountId = :accountId AND isDeleted = 0")
+    abstract suspend fun getActiveForAccount(userId: String, accountId: String): List<TransactionEntity>
+
     @Transaction
     open suspend fun persistLocal(entity: TransactionEntity) {
+        val previousAccountId = getById(entity.id)?.accountId
         upsertWithTag(entity)
+        listOfNotNull(previousAccountId, entity.accountId)
+            .distinct()
+            .filter { it.startsWith(com.example.clarity.domain.model.Account.CASH_WALLET_PREFIX) }
+            .forEach { cashAccountId ->
+                var netMinor = java.math.BigInteger.ZERO
+                for (tx in getActiveForAccount(entity.userId, cashAccountId)) {
+                    val amount = java.math.BigInteger.valueOf(tx.conversion?.amountMinor ?: tx.amountMinor)
+                    if (tx.type == "INCOME") netMinor += amount else netMinor -= amount
+                }
+                require(netMinor >= java.math.BigInteger.ZERO) { "Insufficient cash wallet balance" }
+            }
     }
 
     @Transaction

@@ -144,28 +144,24 @@ internal fun TransactionEditContent(
                     modifier = Modifier.fillMaxWidth().focusRequester(amountFocus)
                 )
                 com.example.clarity.presentation.transactions.CurrencyPicker(state.currency, onCurrencySelected,
-                    enabled = !state.isSaving && state.transaction?.isCash != true)
+                    enabled = !state.isSaving)
                 if (state.previewLoading) CircularProgressIndicator()
                 com.example.clarity.presentation.transactions.ConversionInfo(state.targetCurrency, state.preview,
                     pending = false)
                 if (state.previewError) Text(stringResource(R.string.currency_preview_pending))
                 if (state.previewError) TextButton(onClick = { onPreview(amount) }) { Text(stringResource(R.string.currency_retry)) }
                 Text(stringResource(R.string.currency_daily))
-                if (state.transaction?.isCash == true) {
-                    Text(stringResource(R.string.wallet_title))
-                } else {
-                    state.accountsError?.let { Text(stringResource(it), color = MaterialTheme.colorScheme.error) }
-                    if (state.isAccountsLoading) CircularProgressIndicator()
-                    else if (state.accounts.isEmpty()) {
-                        Text(stringResource(R.string.transactions_account_required), color = MaterialTheme.colorScheme.error)
-                        OutlinedButton(onClick = onCreateAccount, enabled = !state.isSaving) {
-                            Text(stringResource(R.string.transactions_create_account))
-                        }
+                state.accountsError?.let { Text(stringResource(it), color = MaterialTheme.colorScheme.error) }
+                if (state.isAccountsLoading) CircularProgressIndicator()
+                else if (state.accounts.isEmpty()) {
+                    Text(stringResource(R.string.transactions_account_required), color = MaterialTheme.colorScheme.error)
+                    OutlinedButton(onClick = onCreateAccount, enabled = !state.isSaving) {
+                        Text(stringResource(R.string.transactions_create_account))
                     }
-                    if (!state.isAccountsLoading) {
-                        TransactionAccountField(state.accounts, state.selectedAccountId, onAccountSelected,
-                            enabled = !state.isSaving, error = state.accountError, modifier = Modifier.fillMaxWidth())
-                    }
+                }
+                if (!state.isAccountsLoading) {
+                    TransactionAccountField(state.accounts, state.selectedAccountId, onAccountSelected,
+                        enabled = !state.isSaving, error = state.accountError, modifier = Modifier.fillMaxWidth())
                 }
                 TransactionTagField(
                     value = category, tags = state.tags, onValueChange = { category = it },

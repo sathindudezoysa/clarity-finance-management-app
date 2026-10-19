@@ -130,9 +130,7 @@ class TransactionRepositoryImpl @Inject internal constructor(
             else combine(
                 dao.observeAll(user.uid), syncState.filter { it.uid == user.uid }
             ) { local, status ->
-                val transactions = local.map {
-                    it.toDomain().copy(isCash = it.accountId?.startsWith(com.example.clarity.domain.model.Account.CASH_WALLET_PREFIX) == true)
-                }
+                val transactions = local.map { it.toDomain() }
                 if (status.warning == null) Resource.Success(transactions)
                 else Resource.Error(status.warning, transactions)
             }.onStart { emit(Resource.Loading()) }
@@ -148,9 +146,7 @@ class TransactionRepositoryImpl @Inject internal constructor(
             else combine(
                 dao.observeById(id, user.uid), syncState.filter { it.uid == user.uid }
             ) { local, status ->
-                val transaction = local?.toDomain()?.copy(
-                    isCash = local.accountId?.startsWith(com.example.clarity.domain.model.Account.CASH_WALLET_PREFIX) == true
-                )
+                val transaction = local?.toDomain()
                 if (status.warning == null) Resource.Success<Transaction?>(transaction)
                 else Resource.Error<Transaction?>(status.warning, transaction)
             }.onStart { emit(Resource.Loading()) }
@@ -218,12 +214,6 @@ class TransactionRepositoryImpl @Inject internal constructor(
             }
             enqueueRemote(entity)
         }
-    }
-
-    override suspend fun isCashTransaction(id: String): Boolean = withContext(ioDispatcher) {
-        val uid = authRepository.currentUser.first()?.uid ?: return@withContext false
-        val row = dao.getById(id)?.takeIf { it.userId == uid && !it.isDeleted } ?: return@withContext false
-        row.accountId?.startsWith(com.example.clarity.domain.model.Account.CASH_WALLET_PREFIX) == true
     }
 
     override suspend fun addTransaction(t: Transaction): Result<Unit> = localWrite { uid ->

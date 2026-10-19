@@ -186,11 +186,24 @@ fun CashWalletContent(
                 }
             }
 
+            val enteredMinor = com.example.clarity.domain.util.MoneyUtils.parseMinor(state.amount, state.currency).getOrNull()
+            val availableMinor = com.example.clarity.domain.util.MoneyUtils.parseMinor(state.balance, state.currency).getOrDefault(0L)
+            val isAmountInvalid = state.amount.isNotBlank() && (enteredMinor == null || enteredMinor <= 0L)
+            val isInsufficientBalance = state.mode == WalletActionMode.EXPENSE &&
+                enteredMinor != null && enteredMinor > availableMinor
+            val hasValidationError = isAmountInvalid || isInsufficientBalance
+
             OutlinedTextField(
                 value = state.amount,
                 onValueChange = onAmountChange,
                 label = { Text("Amount (${state.currency})") },
                 singleLine = true,
+                isError = hasValidationError,
+                supportingText = when {
+                    isInsufficientBalance -> ({ Text("Insufficient cash wallet balance") })
+                    isAmountInvalid -> ({ Text("Enter a valid amount greater than zero") })
+                    else -> null
+                },
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                 modifier = Modifier.fillMaxWidth()
             )
@@ -198,7 +211,9 @@ fun CashWalletContent(
             Spacer(modifier = Modifier.height(4.dp))
 
             val canSubmit = !state.isSaving &&
-                state.amount.isNotBlank() &&
+                enteredMinor != null &&
+                enteredMinor > 0L &&
+                !hasValidationError &&
                 (state.mode != WalletActionMode.TOP_UP || selectedSource != null)
 
             Button(

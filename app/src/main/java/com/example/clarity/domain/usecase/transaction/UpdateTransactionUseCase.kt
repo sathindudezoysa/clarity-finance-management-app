@@ -23,10 +23,6 @@ class UpdateTransactionUseCase @Inject constructor(
         if (normalized.category.length > 100 || normalized.note.length > 2000) {
             return Result.failure(IllegalArgumentException("Category or note is too long"))
         }
-        if (repository.isCashTransaction(normalized.id)) {
-            if (normalized.currency != "LKR") return Result.failure(IllegalArgumentException("Cash wallet entries must remain LKR"))
-            return repository.updateTransaction(normalized.copy(accountId = null))
-        }
         val accountId = normalized.accountId
         if (accountId.isNullOrBlank()) {
             return Result.failure(TransactionException(TransactionError.ACCOUNT_REQUIRED, "Select a bank account"))

@@ -145,6 +145,9 @@ class CashWalletViewModel @Inject constructor(
         val amountMinor = MoneyUtils.parseMinor(state.amount, cashAccount.currency).getOrNull() ?: return
         if (amountMinor <= 0L) return
 
+        val availableCashMinor = MoneyUtils.parseMinor(state.balance, state.currency).getOrDefault(0L)
+        if (state.mode == WalletActionMode.EXPENSE && amountMinor > availableCashMinor) return
+
         val sourceAccount = if (state.mode == WalletActionMode.TOP_UP) {
             state.sourceAccounts.firstOrNull { it.id == state.selectedSourceAccountId } ?: return
         } else null
@@ -182,7 +185,6 @@ class CashWalletViewModel @Inject constructor(
                             category = "Cash Top-Up",
                             dateEpochMillis = now,
                             note = "Top up to ${cashAccount.name}",
-                            isCash = false,
                             accountId = source.id,
                             currency = source.currency
                         )
@@ -193,7 +195,6 @@ class CashWalletViewModel @Inject constructor(
                             category = "Cash Top-Up",
                             dateEpochMillis = now,
                             note = "Top up from ${source.displayLabel}",
-                            isCash = true,
                             accountId = cashAccount.id,
                             currency = cashAccount.currency
                         )
@@ -217,7 +218,6 @@ class CashWalletViewModel @Inject constructor(
                             category = if (isExpense) "Cash Expense" else "Cash Income",
                             dateEpochMillis = now,
                             note = "",
-                            isCash = true,
                             accountId = cashAccount.id,
                             currency = cashAccount.currency
                         )
