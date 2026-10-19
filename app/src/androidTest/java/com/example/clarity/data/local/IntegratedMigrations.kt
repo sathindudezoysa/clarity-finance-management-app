@@ -3,7 +3,7 @@ package com.example.clarity.data.local
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 
-/** Preserve published wallet/account schemas and proof metadata during integration. */
+/** Historical upgrade fixtures only; the application uses destructive cache recreation. */
 object IntegratedMigrations {
     val all: Array<Migration> = arrayOf(
         InitialTransactionMigration, TransactionTagMigration,

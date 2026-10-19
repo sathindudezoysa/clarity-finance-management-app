@@ -2,7 +2,6 @@ package com.example.clarity.di
 
 import android.content.Context
 import androidx.room.Room
-import com.example.clarity.data.local.IntegratedMigrations
 import com.example.clarity.data.local.ClarityDatabase
 import com.example.clarity.data.local.dao.AccountDao
 import com.example.clarity.data.local.dao.SampleDao
@@ -23,12 +22,17 @@ object DatabaseModule {
     @Singleton
     fun provideDatabase(
         @ApplicationContext context: Context
-    ): ClarityDatabase {
+    ): ClarityDatabase = createDatabase(context, ClarityDatabase.DATABASE_NAME)
+
+    fun createDatabase(context: Context, name: String): ClarityDatabase {
         return Room.databaseBuilder(
             context,
             ClarityDatabase::class.java,
-            ClarityDatabase.DATABASE_NAME
-        ).addMigrations(*IntegratedMigrations.all).build()
+            name
+        )
+            .fallbackToDestructiveMigration()
+            .fallbackToDestructiveMigrationOnDowngrade()
+            .build()
     }
 
     @Provides

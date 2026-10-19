@@ -6,6 +6,7 @@ import android.content.Intent
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -63,7 +64,7 @@ fun TransactionProofContent(
     onRemoveUnavailable: (String) -> Unit = {}
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Divider()
+        Box(Modifier.fillMaxWidth().height(1.dp).background(MaterialTheme.colorScheme.outlineVariant))
         Text(stringResource(R.string.proofs_title), style = MaterialTheme.typography.titleMedium)
         if (state.proofs.any { it.verifies(amountMinor) }) ReceiptVerifiedIcon()
         Text(stringResource(R.string.proofs_hint), style = MaterialTheme.typography.bodySmall)

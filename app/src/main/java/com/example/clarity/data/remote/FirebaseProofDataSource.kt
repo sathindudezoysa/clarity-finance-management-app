@@ -84,7 +84,7 @@ class FirebaseProofDataSource @Inject constructor() : ProofRemoteDataSource {
         try {
             try { task.await() } catch (cancel: CancellationException) { task.cancel(); throw cancel }
             ProofPolicy.validate(proof.mimeType, temporary.length())
-            val header = temporary.inputStream().use { input -> ByteArray(64).also { input.read(it) } }
+            val header = temporary.inputStream().use(ProofFileSignature::readHeader)
             require(ProofFileSignature.matches(proof.mimeType, header)) { "Invalid proof contents" }
             check(temporary.renameTo(destination)) { "Could not save proof" }
         } finally { temporary.delete() }

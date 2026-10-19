@@ -49,7 +49,7 @@ class ProofFileStore @Inject constructor(@ApplicationContext private val context
                 }
             }
             ProofPolicy.validate(mime, target.length())
-            val header = target.inputStream().use { input -> ByteArray(64).also { input.read(it) } }
+            val header = target.inputStream().use(ProofFileSignature::readHeader)
             require(ProofFileSignature.matches(mime, header)) { "The file contents do not match its photo or PDF type" }
             return ImportedProof(target, name, mime)
         } catch (error: Exception) { target.delete(); throw error }

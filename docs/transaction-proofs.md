@@ -2,6 +2,8 @@
 
 Implemented on `9-attach-proofs-to-transactions`, based on `main` at `28ed0d7`.
 
+**Current database policy:** the application follows the skills' development-cache policy. It registers no manual migrations and enables destructive fallback for upgrades and downgrades. A database version change can discard unsynced local transactions, wallet records and pending proofs; synced records are rebuilt from remote data. Existing migration reports below describe earlier revisions, not the current production builder.
+
 ## User flow
 
 Open a saved transaction, select **Attach photo or PDF**, and choose a file. Import and upload start automatically. No storage permission dialog is required. Photos (JPEG, PNG, WebP, GIF, HEIC/HEIF) and PDFs are supported, up to 10 MB each and ten attachments per transaction.
@@ -121,3 +123,17 @@ Automatic navigation merges were checked: all 12 destinations occur once, wallet
 Host SQLite checks cover 16 schema fixtures against Room-generated version 10 SQL, preserving ledger records and proof metadata. Wallet SQL checks cover exact balances, bounded history, owner isolation and concurrent reads during transfers. These checks complement Android Room tests; no device is connected for instrumentation execution.
 
 Combined-merge validation: `BUILD SUCCESSFUL` for app APK, instrumentation APK, unit tests and lint. All 92 JVM tests passed (zero failures, errors or skips). Lint: 0 errors and 25 warnings. All 16 host migration fixtures and wallet SQL checks passed. Instrumentation tests compiled but could not run without a device; live Firebase upload/viewer checks remain unverified. The resolved merge is staged for review without an automatic commit or push.
+
+
+## Review follow-up to commit 91aee86
+
+Changes are limited to the review findings; existing wallet, transaction, account and synchronization implementations are retained.
+
+- `DatabaseModule` uses `fallbackToDestructiveMigration()` and `fallbackToDestructiveMigrationOnDowngrade()` with no `addMigrations` call. The old integrated registry is now under Android test sources for historical upgrade fixtures only. No migration helper implementation was rewritten. Production and new cache-policy tests use the same database factory. There is no entity/schema change, so `SCHEMA_VERSION` remains 10; reopening the same schema does not reset its records.
+- `ProofFileSignature.readHeader` reads up to 64 actual bytes, handles partial and zero-length bulk reads, and returns only bytes received. Both local imports and streamed Firebase downloads use it. Seven new unit cases cover empty/small/large files, fragmented reads, zero-length reads, truncated signatures and read failures.
+- The proof separator uses a one-dp line with `MaterialTheme.colorScheme.outlineVariant`. The pinned Compose BOM resolves Material3 1.1.1, whose cached `DividerKt` bytecode has no `HorizontalDivider` API. The replacement avoids `Divider()` while retaining its appearance and the existing dependency versions.
+- `DatabaseCachePolicyTest` covers the actual production builder for stale versions 1/6/7/8/9 and a future-version downgrade, verifies empty rebuilt tables and transaction/tag reconciliation, and checks that current-schema reopening preserves cash balances, transactions and pending proof metadata.
+
+Previously resolved behavior remains: network-constrained WorkManager sync, auth-restoration retries, streamed downloads, metadata-only verification updates, missing-proof recovery, bounded previews, checked parent directories and shared navigation arguments. Storage timeouts retain `withTimeoutOrNull` ownership semantics and propagate caller cancellation. No live data reset or Firebase deployment was performed.
+
+Review validation: `BUILD SUCCESSFUL` for debug APK, instrumentation APK, unit tests and lint. All 99 unit tests passed with zero failures, errors or skips, including seven bounded header-read regressions. Lint completed with 0 errors and 25 warnings. The new production-cache policy tests compiled but could not execute because no Android device is connected. Live Storage, file-picker and external-viewer checks remain unverified. No commit or push was performed.

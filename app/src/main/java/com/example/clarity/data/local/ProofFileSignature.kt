@@ -1,6 +1,24 @@
 package com.example.clarity.data.local
 
+import java.io.InputStream
+
 object ProofFileSignature {
+    /** Read at most 64 actual bytes, including when a stream returns partial reads. */
+    fun readHeader(input: InputStream): ByteArray {
+        val buffer = ByteArray(64)
+        var total = 0
+        while (total < buffer.size) {
+            val read = input.read(buffer, total, buffer.size - total)
+            if (read < 0) break
+            if (read == 0) {
+                val next = input.read()
+                if (next < 0) break
+                buffer[total++] = next.toByte()
+            } else total += read
+        }
+        return buffer.copyOf(total)
+    }
+
     fun matches(mime: String, bytes: ByteArray): Boolean {
         fun starts(vararg signature: Int) = bytes.size >= signature.size &&
             signature.indices.all { bytes[it].toInt() and 255 == signature[it] }
