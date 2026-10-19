@@ -1,5 +1,9 @@
 package com.example.clarity.di
 
+import com.example.clarity.data.remote.IncomeSourceRemoteDataSource
+import com.example.clarity.data.remote.FirestoreIncomeSourceDataSource
+import com.example.clarity.domain.repository.IncomeSourceRepository
+import com.example.clarity.data.repository.IncomeSourceRepositoryImpl
 import com.example.clarity.domain.repository.TransactionProofRepository
 import com.example.clarity.data.repository.TransactionProofRepositoryImpl
 import com.example.clarity.data.remote.FirebaseProofDataSource
@@ -50,6 +54,12 @@ abstract class RepositoryModule {
         fun provideApplicationScope(ioDispatcher: CoroutineDispatcher): CoroutineScope =
             CoroutineScope(SupervisorJob() + ioDispatcher)
     }
+
+    @Binds @Singleton
+    abstract fun bindIncomeRemote(impl: FirestoreIncomeSourceDataSource): IncomeSourceRemoteDataSource
+
+    @Binds @Singleton
+    abstract fun bindIncomeSourceRepository(impl: IncomeSourceRepositoryImpl): IncomeSourceRepository
 
     @Binds
     @Singleton

@@ -1,5 +1,6 @@
 package com.example.clarity.presentation.navigation
 
+import com.example.clarity.presentation.income.IncomeScreen
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -58,9 +59,15 @@ fun SetupNavGraph(
         composable(route = Screen.Main.route) {
             MainScreen(
                 onNavigateToTransactions = { navController.navigate(Screen.TransactionList.route) },
+                onNavigateToIncome = { navController.navigate(Screen.IncomeSources.route) },
                 onNavigateToCashWallet = { navController.navigate(Screen.CashWallet.route) },
                 onNavigateToSettings = { navController.navigate(Screen.Settings.route) }
             )
+        }
+        composable(Screen.IncomeSources.route) {
+            IncomeScreen(onBack = { navController.popBackStack() },
+                onAddAccount = { navController.navigate(Screen.AccountEdit.createRoute()) },
+                onOpenTransaction = { id -> navController.navigate(Screen.TransactionDetail.createRoute(id)) })
         }
         composable(route = Screen.CashWallet.route) {
             com.example.clarity.presentation.wallet.CashWalletScreen(

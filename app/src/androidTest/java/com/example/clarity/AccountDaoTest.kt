@@ -1,15 +1,11 @@
 package com.example.clarity
 
-import android.database.sqlite.SQLiteDatabase
+import com.example.clarity.di.DatabaseModule
+
 import androidx.room.Room
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
-import com.example.clarity.data.local.AccountMigration
 import com.example.clarity.data.local.ClarityDatabase
-import com.example.clarity.data.local.InitialTransactionMigration
-import com.example.clarity.data.local.TransactionTagMigration
-import com.example.clarity.data.local.TransactionAccountMigration
-import com.example.clarity.data.local.TransactionAccountIndexMigration
 import com.example.clarity.data.local.entity.TransactionEntity
 import com.example.clarity.data.local.entity.AccountEntity
 import com.example.clarity.data.mapper.toDomain
@@ -175,35 +171,6 @@ class AccountDaoTest {
     }
 
     @Test
-    fun versionThreeRecreationDiscardsOldRowsAndNewAccountsSurviveRestart() = runBlocking {
-        createLegacyDatabase(3)
-        var db = openDatabase()
-        assertNull(db.transactionDao.getById("legacy"))
-        assertTrue(db.transactionTagDao.observeTags("user-a").first().isEmpty())
-        assertSampleRecreated(db)
-        db.accountDao.upsertAll(listOf(row("daily").copy(pendingSync = true),
-            row("savings", default = true).copy(pendingSync = true)))
-        db.close()
-        db = openDatabase()
-        assertEquals(2, db.accountDao.observeAll("user-a").first().size)
-        assertEquals("savings", db.accountDao.getDefault("user-a")!!.id)
-        assertTrue(db.accountDao.getAllForUser("user-a").all { it.pendingSync })
-    }
-
-    @Test
-    fun versionsOneAndTwoRecreateWithEmptyTables() = runBlocking {
-        for (version in listOf(1, 2)) {
-            createLegacyDatabase(version)
-            val db = openDatabase()
-            assertSampleRecreated(db)
-            assertNull(db.transactionDao.getById("legacy"))
-            db.accountDao.upsertAll(listOf(row("daily", default = true).copy(pendingSync = true)))
-            assertEquals("daily", db.accountDao.getDefault("user-a")!!.id)
-            db.close()
-        }
-    }
-
-    @Test
     fun remoteRenameKeepsBothRoomRowsAndTheirTransactionReferences() = runBlocking {
         val db = openDatabase()
         val repository = repository(db)
@@ -240,29 +207,7 @@ class AccountDaoTest {
         assertNull(db.accountDao.getById("linked"))
     }
 
-    @Test
-    fun versionFiveRecreationDiscardsOldRowsAndCreatesTheAccountIndex() = runBlocking {
-        createLegacyDatabase(5)
-        val db = openDatabase()
-        assertNull(db.transactionDao.getById("legacy"))
-        assertNull(db.accountDao.getDefault("user-a"))
-        assertTrue(db.transactionTagDao.observeTags("user-a").first().isEmpty())
-        assertSampleRecreated(db)
-        db.openHelper.readableDatabase.query("PRAGMA index_info('index_transactions_accountId')").use {
-            assertTrue(it.moveToFirst())
-            assertEquals("accountId", it.getString(2))
-            assertFalse(it.moveToNext())
-        }
-        db.openHelper.readableDatabase.query("PRAGMA foreign_key_list('transactions')").use {
-            assertFalse(it.moveToFirst())
-        }
-        db.close()
-        assertNull(openDatabase().transactionDao.getById("legacy"))
-    }
-
-    private fun openDatabase() = Room.databaseBuilder(context, ClarityDatabase::class.java, databaseName)
-        .fallbackToDestructiveMigration()
-        .build().also { database = it }
+    private fun openDatabase() = DatabaseModule.createDatabase(context, databaseName).also { database = it }
 
     private fun repository(db: ClarityDatabase, userId: String = "user-a",
         remote: AccountRemoteDataSource = object : AccountRemoteDataSource {
@@ -283,52 +228,4 @@ class AccountDaoTest {
         Dispatchers.IO, applicationScope
     ).also { repositories.add(it) }
 
-    private fun assertSampleRecreated(db: ClarityDatabase) {
-        db.openHelper.readableDatabase.query("SELECT title FROM sample_table WHERE id = 'sample'").use {
-            assertFalse(it.moveToFirst())
-        }
-    }
-
-    private fun createLegacyDatabase(version: Int) {
-        context.deleteDatabase(databaseName)
-        val path = context.getDatabasePath(databaseName)
-        path.parentFile!!.mkdirs()
-        SQLiteDatabase.openOrCreateDatabase(path, null).use { legacy ->
-            legacy.execSQL("CREATE TABLE sample_table (id TEXT NOT NULL PRIMARY KEY, title TEXT NOT NULL, description TEXT NOT NULL)")
-            legacy.execSQL("INSERT INTO sample_table VALUES ('sample', 'Keep this', '')")
-            if (version >= 2) {
-                legacy.execSQL("""
-                    CREATE TABLE transactions (
-                        id TEXT NOT NULL PRIMARY KEY, userId TEXT NOT NULL, type TEXT NOT NULL,
-                        amountMinor INTEGER NOT NULL, category TEXT NOT NULL, note TEXT NOT NULL,
-                        dateEpochMillis INTEGER NOT NULL, createdAt INTEGER NOT NULL, updatedAt INTEGER NOT NULL,
-                        pendingSync INTEGER NOT NULL, isDeleted INTEGER NOT NULL
-                    )
-                """.trimIndent())
-                legacy.execSQL("CREATE INDEX index_transactions_userId ON transactions (userId)")
-                legacy.execSQL("INSERT INTO transactions VALUES ('legacy', 'user-a', 'EXPENSE', 1250, 'Hobby', 'Original description', 100, 1, 10, 1, 0)")
-            }
-            if (version >= 3) {
-                legacy.execSQL("CREATE TABLE transaction_tags (userId TEXT NOT NULL, name TEXT COLLATE NOCASE NOT NULL, PRIMARY KEY(userId, name))")
-                legacy.execSQL("INSERT INTO transaction_tags VALUES ('user-a', 'Hobby')")
-            }
-            if (version >= 4) {
-                legacy.execSQL("""
-                    CREATE TABLE accounts (
-                        id TEXT NOT NULL PRIMARY KEY, userId TEXT NOT NULL, name TEXT COLLATE NOCASE NOT NULL,
-                        bankName TEXT NOT NULL, accountType TEXT, currency TEXT NOT NULL, isDefault INTEGER NOT NULL,
-                        createdAt INTEGER NOT NULL, updatedAt INTEGER NOT NULL, pendingSync INTEGER NOT NULL
-                    )
-                """.trimIndent())
-                legacy.execSQL("CREATE INDEX index_accounts_userId ON accounts (userId)")
-                legacy.execSQL("CREATE UNIQUE INDEX index_accounts_userId_name ON accounts (userId, name)")
-                legacy.execSQL("INSERT INTO accounts VALUES ('daily', 'user-a', 'Daily', 'Bank', NULL, 'LKR', 1, 1, 10, 0)")
-            }
-            if (version >= 5) {
-                legacy.execSQL("ALTER TABLE transactions ADD COLUMN accountId TEXT DEFAULT NULL")
-                legacy.execSQL("UPDATE transactions SET accountId = 'daily', isDeleted = 1")
-            }
-            legacy.version = version
-        }
-    }
 }

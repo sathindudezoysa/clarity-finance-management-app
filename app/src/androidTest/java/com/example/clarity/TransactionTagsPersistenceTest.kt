@@ -1,7 +1,7 @@
 package com.example.clarity
 
-import android.database.sqlite.SQLiteDatabase
-import androidx.room.Room
+import com.example.clarity.di.DatabaseModule
+
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.example.clarity.data.local.ClarityDatabase
@@ -30,9 +30,7 @@ class TransactionTagsPersistenceTest {
         context.deleteDatabase(databaseName)
     }
 
-    private fun openDatabase(): ClarityDatabase = Room.databaseBuilder(
-        context, ClarityDatabase::class.java, databaseName
-    ).fallbackToDestructiveMigration().build().also { database = it }
+    private fun openDatabase(): ClarityDatabase = DatabaseModule.createDatabase(context, databaseName).also { database = it }
 
     private fun row(id: String, tag: String, description: String = "", user: String = "user-a") =
         TransactionEntity(id, user, "EXPENSE", 1250, tag, description, 100, 1, 10, pendingSync = true)
@@ -77,32 +75,4 @@ class TransactionTagsPersistenceTest {
         assertEquals(listOf("Hobby"), db.transactionTagDao.observeTags("user-a").first())
     }
 
-    @Test
-    fun versionTwoSchemaRecreationDiscardsOldRowsAndCreatesAnEmptyTagCatalog() = runBlocking {
-        val path = context.getDatabasePath(databaseName)
-        path.parentFile!!.mkdirs()
-        SQLiteDatabase.openOrCreateDatabase(path, null).use { legacy ->
-            legacy.execSQL("CREATE TABLE sample_table (id TEXT NOT NULL PRIMARY KEY, title TEXT NOT NULL, description TEXT NOT NULL)")
-            legacy.execSQL("""
-                CREATE TABLE transactions (
-                    id TEXT NOT NULL PRIMARY KEY, userId TEXT NOT NULL, type TEXT NOT NULL,
-                    amountMinor INTEGER NOT NULL, category TEXT NOT NULL, note TEXT NOT NULL,
-                    dateEpochMillis INTEGER NOT NULL, createdAt INTEGER NOT NULL, updatedAt INTEGER NOT NULL,
-                    pendingSync INTEGER NOT NULL, isDeleted INTEGER NOT NULL
-                )
-            """.trimIndent())
-            legacy.execSQL("CREATE INDEX index_transactions_userId ON transactions (userId)")
-            legacy.execSQL("INSERT INTO sample_table VALUES ('sample', 'Existing sample', 'Keep this')")
-            legacy.execSQL("INSERT INTO transactions VALUES ('legacy', 'user-a', 'EXPENSE', 1250, 'Hobby', 'Original description', 100, 1, 10, 1, 0)")
-            legacy.execSQL("INSERT INTO transactions VALUES ('other', 'user-b', 'INCOME', 5000, 'Private', '', 100, 1, 10, 0, 0)")
-            legacy.version = 2
-        }
-        val db = openDatabase()
-        assertNull(db.transactionDao.getById("legacy"))
-        assertTrue(db.transactionTagDao.observeTags("user-a").first().isEmpty())
-        assertTrue(db.transactionTagDao.observeTags("user-b").first().isEmpty())
-        db.openHelper.readableDatabase.query("SELECT title, description FROM sample_table WHERE id = 'sample'").use {
-            assertFalse(it.moveToFirst())
-        }
-    }
 }

@@ -330,7 +330,7 @@ class TransactionRepositoryImpl @Inject internal constructor(
                 "Remote transaction is malformed or belongs to another user"
             }
             if (remote == null || remote.updatedAt < entity.updatedAt) {
-                transaction.set(document, entity.toDomain().toFirestoreMap())
+                transaction.set(document, entity.toDomain().copy(createdAt = remote?.createdAt ?: entity.createdAt).toFirestoreMap())
             }
             Unit
         }

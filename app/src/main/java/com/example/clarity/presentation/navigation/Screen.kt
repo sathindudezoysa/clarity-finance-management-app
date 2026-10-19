@@ -3,6 +3,7 @@ package com.example.clarity.presentation.navigation
 import android.net.Uri
 
 sealed class Screen(val route: String) {
+    object IncomeSources : Screen("income_sources")
     object Main : Screen("main_screen")
     object CashWallet : Screen("cash_wallet")
     object BankSelection : Screen("wallet/banks?accountId={accountId}") {

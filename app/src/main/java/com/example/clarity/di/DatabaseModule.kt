@@ -3,7 +3,6 @@ package com.example.clarity.di
 import android.content.Context
 import androidx.room.Room
 import com.example.clarity.data.local.ClarityDatabase
-import com.example.clarity.data.local.MIGRATION_10_11
 import com.example.clarity.data.local.dao.AccountDao
 import com.example.clarity.data.local.dao.SampleDao
 import com.example.clarity.data.local.dao.TransactionDao
@@ -31,9 +30,8 @@ object DatabaseModule {
             ClarityDatabase::class.java,
             name
         )
-            
-            .fallbackToDestructiveMigrationOnDowngrade()
             .fallbackToDestructiveMigration()
+            .fallbackToDestructiveMigrationOnDowngrade()
             .build()
     }
 

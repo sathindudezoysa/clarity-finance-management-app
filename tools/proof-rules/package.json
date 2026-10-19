@@ -2,7 +2,8 @@
   "name": "clarity-proof-rules-tests",
   "private": true,
   "scripts": {
-    "test": "firebase emulators:exec --config firebase.json --project demo-clarity-proofs --only storage \"node --test storage.test.cjs\""
+    "test": "firebase emulators:exec --config firebase.json --project demo-clarity-proofs --only storage \"node --test storage.test.cjs\"",
+    "test:income": "node run-income-tests.cjs"
   },
   "devDependencies": {
     "@firebase/rules-unit-testing": "^6.0.0",
