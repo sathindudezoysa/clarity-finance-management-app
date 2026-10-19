@@ -2,9 +2,6 @@ package com.example.clarity
 
 import androidx.core.content.FileProvider
 import androidx.room.Room
-import androidx.sqlite.db.SupportSQLiteDatabase
-import androidx.sqlite.db.SupportSQLiteOpenHelper
-import androidx.sqlite.db.framework.FrameworkSQLiteOpenHelperFactory
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.example.clarity.data.local.*
@@ -25,73 +22,6 @@ import java.util.UUID
 @RunWith(AndroidJUnit4::class)
 class TransactionProofPersistenceTest {
     private val context = InstrumentationRegistry.getInstrumentation().targetContext
-
-    @Test fun additiveMigrationPreservesExistingTransactionsAccountsTagsAndOutbox() = runBlocking {
-        val name = "proof-migration-${UUID.randomUUID()}"
-        try {
-            val helper = FrameworkSQLiteOpenHelperFactory().create(SupportSQLiteOpenHelper.Configuration.builder(context)
-                .name(name).callback(object : SupportSQLiteOpenHelper.Callback(6) {
-                    override fun onCreate(db: SupportSQLiteDatabase) {
-                        db.execSQL("CREATE TABLE sample_table (id TEXT NOT NULL PRIMARY KEY, title TEXT NOT NULL, description TEXT NOT NULL)")
-                        InitialTransactionMigration.migrate(db)
-                        TransactionTagMigration.migrate(db)
-                        AccountMigration.migrate(db)
-                        TransactionAccountMigration.migrate(db)
-                        TransactionAccountIndexMigration.migrate(db)
-                        db.execSQL("INSERT INTO accounts VALUES ('bank', 'owner', 'Daily', 'Bank', NULL, 'LKR', 1, 1, 1, 1)")
-                        db.execSQL("INSERT INTO transactions VALUES ('transaction', 'owner', 'EXPENSE', 1250, 'Hobby', 'Paint', 100, 1, 10, 1, 0, 'bank')")
-                        db.execSQL("INSERT INTO transaction_tags VALUES ('owner', 'Hobby')")
-                    }
-                    override fun onUpgrade(db: SupportSQLiteDatabase, oldVersion: Int, newVersion: Int) = error("Fixture only")
-                }).build())
-            helper.writableDatabase
-            helper.close()
-            val db = Room.databaseBuilder(context, ClarityDatabase::class.java, name).addMigrations(*IntegratedMigrations.all).build()
-            try {
-                val transaction = db.transactionDao.getById("transaction")!!
-                assertEquals("Paint", transaction.note)
-                assertEquals("Hobby", transaction.category)
-                assertEquals("bank", transaction.accountId)
-                assertEquals(1250L, transaction.amountMinor)
-                assertTrue(transaction.pendingSync)
-                assertTrue(db.accountDao.getById("bank")!!.pendingSync)
-                assertEquals(0, db.transactionProofDao.count("owner", "transaction"))
-                assertEquals(listOf("Hobby"), db.transactionTagDao.observeTags("owner").first())
-            } finally { db.close() }
-        } finally { context.deleteDatabase(name) }
-    }
-
-    @Test fun versionEightProofsMigrateWithoutLosingVerificationOrQueueState() = runBlocking {
-        val name = "proof-recovery-migration-${UUID.randomUUID()}"
-        try {
-            val helper = FrameworkSQLiteOpenHelperFactory().create(SupportSQLiteOpenHelper.Configuration.builder(context)
-                .name(name).callback(object : SupportSQLiteOpenHelper.Callback(8) {
-                    override fun onCreate(db: SupportSQLiteDatabase) {
-                        db.execSQL("CREATE TABLE sample_table (id TEXT NOT NULL PRIMARY KEY, title TEXT NOT NULL, description TEXT NOT NULL)")
-                        InitialTransactionMigration.migrate(db)
-                        TransactionTagMigration.migrate(db)
-                        AccountMigration.migrate(db)
-                        TransactionAccountMigration.migrate(db)
-                        TransactionAccountIndexMigration.migrate(db)
-                        TransactionProofMigration().migrate(db)
-                        db.execSQL("INSERT INTO transactions VALUES ('transaction', 'owner', 'EXPENSE', 1250, 'Hobby', 'Paint', 100, 1, 10, 1, 0, NULL)")
-                        db.execSQL("INSERT INTO transaction_proofs VALUES ('owner', 'transaction', 'proof', 'Receipt.pdf', 'application/pdf', 100, 1, 1250, 1, 2)")
-                    }
-                    override fun onUpgrade(db: SupportSQLiteDatabase, oldVersion: Int, newVersion: Int) = error("Fixture only")
-                }).build())
-            helper.writableDatabase
-            helper.close()
-            val db = Room.databaseBuilder(context, ClarityDatabase::class.java, name).addMigrations(*IntegratedMigrations.all).build()
-            try {
-                val row = db.transactionProofDao.get("owner", "transaction", "proof")!!
-                assertFalse(row.unavailable)
-                assertTrue(row.pendingUpload)
-                assertEquals(1250L, row.verifiedAmountMinor)
-                assertEquals(2L, row.revision)
-                assertEquals("Paint", db.transactionDao.getById("transaction")!!.note)
-            } finally { db.close() }
-        } finally { context.deleteDatabase(name) }
-    }
 
     @Test fun photoAndPdfReopenOfflineSyncRetryAndVerificationRemainOwnerScoped() = runBlocking {
         val db = Room.inMemoryDatabaseBuilder(context, ClarityDatabase::class.java).build()

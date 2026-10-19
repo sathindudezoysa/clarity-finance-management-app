@@ -23,7 +23,7 @@ class DatabaseCachePolicyTest {
     private val context = InstrumentationRegistry.getInstrumentation().targetContext
 
     @Test fun productionBuilderRecreatesStaleCachesOnUpgradeAndDowngrade() = runBlocking {
-        for (version in listOf(1, 6, 7, 8, 9, ClarityDatabase.SCHEMA_VERSION + 1)) {
+        for (version in ((1 until ClarityDatabase.SCHEMA_VERSION).toList() + (ClarityDatabase.SCHEMA_VERSION + 1))) {
             val name = "cache-policy-$version-${UUID.randomUUID()}"
             try {
                 val path = context.getDatabasePath(name)
