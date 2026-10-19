@@ -18,6 +18,7 @@ class BudgetAlertManager @Inject constructor(
     fun start() {
         if (!started.compareAndSet(false, true)) return
         // Evaluation is local and independent of WorkManager's network constraint.
+        // Resolve the current device timezone on each refresh, including after timezone/clock changes.
         scope.launch { while (isActive) { signals.refresh(); delay(30_000) } }
         scope.launch {
             auth.currentUser.distinctUntilChangedBy { it?.uid }.collectLatest { user ->

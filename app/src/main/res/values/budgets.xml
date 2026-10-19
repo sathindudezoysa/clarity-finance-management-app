@@ -10,7 +10,7 @@
     <string name="budget_continue">Continue</string>
     <string name="budget_month">Month (YYYY-MM)</string>
     <string name="budget_limit">Limit (%1$s)</string>
-    <string name="budget_month_policy">Calendar months use UTC on every device. Existing budgets keep their currency.</string>
+    <string name="budget_month_policy">Calendar months use your device’s current timezone, matching transaction dates. Changing timezone can move spending between months. Existing budgets keep their currency.</string>
     <string name="budget_empty">Create a category budget to follow your monthly spending.</string>
     <string name="budget_sign_in">Sign in to manage your budgets.</string>
     <string name="budget_validation">Enter a valid month and a positive amount with the currency’s exact decimal places. If this category and month already have a budget, edit or re-enable that budget.</string>

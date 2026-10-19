@@ -30,6 +30,16 @@ class AndroidBudgetNotifications @Inject constructor(@ApplicationContext private
             NotificationManagerCompat.from(context).areNotificationsEnabled() && manager.getNotificationChannel(CHANNEL).importance != NotificationManager.IMPORTANCE_NONE
     }
     override fun deliver(status: BudgetStatus) {
+        if (!available()) return
+        publish(status, silent = false)
+    }
+    override fun refreshVisible(status: BudgetStatus) {
+        if (!available()) return
+        val budget = status.budget
+        val visible = manager.activeNotifications.firstOrNull { it.tag == tag(budget.userId, budget.id) && it.id == 1 } ?: return
+        publish(status, silent = true, whenMillis = visible.notification.`when`)
+    }
+    private fun publish(status: BudgetStatus, silent: Boolean, whenMillis: Long? = null) {
         val budget = status.budget
         val intent = Intent(context, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
@@ -52,10 +62,12 @@ class AndroidBudgetNotifications @Inject constructor(@ApplicationContext private
             money(status.spent), money(budget.limitMinor.toBigInteger()), context.getString(statusId), context.getString(feedbackId, budget.category)) +
             (if (status.remaining.signum() < 0) " " + context.getString(R.string.budget_exceeded_by, money(-status.remaining)) else "") +
             (if (status.uncounted > 0) " " + context.getString(R.string.budget_incomplete, status.uncounted) else "")
-        val notification = NotificationCompat.Builder(context, CHANNEL).setSmallIcon(R.drawable.ic_budget_notification)
+        val builder = NotificationCompat.Builder(context, CHANNEL).setSmallIcon(R.drawable.ic_budget_notification)
             .setContentTitle(context.getString(R.string.budget_alert_title)).setContentText(details)
             .setStyle(NotificationCompat.BigTextStyle().bigText(details)).setContentIntent(pending)
-            .setAutoCancel(true).setOnlyAlertOnce(true).setVisibility(NotificationCompat.VISIBILITY_SECRET).build()
+            .setAutoCancel(true).setOnlyAlertOnce(silent).setSilent(silent).setVisibility(NotificationCompat.VISIBILITY_SECRET)
+        if (whenMillis != null) builder.setWhen(whenMillis)
+        val notification = builder.build()
         try { manager.notify(tag(budget.userId, budget.id), 1, notification) } catch (_: SecurityException) { /* In-app status remains available. */ }
     }
     override fun cancel(owner: String, budgetId: String) { manager.cancel(tag(owner, budgetId), 1) }

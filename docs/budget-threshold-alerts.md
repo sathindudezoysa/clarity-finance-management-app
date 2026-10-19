@@ -6,17 +6,23 @@ Budgets screen or a specific budget. There is no sample budget data.
 
 ## Policies
 
-- Calendar months use **UTC**, start inclusive and next month exclusive, based on
-  `dateEpochMillis`. The injected `Clock` controls the current month. Device timezone
-  changes do not reinterpret existing months. Evaluation runs on Room changes,
-  startup, activity resume, and a 30-second process-local refresh for clock/month changes.
+- Calendar months use the **device's current timezone**, start inclusive and next
+  month exclusive, based on `dateEpochMillis`. The shared `TransactionCalendar`
+  policy also handles transaction date picking and display. Its explicit `ZoneId`
+  arguments and the injected `Clock` make calendar calculations testable. A timezone
+  change can move stored instants into a different date/month, matching the dates
+  shown in the transaction UI; historical timestamps and budget month identities
+  are not rewritten. Devices in different timezones may consequently assign a
+  boundary expense to different months. Evaluation runs on Room changes, startup,
+  activity resume, and a 30-second process-local refresh for clock/month/timezone changes.
 - Categories share transaction trimming, blank-to-General and case-insensitive keys.
   The document ID is `YYYY-MM_` plus SHA-256 of the normalized lowercase category.
   Room also enforces owner/month/category-key uniqueness; rules recompute the hash.
 - Limits are positive exact `Long` minor units in a supported currency. New budgets
   use the preferred currency; existing budgets retain their recorded currency.
   Aggregation and comparisons use `BigInteger`. Warning levels are 80% and 100%;
-  exactly 100% says reached, above 100% shows the exceeded amount.
+  exactly 100% says reached (level 2), above 100% shows the exceeded amount (level 3).
+  Nearing is level 1 and normal is level 0.
 - Only the owner's non-deleted category expenses within that month count. Local
   unsynced transactions count immediately. Cash expenses use the same transaction
   stream once. Income, wallet top-ups, adjustments and transfers are not added.
@@ -28,11 +34,21 @@ Budgets screen or a specific budget. There is no sample budget data.
   currency. It never rewrites the transaction's historical conversion. Editing the
   transaction invalidates the old resolution; offline failures can be retried.
 - In-app status is live, independent of delivery history. Notifications apply only
-  to active budgets in the current UTC month. Disabling, falling below the threshold
+  to active budgets in the current local month. Disabling, falling below the threshold
   or changing month cancels the corresponding outstanding notification.
 - Device-local Room alert marks are high-water levels per owner and budget/month.
-  A direct jump above the limit claims level 2 and suppresses the obsolete level 1.
-  Dropping and recrossing, reopening, repeated emissions and retries do not re-alert.
+  A direct jump above the limit claims level 3 and consumes both lower levels.
+  Reached and exceeded can each alert when crossed sequentially. Dropping and
+  recrossing, reopening, repeated emissions and retries do not re-alert under an
+  unchanged limit. An actual applied limit change atomically resets the mark to zero
+  with the budget write, whether from a local save, accepted remote update or upload
+  acknowledgement. Unchanged saves, acknowledgements and snapshots preserve it.
+  Zero also tells evaluation to cancel content describing the old limit; the new
+  limit may immediately produce its highest applicable warning. Budget version and
+  limit checks prevent stale evaluations from claiming the new history.
+  New threshold deliveries may alert according to channel settings. Content refreshes
+  use `setSilent(true)` and `setOnlyAlertOnce(true)` and require an already visible
+  owner/budget notification, so ordinary refreshes do not repost dismissed notices.
   The atomic mark is committed **before** notification publication. This favors at
   most one delivery attempt per threshold: a crash or permission revocation between
   claim and publication can lose that notification; the persistent in-app warning
@@ -72,7 +88,7 @@ deployed separately by an authorized maintainer.
 
 ```powershell
 $env:JAVA_HOME = 'C:\Program Files\Eclipse Adoptium\jdk-17.0.20.101-hotspot'
-.\gradlew.bat :app:testDebugUnitTest --tests 'com.example.clarity.BudgetPolicyTest' :app:assembleDebug :app:lintDebug
+.\gradlew.bat :app:testDebugUnitTest --tests 'com.example.clarity.BudgetPolicyTest' --tests 'com.example.clarity.BudgetAlertEvaluatorTest' :app:assembleDebug
 ```
 
 The existing Firebase CLI requires Java 21 for the emulator (Android Gradle uses 17):
@@ -89,15 +105,26 @@ If a device is already connected, run only
 This test uses an isolated temporary database, fake auth, fake remote, fixed clock
 and fake notification delivery; it never resets the application's database.
 
-Verification in this checkout: four focused budget policy tests passed, as did
+Original implementation verification: four focused budget policy tests passed, as did
 `:app:assembleDebug` and `:app:lintDebug` on JDK 17. The focused Firestore budget
 validation test passed with the installed Java 21 runtime. `adb devices -l` listed
 no connected device/emulator, so the targeted Room persistence/integration test
 was added but not executed. No broad test suite was run.
 
+Follow-up alert-fix verification: **8 focused unit tests passed** (5 budget policy
+and 3 evaluator tests), and `:app:assembleDebug` completed on JDK 17. The connected
+emulator's Gradle UTP host runner aborted with `UTP_CORE_FAILED` /
+`NullPointerException` in `SingleDeviceExecutor.kt:101`, recording zero executed
+tests. Installing the built application and test APKs with `adb install -r -t`
+and directly invoking only
+`BudgetPersistenceTest#offlineRestartDedupAcknowledgementAndUserIsolation` passed:
+**OK (1 test)**. Installed app data was preserved. The existing schema remains
+**13**; this fix adds no entity fields, migration or reset. Lint, Firestore rules
+tests and unrelated test suites were not rerun for these targeted fixes.
+
 ## Manual review
 
-1. Offline, create Food / current UTC month / LKR 10,000. Add expenses totaling
+1. Offline, create Food / current local month / LKR 10,000. Add expenses totaling
    LKR 7,999.99: no warning. Reach LKR 8,000: nearing warning and optional notification.
 2. Reach LKR 10,000: budget reached. Reach LKR 10,500: exceeded by LKR 500.
    From a fresh category/month budget, jump straight above 100%: only the high warning.
@@ -111,6 +138,12 @@ was added but not executed. No broad test suite was run.
    permission: budgeting still works. Sign out/switch users: prior data and budget
    notifications are not shown under the new account. Reconnect pending budget edits
    and confirm they upload without changing identity.
+6. With spending at LKR 10,500, edit the limit to LKR 12,000: the new nearing warning
+   replaces the old exceeded message. Save the same limit again: no repeated alert.
+   Dismiss the notification: subsequent content-only refreshes leave it dismissed.
+7. In Asia/Colombo select 1 October in the transaction editor: it displays and counts
+   in October, even though the stored instant is 30 September UTC. The first instant
+   of November in the same timezone is excluded from October.
 
 ## Best Practices and Security Alignment Update
 
@@ -135,13 +168,15 @@ Representative exact additions:
 @@ -0,0 +1 @@
 +        val pending = PendingIntent.getActivity(context, 0, intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
 @@ -0,0 +1 @@
-+            .setAutoCancel(true).setOnlyAlertOnce(true).setVisibility(NotificationCompat.VISIBILITY_SECRET).build()
++            .setAutoCancel(true).setOnlyAlertOnce(silent).setSilent(silent).setVisibility(NotificationCompat.VISIBILITY_SECRET)
 ```
 
 Permission is requested from an explicit budget-screen action, checks current grants,
 shows rationale when appropriate, and links to settings after permanent denial.
 Delivery catches revocation. Notifications use stable owner/budget tags and private
 lock-screen visibility. Sign-out cancels the old owner's notifications.
+New-alert and silent-refresh flags follow the
+[NotificationCompat builder documentation](https://developer.android.com/reference/androidx/core/app/NotificationCompat.Builder).
 The [Android notification permission guide](https://developer.android.com/develop/ui/compose/notifications/notification-permission)
 describes the API 33+ permission requirement. Firestore metadata handling follows
 the [official listener documentation](https://firebase.google.com/docs/firestore/query-data/listen),
@@ -168,7 +203,8 @@ PR body:
 > and optional local notifications with durable per-device deduplication. Room saves
 > work offline; auth-scoped synchronization preserves pending edits and validates
 > private budget documents. Currency mismatches remain explicit and can be resolved
-> without rewriting historical transaction conversions. UTC defines calendar months.
+> without rewriting historical transaction conversions. Device-local calendar months
+> match the transaction date picker and displayed dates.
 >
 > Schema 13 retains destructive development recreation; unsynced local data may be
 > discarded on upgrade. This implements local notifications, with FCM left separate.

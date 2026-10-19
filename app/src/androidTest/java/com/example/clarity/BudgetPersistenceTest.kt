@@ -50,18 +50,18 @@ class BudgetPersistenceTest {
             db.transactionDao.upsert(expense.copy(id = "deleted", amountMinor = 9999999, isDeleted = true))
             var overview = status(repo)
             assertEquals(1_050_000.toBigInteger(), overview.statuses.single().spent)
-            var evaluator = BudgetAlertEvaluator(db, auth, notifications, clock)
+            var evaluator = BudgetAlertEvaluator(db.budgetDao, auth, notifications, clock)
             evaluator.evaluate(overview); evaluator.evaluate(overview)
-            assertEquals(listOf(2), notifications.delivered)
+            assertEquals(listOf(3), notifications.delivered)
             db.close()
             db = DatabaseModule.createDatabase(context, name)
             repo = repository()
-            evaluator = BudgetAlertEvaluator(db, auth, notifications, clock)
+            evaluator = BudgetAlertEvaluator(db.budgetDao, auth, notifications, clock)
             evaluator.evaluate(status(repo))
-            assertEquals(listOf(2), notifications.delivered)
+            assertEquals(listOf(3), notifications.delivered)
             db.transactionDao.upsert(expense.copy(amountMinor = 800_000))
             evaluator.evaluate(status(repo))
-            assertEquals(listOf(2), notifications.delivered)
+            assertEquals(listOf(3), notifications.delivered)
             assertEquals(BudgetThreshold.NEARING, status(repo).statuses.single().threshold)
 
             val remote = FakeRemote()
@@ -77,10 +77,30 @@ class BudgetPersistenceTest {
                 release.complete(Unit)
                 assertFalse(uploading.await())
             }
+            assertEquals(0, db.budgetDao.alert("owner", budget.id)!!.level)
+            assertFalse(db.budgetDao.claimAlert("owner", budget.id, 3, overview.statuses.single().budget.updatedAt, budget.limitMinor))
+            evaluator.evaluate(overview)
+            assertEquals(0, db.budgetDao.alert("owner", budget.id)!!.level)
             assertTrue(db.budgetDao.get("owner", budget.id)!!.pendingSync)
             remote.onWrite = {}
             assertTrue(processor.upload("owner"))
             assertEquals(2_000_000L, remote.rows.getValue(budget.id).limitMinor)
+            assertEquals(0, db.budgetDao.alert("owner", budget.id)!!.level) // Acknowledgement does not claim or reset again.
+            val remoteChange = remote.rows.getValue(budget.id).copy(limitMinor = 750_000,
+                updatedAt = db.budgetDao.get("owner", budget.id)!!.updatedAt + 10)
+            processor.reconcile("owner", listOf(remoteChange))
+            assertEquals(0, db.budgetDao.alert("owner", budget.id)!!.level)
+            evaluator.evaluate(status(repo))
+            assertEquals(listOf(3, 3), notifications.delivered)
+            processor.reconcile("owner", listOf(remoteChange))
+            processor.reconcile("owner", listOf(remoteChange.copy(updatedAt = remoteChange.updatedAt + 1)))
+            assertEquals(3, db.budgetDao.alert("owner", budget.id)!!.level)
+            repo.save(db.budgetDao.get("owner", budget.id)!!.toDomain()).getOrThrow()
+            assertEquals(3, db.budgetDao.alert("owner", budget.id)!!.level)
+            assertTrue(processor.upload("owner"))
+            evaluator.evaluate(status(repo))
+            assertEquals(listOf(3, 3), notifications.delivered)
+            assertNull(db.budgetDao.alert("other", budget.id))
             repo.disable(budget.id).getOrThrow()
             val disabled = db.budgetDao.get("owner", budget.id)!!
             processor.reconcile("owner", listOf(budget.copy(updatedAt = disabled.updatedAt - 1)))
@@ -97,7 +117,7 @@ class BudgetPersistenceTest {
             assertTrue(repo.disable(budget.id).isFailure)
             assertTrue(runCatching { processor.upload("owner") }.isFailure)
             evaluator.evaluate(overview)
-            assertEquals(listOf(2), notifications.delivered)
+            assertEquals(listOf(3, 3), notifications.delivered)
             auth.currentUser.value = null
             assertNull(repo.observe().first().ownerId)
         } finally { db.close(); context.deleteDatabase(name) }
@@ -108,6 +128,7 @@ class BudgetPersistenceTest {
         val cancelled = mutableListOf<String>()
         override fun available() = true
         override fun deliver(status: BudgetStatus) { delivered += status.threshold.level }
+        override fun refreshVisible(status: BudgetStatus) {}
         override fun cancel(owner: String, budgetId: String) { cancelled += budgetId }
         override fun cancelOwner(owner: String) {}
     }

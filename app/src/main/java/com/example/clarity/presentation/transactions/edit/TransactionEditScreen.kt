@@ -22,9 +22,7 @@ import com.example.clarity.domain.model.TransactionType
 import com.example.clarity.domain.util.MoneyUtils
 import com.example.clarity.presentation.theme.ClarityTheme
 import com.example.clarity.presentation.transactions.formatTransactionDate
-import java.time.Instant
-import java.time.ZoneId
-import java.time.ZoneOffset
+import com.example.clarity.domain.util.TransactionCalendar
 
 @Composable
 fun TransactionEditScreen(
@@ -79,13 +77,11 @@ internal fun TransactionEditContent(
     if (dateDialogVisible) {
         // DatePicker uses UTC-midnight dates. Convert calendar days, not raw UTC instants,
         // so selecting a day keeps that same date in the device's local timezone.
-        val initialDate = Instant.ofEpochMilli(dateEpochMillis).atZone(ZoneId.systemDefault())
-            .toLocalDate().atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli()
+        val initialDate = TransactionCalendar.pickerDate(dateEpochMillis)
         val pickerState = rememberDatePickerState(initialSelectedDateMillis = initialDate)
         LaunchedEffect(pickerState.selectedDateMillis) {
             pickerState.selectedDateMillis?.takeIf { it != initialDate }?.let { selected ->
-                dateEpochMillis = Instant.ofEpochMilli(selected).atZone(ZoneOffset.UTC)
-                    .toLocalDate().atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli()
+                dateEpochMillis = TransactionCalendar.fromPickerDate(selected)
                 dateDialogVisible = false
             }
         }
@@ -94,8 +90,7 @@ internal fun TransactionEditContent(
             confirmButton = {
                 TextButton(onClick = {
                     pickerState.selectedDateMillis?.let { selected ->
-                        dateEpochMillis = Instant.ofEpochMilli(selected).atZone(ZoneOffset.UTC)
-                            .toLocalDate().atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli()
+                        dateEpochMillis = TransactionCalendar.fromPickerDate(selected)
                     }
                     dateDialogVisible = false
                 }, enabled = pickerState.selectedDateMillis != null) {

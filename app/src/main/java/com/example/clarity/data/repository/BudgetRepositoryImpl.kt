@@ -11,6 +11,7 @@ import com.example.clarity.domain.repository.*
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
 import java.time.Clock
+import java.time.ZoneId
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -28,7 +29,8 @@ class BudgetRepositoryImpl @Inject constructor(
         ) { budgets, transactions, resolutions, errors, _ ->
             val entries = transactions.filter { !it.isDeleted }.map { it.toDomain() }
             val resolved = resolutions.map { BudgetResolution(it.transactionId, it.transactionVersion, it.currency, it.amountMinor) }
-            BudgetOverview(user.uid, budgets.map { BudgetPolicy.evaluate(it.toDomain(), entries, resolved) }, user.uid in errors)
+            val zone = ZoneId.systemDefault()
+            BudgetOverview(user.uid, budgets.map { BudgetPolicy.evaluate(it.toDomain(), entries, resolved, zone) }, user.uid in errors)
         }.onStart { emit(BudgetOverview(user.uid, loading = true)) }
     }.flowOn(io)
 

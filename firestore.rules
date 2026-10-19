@@ -1,6 +1,6 @@
 rules_version = '2';
 
-// Budgets: users/{uid}/budgets/{YYYY-MM_sha256(normalized category)}, UTC calendar months.
+// Budgets: users/{uid}/budgets/{YYYY-MM_sha256(normalized category)}, device-local calendar months.
 // Required id/userId/month/category/categoryKey/limitMinor/currency/active/createdAt/updatedAt.
 // Owner-only, category trimmed, SHA-256 of lowercase UTF-8 category; positive integer minor units.
 // Identity, category, recorded currency and creation time immutable. Disable instead of deleting.
