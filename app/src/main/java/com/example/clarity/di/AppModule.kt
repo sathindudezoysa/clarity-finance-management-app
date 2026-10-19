@@ -23,5 +23,8 @@ object AppModule {
     @Singleton
     fun provideSharedPreferences(@ApplicationContext context: Context): SharedPreferences =
         context.getSharedPreferences("clarity_prefs", Context.MODE_PRIVATE)
+
+    @Provides
+    fun provideClock(): java.time.Clock = java.time.Clock.systemUTC()
 }
 

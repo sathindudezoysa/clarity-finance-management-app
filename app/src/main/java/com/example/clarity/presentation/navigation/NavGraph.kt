@@ -72,34 +72,7 @@ fun SetupNavGraph(
         composable(route = Screen.CashWallet.route) {
             com.example.clarity.presentation.wallet.CashWalletScreen(
                 onBack = { navController.popBackStack() },
-                onOpenTransaction = { id -> navController.navigate(Screen.TransactionDetail.createRoute(id)) },
-                onRegisterBank = { navController.navigate(Screen.BankSelection.createRoute()) },
-                onManageBank = { id -> navController.navigate(Screen.WalletBankAccount.createRoute(accountId = id)) }
-            )
-        }
-        composable(Screen.BankSelection.route,
-            arguments = listOf(navArgument("accountId") { type = NavType.StringType; nullable = true; defaultValue = null })) { entry ->
-            com.example.clarity.presentation.wallet.BankSelectionScreen(
-                onBack = { navController.popBackStack() },
-                onSelect = { bankId ->
-                    val previous = navController.previousBackStackEntry
-                    if (previous?.destination?.route == Screen.WalletBankAccount.route) {
-                        previous.savedStateHandle["selectedBank"] = bankId
-                        navController.popBackStack()
-                    } else navController.navigate(Screen.WalletBankAccount.createRoute(bankId, entry.arguments?.getString("accountId")))
-                }
-            )
-        }
-        composable(Screen.WalletBankAccount.route, arguments = listOf(
-            navArgument("bankId") { type = NavType.StringType; defaultValue = "" },
-            navArgument("accountId") { type = NavType.StringType; nullable = true; defaultValue = null }
-        )) { entry ->
-            val selectedBank by entry.savedStateHandle.getStateFlow<String?>("selectedBank", null).collectAsStateWithLifecycle()
-            com.example.clarity.presentation.wallet.BankAccountScreen(
-                onBack = { navController.popBackStack() },
-                onSaved = { navController.popBackStack(Screen.CashWallet.route, false) },
-                onChangeBank = { id -> navController.navigate(Screen.BankSelection.createRoute(id)) },
-                selectedBankId = selectedBank
+                onAddAccount = { navController.navigate(Screen.AccountEdit.createRoute()) }
             )
         }
         composable(route = Screen.Settings.route) {

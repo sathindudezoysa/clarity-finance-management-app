@@ -1,172 +1,259 @@
-﻿package com.example.clarity.presentation.wallet
+package com.example.clarity.presentation.wallet
 
-import androidx.lifecycle.SavedStateHandle
+import android.content.SharedPreferences
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.example.clarity.domain.model.*
-import com.example.clarity.domain.usecase.wallet.*
+import com.example.clarity.domain.model.Currencies
+import com.example.clarity.domain.model.CurrencyConversion
+import com.example.clarity.domain.model.Transaction
+import com.example.clarity.domain.model.TransactionType
+import com.example.clarity.domain.repository.ExchangeRateRepository
+import com.example.clarity.domain.usecase.account.GetAccountsUseCase
+import com.example.clarity.domain.usecase.currency.ObserveCurrencyPreferenceUseCase
+import com.example.clarity.domain.usecase.transaction.AddTransactionUseCase
+import com.example.clarity.domain.usecase.transaction.GetTransactionsUseCase
 import com.example.clarity.domain.util.MoneyUtils
+import com.example.clarity.domain.util.Resource
 import dagger.hilt.android.lifecycle.HiltViewModel
-import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.flow.*
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import java.math.BigDecimal
 import java.math.BigInteger
+import java.math.RoundingMode
 import java.util.UUID
 import javax.inject.Inject
 
 @HiltViewModel
 class CashWalletViewModel @Inject constructor(
-    private val observeWallet: ObserveCashWalletUseCase,
-    private val recordCash: RecordCashTransactionUseCase,
-    private val topUp: TopUpCashWalletUseCase,
-    private val configureTopUp: ConfigureWalletTopUpUseCase,
-    private val adjustCash: AdjustCashBalanceUseCase,
-    private val savedState: SavedStateHandle
+    private val prefs: SharedPreferences,
+    private val rates: ExchangeRateRepository,
+    getAccounts: GetAccountsUseCase,
+    getTransactions: GetTransactionsUseCase,
+    private val addTransaction: AddTransactionUseCase,
+    observeCurrency: ObserveCurrencyPreferenceUseCase
 ) : ViewModel() {
-    private val _uiState = MutableStateFlow(CashWalletState(
-        action = if (savedState.get<Boolean>("review") == true) WalletAction.TOP_UP else WalletAction.EXPENSE,
-        selectedBankId = savedState["source"] ?: "", amount = savedState["amount"] ?: "",
-        showTransferReview = savedState["review"] ?: false
-    ))
-    val uiState = _uiState.asStateFlow()
-    private val retry = MutableStateFlow(0)
+
+    private val _uiState = MutableStateFlow(loadQuickState())
+    val uiState: StateFlow<CashWalletState> = _uiState.asStateFlow()
 
     init {
-        // Lifecycle-aware UI collection also stops the database observer when the screen is not visible.
         viewModelScope.launch {
-            combine(_uiState.subscriptionCount.map { it > 0 }.distinctUntilChanged(), retry) { active, _ -> active }
-                .collectLatest { active ->
-                    if (active) observeWallet().catch {
-                        _uiState.update { it.copy(isLoading = false, wallet = CashWallet(), error = "We couldn't load your wallet. Please try again.") }
-                    }.collect { wallet ->
-                        _uiState.update { previous ->
-                            val restoredOwner: String? = savedState["owner"]
-                            val changedOwner = previous.wallet.ownerId != null && previous.wallet.ownerId != wallet.ownerId
-                            val state = if (changedOwner || (restoredOwner != null && restoredOwner != wallet.ownerId)) {
-                                clearDraft(); CashWalletState()
-                            } else previous
-                            val activeAccounts = wallet.accounts.filter { it.isActive }
-                            val selected = state.selectedBankId.takeIf { id -> activeAccounts.any { it.id == id } }
-                                ?: activeAccounts.firstOrNull { it.isDefault }?.id ?: activeAccounts.firstOrNull()?.id.orEmpty()
-                            val low = CashWalletRules.needsReminder(wallet.balanceMinor, wallet.topUpOption) &&
-                                activeAccounts.any { it.id == wallet.topUpOption?.bankAccountId }
-                            if (!low) savedState["dismissed"] = null as String?
-                            state.copy(wallet = wallet, isLoading = false, selectedBankId = selected,
-                                reminderVisible = low && savedState.get<String>("dismissed") != reminderKey(wallet))
+            combine(
+                getAccounts(),
+                getTransactions().catch { emit(Resource.Success(emptyList())) },
+                observeCurrency()
+            ) { accountsResult, txResult, pref ->
+                val accounts = accountsResult.data ?: return@combine null
+                val transactions = txResult.data ?: emptyList()
+                val targetCurrency = pref.currency
+
+                val cashAccount = accounts.firstOrNull { it.isCashWallet }
+                val sourceAccounts = accounts.filter { !it.isCashWallet }
+
+                val rateCache = mutableMapOf<String, BigDecimal?>()
+
+                suspend fun resolveRate(source: String, target: String): BigDecimal? {
+                    if (source == target) return BigDecimal.ONE
+                    return rateCache.getOrPut("$source->$target") {
+                        val quote = runCatching {
+                            rates.cached(source, target) ?: rates.latest(source, target)
+                        }.getOrNull()
+                        quote?.let { runCatching { CurrencyConversion.rate(it.rate) }.getOrNull() }
+                    }
+                }
+
+                suspend fun convertMinor(amountMinor: BigInteger, sourceCurrency: String, target: String): BigInteger {
+                    if (amountMinor == BigInteger.ZERO || sourceCurrency == target) return amountMinor
+                    val rate = resolveRate(sourceCurrency, target) ?: return BigInteger.ZERO
+                    return BigDecimal(amountMinor, Currencies.digits(sourceCurrency))
+                        .multiply(rate)
+                        .movePointRight(Currencies.digits(target))
+                        .setScale(0, RoundingMode.HALF_UP)
+                        .toBigInteger()
+                }
+
+                suspend fun resolveTransactionMinor(tx: Transaction): BigInteger {
+                    if (tx.currency == targetCurrency) return BigInteger.valueOf(tx.amountMinor)
+                    val snapshot = tx.conversion
+                    if (tx.targetCurrency == targetCurrency && snapshot != null) {
+                        return BigInteger.valueOf(snapshot.amountMinor)
+                    }
+                    return convertMinor(BigInteger.valueOf(tx.amountMinor), tx.currency, targetCurrency)
+                }
+
+                val cashTx = transactions.filter { tx ->
+                    (cashAccount != null && tx.accountId == cashAccount.id) || tx.isCash
+                }
+
+                var balanceMinor = BigInteger.ZERO
+
+                for (tx in cashTx) {
+                    val amount = resolveTransactionMinor(tx)
+                    if (tx.type == TransactionType.INCOME) {
+                        balanceMinor += amount
+                    } else {
+                        balanceMinor -= amount
+                    }
+                }
+
+                val current = _uiState.value
+                val selectedSourceId = current.selectedSourceAccountId
+                    .takeIf { id -> sourceAccounts.any { it.id == id } }
+                    ?: sourceAccounts.firstOrNull { it.isDefault }?.id
+                    ?: sourceAccounts.firstOrNull()?.id.orEmpty()
+
+                current.copy(
+                    currency = targetCurrency,
+                    balance = MoneyUtils.formatMinor(balanceMinor, targetCurrency),
+                    cashAccount = cashAccount,
+                    sourceAccounts = sourceAccounts,
+                    selectedSourceAccountId = selectedSourceId
+                )
+            }.collect { updated ->
+                if (updated != null) {
+                    _uiState.value = updated
+                    saveQuickState(updated)
+                }
+            }
+        }
+    }
+
+    fun selectMode(mode: WalletActionMode) {
+        if (_uiState.value.isSaving) return
+        _uiState.update { it.copy(mode = mode, amount = "") }
+    }
+
+    fun selectSourceAccount(accountId: String) {
+        if (_uiState.value.isSaving) return
+        _uiState.update { it.copy(selectedSourceAccountId = accountId) }
+    }
+
+    fun setAmount(amount: String) {
+        if (_uiState.value.isSaving) return
+        _uiState.update { it.copy(amount = amount) }
+    }
+
+    fun submit() {
+        val state = _uiState.value
+        if (state.isSaving) return
+        val cashAccount = state.cashAccount ?: return
+        val amountMinor = MoneyUtils.parseMinor(state.amount, cashAccount.currency).getOrNull() ?: return
+        if (amountMinor <= 0L) return
+
+        val sourceAccount = if (state.mode == WalletActionMode.TOP_UP) {
+            state.sourceAccounts.firstOrNull { it.id == state.selectedSourceAccountId } ?: return
+        } else null
+
+        _uiState.update { it.copy(isSaving = true) }
+        viewModelScope.launch {
+            try {
+                val now = System.currentTimeMillis()
+                when (state.mode) {
+                    WalletActionMode.TOP_UP -> {
+                        val source = requireNotNull(sourceAccount)
+                        val sourceAmountMinor = if (source.currency == cashAccount.currency) {
+                            amountMinor
+                        } else {
+                            val quote = runCatching {
+                                rates.cached(cashAccount.currency, source.currency)
+                                    ?: rates.latest(cashAccount.currency, source.currency)
+                            }.getOrNull()
+                            val rate = quote?.let { runCatching { CurrencyConversion.rate(it.rate) }.getOrNull() }
+                            if (rate != null) {
+                                BigDecimal(BigInteger.valueOf(amountMinor), Currencies.digits(cashAccount.currency))
+                                    .multiply(rate)
+                                    .movePointRight(Currencies.digits(source.currency))
+                                    .setScale(0, RoundingMode.HALF_UP)
+                                    .toLong()
+                            } else {
+                                amountMinor
+                            }
+                        }
+
+                        val debitTx = Transaction(
+                            id = UUID.randomUUID().toString(),
+                            amountMinor = sourceAmountMinor,
+                            type = TransactionType.EXPENSE,
+                            category = "Cash Top-Up",
+                            dateEpochMillis = now,
+                            note = "Top up to ${cashAccount.name}",
+                            isCash = false,
+                            accountId = source.id,
+                            currency = source.currency
+                        )
+                        val creditTx = Transaction(
+                            id = UUID.randomUUID().toString(),
+                            amountMinor = amountMinor,
+                            type = TransactionType.INCOME,
+                            category = "Cash Top-Up",
+                            dateEpochMillis = now,
+                            note = "Top up from ${source.displayLabel}",
+                            isCash = true,
+                            accountId = cashAccount.id,
+                            currency = cashAccount.currency
+                        )
+                        val debitRes = addTransaction(debitTx)
+                        if (debitRes.isSuccess) {
+                            val creditRes = addTransaction(creditTx)
+                            if (creditRes.isSuccess) {
+                                _uiState.update { it.copy(amount = "", isSaving = false) }
+                                return@launch
+                            }
+                        }
+                        _uiState.update { it.copy(isSaving = false) }
+                    }
+
+                    WalletActionMode.EXPENSE, WalletActionMode.INCOME -> {
+                        val isExpense = state.mode == WalletActionMode.EXPENSE
+                        val tx = Transaction(
+                            id = UUID.randomUUID().toString(),
+                            amountMinor = amountMinor,
+                            type = if (isExpense) TransactionType.EXPENSE else TransactionType.INCOME,
+                            category = if (isExpense) "Cash Expense" else "Cash Income",
+                            dateEpochMillis = now,
+                            note = "",
+                            isCash = true,
+                            accountId = cashAccount.id,
+                            currency = cashAccount.currency
+                        )
+                        val res = addTransaction(tx)
+                        if (res.isSuccess) {
+                            _uiState.update { it.copy(amount = "", isSaving = false) }
+                        } else {
+                            _uiState.update { it.copy(isSaving = false) }
                         }
                     }
                 }
-        }
-    }
-
-    fun retryLoading() { _uiState.update { it.copy(isLoading = true, error = null) }; retry.value++ }
-    private fun edit(transform: (CashWalletState) -> CashWalletState) {
-        if (!_uiState.value.isSaving) _uiState.update { transform(it).copy(error = null, message = null) }
-    }
-    fun selectAction(action: WalletAction) {
-        if (_uiState.value.isSaving) return
-        clearDraft()
-        edit { state ->
-            val option = state.wallet.topUpOption
-            state.copy(action = action, amount = "", showAddCashChoices = false, showTransferReview = false,
-                automaticEnabled = option?.enabled ?: false, automaticExecution = option?.automaticExecution ?: false,
-                threshold = MoneyUtils.formatMinor(option?.thresholdMinor ?: 0),
-                automaticAmount = option?.amountMinor?.let(MoneyUtils::formatMinor).orEmpty(),
-                selectedBankId = option?.bankAccountId?.takeIf { id -> state.wallet.accounts.any { it.id == id && it.isActive } }
-                    ?: state.selectedBankId)
-        }
-    }
-    fun showAddCash(show: Boolean) = edit { it.copy(showAddCashChoices = show) }
-    fun setAmount(value: String) = edit { it.copy(amount = value, showTransferReview = false) }
-    fun setCategory(value: String) = edit { it.copy(category = value) }
-    fun setNote(value: String) = edit { it.copy(note = value) }
-    fun selectBank(value: String) = edit { it.copy(selectedBankId = value, showTransferReview = false) }
-    fun setAutomatic(value: Boolean) = edit { it.copy(automaticEnabled = value) }
-    fun setAutomaticExecution(value: Boolean) = edit { it.copy(automaticExecution = value) }
-    fun setThreshold(value: String) = edit { it.copy(threshold = value) }
-    fun setAutomaticAmount(value: String) = edit { it.copy(automaticAmount = value) }
-    fun cancelReview() { if (!_uiState.value.isSaving) { clearDraft(); edit { it.copy(showTransferReview = false) } } }
-    fun dismissReminder() {
-        savedState["dismissed"] = reminderKey(_uiState.value.wallet)
-        edit { it.copy(reminderVisible = false) }
-    }
-    fun reviewReminder() {
-        val option = _uiState.value.wallet.topUpOption ?: return
-        dismissReminder()
-        selectAction(WalletAction.TOP_UP)
-        edit { it.copy(selectedBankId = option.bankAccountId, amount = MoneyUtils.formatMinor(option.amountMinor)) }
-        reviewTransfer()
-    }
-
-    fun reviewTransfer() {
-        if (_uiState.value.isSaving || _uiState.value.isLoading) return
-        try {
-            val state = _uiState.value
-            val amount = parseMoney(state.amount)
-            walletRequire(amount > 0, "Please enter an amount greater than zero.")
-            val bank = state.wallet.accounts.firstOrNull { it.id == state.selectedBankId && it.isActive }
-            walletRequire(bank != null, "Choose a bank account to continue.")
-            walletRequire(requireNotNull(bank).balanceMinor >= BigInteger.valueOf(amount), "Your bank balance is not enough for this top-up.")
-            walletRequire(state.wallet.balanceMinor + BigInteger.valueOf(amount) <= BigInteger.valueOf(Long.MAX_VALUE), "The wallet balance is too large. Use a smaller amount.")
-            savedState["operation"] = UUID.randomUUID().toString()
-            savedState["owner"] = state.wallet.ownerId
-            savedState["source"] = state.selectedBankId
-            savedState["amount"] = state.amount
-            savedState["review"] = true
-            edit { it.copy(showTransferReview = true) }
-        } catch (error: Exception) {
-            if (error is CancellationException) throw error
-            clearDraft()
-            _uiState.update { it.copy(showTransferReview = false, message = null,
-                error = if (error is WalletValidationException) error.message else "We couldn't review this transfer. Please try again.") }
-        }
-    }
-
-    fun save() {
-        if (_uiState.value.action == WalletAction.TOP_UP) { reviewTransfer(); return }
-        val state = _uiState.value
-        perform {
-            val result = when (state.action) {
-                WalletAction.EXPENSE, WalletAction.INCOME -> recordCash(parseMoney(state.amount),
-                    if (state.action == WalletAction.EXPENSE) TransactionType.EXPENSE else TransactionType.INCOME, state.category, state.note)
-                WalletAction.AUTOMATIC -> configureTopUp(WalletTopUpOption(state.selectedBankId, state.automaticEnabled,
-                    if (state.automaticEnabled) parseMoney(state.threshold) else 0,
-                    if (state.automaticEnabled) parseMoney(state.automaticAmount) else 0, state.automaticExecution))
-                WalletAction.ADJUSTMENT -> adjustCash(parseMoney(state.amount), state.note, UUID.randomUUID().toString())
-                WalletAction.TOP_UP -> error("Use transfer review")
+            } catch (_: Exception) {
+                _uiState.update { it.copy(isSaving = false) }
             }
-            result.getOrThrow()
-            _uiState.update { it.copy(amount = "", category = "", note = "", message = "Saved") }
         }
     }
-    fun confirmTransfer() {
-        val state = _uiState.value
-        if (!state.showTransferReview) return
-        val operation: String = savedState["operation"] ?: return
-        perform {
-            topUp(state.selectedBankId, parseMoney(state.amount), operation).getOrThrow()
-            clearDraft()
-            _uiState.update { it.copy(showTransferReview = false, amount = "", message = "Top-up recorded") }
-        }
-    }
-    private fun perform(block: suspend () -> Unit) {
-        if (_uiState.value.isLoading || _uiState.value.isSaving) return
-        _uiState.update { it.copy(isSaving = true, error = null, message = null) }
-        viewModelScope.launch {
-            try { block() }
-            catch (error: Exception) {
-                if (error is CancellationException) throw error
-                _uiState.update { it.copy(error = if (error is WalletValidationException) error.message else "We couldn't save your changes. Please try again.") }
-            } finally { _uiState.update { it.copy(isSaving = false) } }
-        }
-    }
-    private fun clearDraft() {
-        listOf("operation", "owner", "source", "amount", "review").forEach { savedState.remove<Any>(it) }
-    }
-    private fun reminderKey(wallet: CashWallet) = "${wallet.ownerId}:${wallet.topUpOption}"
-}
 
-internal fun parseMoney(text: String): Long {
-    if (text.isBlank()) throw WalletValidationException("Please enter an amount.")
-    return MoneyUtils.parseMinor(text).getOrElse { throw WalletValidationException("Enter a valid amount with up to two decimal places.") }
+    private fun loadQuickState(): CashWalletState {
+        val savedCurrency = prefs.getString(KEY_WALLET_CURRENCY, "LKR")
+            ?.takeIf { runCatching { Currencies.digits(it) }.isSuccess } ?: "LKR"
+        val zero = MoneyUtils.formatMinor(BigInteger.ZERO, savedCurrency)
+        return CashWalletState(
+            currency = savedCurrency,
+            balance = prefs.getString(KEY_WALLET_BALANCE, zero) ?: zero
+        )
+    }
+
+    private fun saveQuickState(state: CashWalletState) {
+        prefs.edit()
+            .putString(KEY_WALLET_CURRENCY, state.currency)
+            .putString(KEY_WALLET_BALANCE, state.balance)
+            .apply()
+    }
+
+    private companion object {
+        const val KEY_WALLET_CURRENCY = "cash_wallet_currency"
+        const val KEY_WALLET_BALANCE = "cash_wallet_balance"
+    }
 }

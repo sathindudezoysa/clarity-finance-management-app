@@ -10,7 +10,7 @@ import com.example.clarity.data.local.entity.TransactionTagEntity
 import kotlinx.coroutines.flow.Flow
 
 @Dao
-abstract class TransactionDao : WalletBalanceReader {
+abstract class TransactionDao {
     @Query("SELECT * FROM transactions WHERE userId = :userId AND isDeleted = 0 ORDER BY dateEpochMillis DESC, createdAt DESC")
     abstract fun observeAll(userId: String): Flow<List<TransactionEntity>>
 
@@ -69,19 +69,9 @@ abstract class TransactionDao : WalletBalanceReader {
         return true
     }
 
-    @Query("SELECT EXISTS(SELECT 1 FROM wallet_cash_links WHERE userId = :uid AND transactionId = :id)")
-    abstract suspend fun isWalletCash(uid: String, id: String): Boolean
-
-    /** Keep local transaction persistence and dependent wallet integrity in one storage transaction. */
     @Transaction
     open suspend fun persistLocal(entity: TransactionEntity) {
-        require(!isWalletCash(entity.userId, entity.id) || (entity.currency == "LKR" && entity.accountId == null)) {
-            "Cash wallet entries must remain LKR"
-        }
         upsertWithTag(entity)
-        if (isWalletCash(entity.userId, entity.id)) {
-            com.example.clarity.data.local.validateWalletBalance(balance(entity.userId).value())
-        }
     }
 
     @Transaction
@@ -96,7 +86,6 @@ abstract class TransactionDao : WalletBalanceReader {
             val local = getById(incoming.id)
             when {
                 incoming.userId != userId -> null
-                isWalletCash(userId, incoming.id) && (incoming.currency != "LKR" || incoming.accountId != null) -> null
                 local != null && local.userId != userId -> null
                 local?.isDeleted == true -> null
                 local?.pendingSync == true -> {
