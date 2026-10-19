@@ -36,7 +36,8 @@ fun MainScreen(
     onNavigateToTransactions: () -> Unit = {},
     onNavigateToCashWallet: () -> Unit = {},
     onNavigateToSettings: () -> Unit = {},
-    onNavigateToIncome: () -> Unit = {}
+    onNavigateToIncome: () -> Unit = {},
+    onNavigateToBudgets: (String?) -> Unit = {}
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
 
@@ -57,6 +58,7 @@ fun MainScreen(
                     verticalArrangement = Arrangement.Center
                 ) {
                     IncomeMonthlyPrompt(onReview = onNavigateToIncome)
+                    com.example.clarity.presentation.budgets.BudgetDashboardSummary(onOpen = onNavigateToBudgets)
                     Button(onClick = onNavigateToIncome) { Text(stringResource(R.string.income_title)) }
                     Button(onClick = onNavigateToTransactions) {
                         Text(stringResource(R.string.transactions_title))

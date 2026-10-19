@@ -106,7 +106,7 @@ class CashWalletRepositoryImpl @Inject constructor(
 
     override suspend fun recordCash(amountMinor: Long, type: TransactionType, category: String, note: String) = write { uid ->
         walletRequire(amountMinor > 0, "Please enter an amount greater than zero.")
-        val normalizedCategory = category.trim().ifBlank { "General" }
+        val normalizedCategory = com.example.clarity.domain.model.TransactionTags.normalize(category)
         walletRequire(normalizedCategory.length <= 100 && note.trim().length <= 2000, "The category or note is too long.")
         val now = clock.millis()
         val target = preferences.current()
