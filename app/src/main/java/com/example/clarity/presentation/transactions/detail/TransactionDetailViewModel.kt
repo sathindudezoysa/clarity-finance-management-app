@@ -5,7 +5,7 @@ import com.example.clarity.presentation.navigation.TRANSACTION_ID_ARGUMENT
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.example.clarity.R
+import com.example.clarity.presentation.transactions.TransactionMessages
 import com.example.clarity.domain.usecase.transaction.DeleteTransactionUseCase
 import com.example.clarity.domain.usecase.transaction.GetTransactionUseCase
 import com.example.clarity.domain.usecase.account.GetAccountsUseCase
@@ -31,7 +31,7 @@ class TransactionDetailViewModel @Inject constructor(
     private val id = savedStateHandle.transactionIdArgument()
     private val _uiState = MutableStateFlow(TransactionDetailState(
         isLoading = id != null,
-        error = if (id == null) R.string.transactions_not_found else null
+        error = if (id == null) TransactionMessages.NOT_FOUND else null
     ))
     val uiState = _uiState.asStateFlow()
 
@@ -49,8 +49,8 @@ class TransactionDetailViewModel @Inject constructor(
                         is Resource.Success -> it.copy(isLoading = false, transaction = result.data, error = null, accountName = accountName)
                         is Resource.Error -> it.copy(
                             isLoading = false, transaction = transaction,
-                            error = if (result.cause.isSignInRequired()) R.string.transactions_sign_in
-                            else R.string.transactions_load_error, accountName = accountName
+                            error = if (result.cause.isSignInRequired()) TransactionMessages.SIGN_IN
+                            else TransactionMessages.LOAD_ERROR, accountName = accountName
                         )
                     }
                 }
@@ -66,7 +66,7 @@ class TransactionDetailViewModel @Inject constructor(
         val transactionId = id ?: return
         viewModelScope.launch {
             val result = retryConversion(transactionId)
-            _uiState.update { it.copy(error = if (result.isFailure) R.string.currency_retry_failed else null) }
+            _uiState.update { it.copy(error = if (result.isFailure) TransactionMessages.CURRENCY_RETRY_FAILED else null) }
         }
     }
     fun hideDeleteDialog() { _uiState.update { it.copy(isDeleteDialogVisible = false) } }
@@ -81,8 +81,8 @@ class TransactionDetailViewModel @Inject constructor(
             }.onFailure { error ->
                 _uiState.update { it.copy(
                     isDeleting = false,
-                    error = if (error.isSignInRequired()) R.string.transactions_sign_in
-                    else R.string.transactions_delete_error
+                    error = if (error.isSignInRequired()) TransactionMessages.SIGN_IN
+                    else TransactionMessages.DELETE_ERROR
                 ) }
             }
         }

@@ -7,11 +7,10 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.example.clarity.R
+import com.example.clarity.presentation.transactions.TransactionMessages
 import com.example.clarity.domain.model.TransactionType
 import com.example.clarity.domain.util.MoneyUtils
 import com.example.clarity.presentation.transactions.formatTransactionDate
@@ -29,57 +28,54 @@ fun TransactionDetailScreen(
 
     if (state.isDeleteDialogVisible) AlertDialog(
         onDismissRequest = viewModel::hideDeleteDialog,
-        title = { Text(stringResource(R.string.transactions_delete_title)) },
-        text = { Text(stringResource(R.string.transactions_delete_confirmation)) },
-        confirmButton = { TextButton(onClick = viewModel::confirmDelete) { Text(stringResource(R.string.transactions_delete)) } },
-        dismissButton = { TextButton(onClick = viewModel::hideDeleteDialog) { Text(stringResource(R.string.transactions_cancel)) } }
+        title = { Text("Delete transaction?") },
+        text = { Text("This transaction will be removed. This cannot be undone.") },
+        confirmButton = { TextButton(onClick = viewModel::confirmDelete) { Text("Delete") } },
+        dismissButton = { TextButton(onClick = viewModel::hideDeleteDialog) { Text("Cancel") } }
     )
 
     Scaffold(topBar = {
         TopAppBar(
-            title = { Text(stringResource(R.string.transactions_detail_title)) },
-            navigationIcon = { TextButton(onClick = onBack) { Text(stringResource(R.string.transactions_back)) } }
+            title = { Text("Transaction details") },
+            navigationIcon = { TextButton(onClick = onBack) { Text("Back") } }
         )
     }) { padding ->
         Column(
             Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState()).padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            state.error?.let { Text(stringResource(it), color = MaterialTheme.colorScheme.error) }
+            state.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
             if (state.isLoading) CircularProgressIndicator()
             else {
                 val transaction = state.transaction
                 if (transaction == null) {
-                    if (state.error == null) Text(stringResource(R.string.transactions_not_found))
+                    if (state.error == null) Text("Transaction not found.")
                 }
                 else {
-                    Field(R.string.transactions_type, stringResource(
-                        if (transaction.type == TransactionType.INCOME) R.string.transactions_income else R.string.transactions_expense
-                    ))
-                    Field(R.string.transactions_amount, transaction.currency + " " + MoneyUtils.formatMinor(transaction.amountMinor, transaction.currency))
+                    Field("Type", if (transaction.type == TransactionType.INCOME) "Income" else "Expense")
+                    Field("Amount", transaction.currency + " " + MoneyUtils.formatMinor(transaction.amountMinor, transaction.currency))
                     com.example.clarity.presentation.transactions.ConversionInfo(transaction.targetCurrency,
                         transaction.conversion, transaction.pendingConversion)
                     if (transaction.pendingConversion) {
-                        Text(stringResource(R.string.currency_daily))
-                        TextButton(onClick = viewModel::retry) { Text(stringResource(R.string.currency_retry)) }
+                        Text("Daily reference rates. A missing rate does not prevent saving offline. Amounts that overflow or round to zero require editing the original amount.")
+                        TextButton(onClick = viewModel::retry) { Text("Retry conversion") }
                     }
-                    Field(R.string.transactions_account, if (transaction.isCash) stringResource(R.string.wallet_title) else state.accountName ?: stringResource(
-                        if (transaction.accountId == null) R.string.transactions_account_unassigned
-                        else R.string.transactions_account_unavailable))
-                    Field(R.string.transactions_tag, transaction.category)
-                    Field(R.string.transactions_description, transaction.note.ifBlank { stringResource(R.string.transactions_none) })
-                    Field(R.string.transactions_date, formatTransactionDate(transaction.dateEpochMillis))
-                    Field(R.string.transactions_created, formatTransactionTimestamp(transaction.createdAt))
-                    Field(R.string.transactions_updated, formatTransactionTimestamp(transaction.updatedAt))
-                    Field(R.string.transactions_id, transaction.id)
-                    Field(R.string.transactions_owner, transaction.userId)
+                    Field("Bank account", if (transaction.isCash) "Cash Wallet" else state.accountName ?: if (transaction.accountId == null)
+                        TransactionMessages.ACCOUNT_UNASSIGNED else TransactionMessages.ACCOUNT_UNAVAILABLE)
+                    Field("Tag", transaction.category)
+                    Field("Description (optional)", transaction.note.ifBlank { "None" })
+                    Field("Date", formatTransactionDate(transaction.dateEpochMillis))
+                    Field("Created", formatTransactionTimestamp(transaction.createdAt))
+                    Field("Updated", formatTransactionTimestamp(transaction.updatedAt))
+                    Field("Transaction ID", transaction.id)
+                    Field("User ID", transaction.userId)
                     TransactionProofSection(transaction.amountMinor, !state.isDeleting)
                     Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                         Button(onClick = { onEdit(transaction.id) }, enabled = !state.isDeleting) {
-                            Text(stringResource(R.string.transactions_edit))
+                            Text("Edit")
                         }
                         OutlinedButton(onClick = viewModel::showDeleteDialog, enabled = !state.isDeleting) {
-                            Text(stringResource(R.string.transactions_delete))
+                            Text("Delete")
                         }
                     }
                 }
@@ -90,9 +86,9 @@ fun TransactionDetailScreen(
 }
 
 @Composable
-private fun Field(label: Int, value: String) {
+private fun Field(label: String, value: String) {
     Column {
-        Text(stringResource(label), style = MaterialTheme.typography.labelLarge)
+        Text(label, style = MaterialTheme.typography.labelLarge)
         Text(value, style = MaterialTheme.typography.bodyLarge)
     }
 }

@@ -12,6 +12,7 @@ import com.example.clarity.data.remote.AccountRemoteDataSource
 import com.example.clarity.data.remote.AccountSnapshot
 import com.example.clarity.data.repository.AccountRepositoryImpl
 import com.example.clarity.domain.model.Account
+import com.example.clarity.presentation.accounts.AccountMessages
 import com.example.clarity.domain.model.User
 import com.example.clarity.domain.repository.AuthRepository
 import com.example.clarity.domain.usecase.account.CreateAccountUseCase
@@ -134,9 +135,9 @@ class AccountViewModelTest {
         assertNotNull(draftId)
         ready(editor)
         instrumentation.runOnMainSync { editor.save() }
-        withTimeout(10_000) { editor.uiState.first { it.nameError == R.string.accounts_name_blank } }
+        withTimeout(10_000) { editor.uiState.first { it.nameError == AccountMessages.NAME_BLANK } }
         instrumentation.runOnMainSync { editor.onNameChange(" daily "); editor.save() }
-        withTimeout(10_000) { editor.uiState.first { it.nameError == R.string.accounts_name_duplicate } }
+        withTimeout(10_000) { editor.uiState.first { it.nameError == AccountMessages.NAME_DUPLICATE } }
         instrumentation.runOnMainSync {
             editor.onNameChange("Travel")
             editor.onBankNameChange("New bank")
@@ -174,7 +175,7 @@ class AccountViewModelTest {
         val original = editor(handle)
         ready(original)
         instrumentation.runOnMainSync { original.onNameChange("daily"); original.save() }
-        withTimeout(10_000) { original.uiState.first { it.nameError == R.string.accounts_name_duplicate } }
+        withTimeout(10_000) { original.uiState.first { it.nameError == AccountMessages.NAME_DUPLICATE } }
         assertNull(database.accountDao.getById(draftId))
 
         val values = mutableMapOf<String, Any?>()

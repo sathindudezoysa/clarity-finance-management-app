@@ -2,12 +2,12 @@ package com.example.clarity.presentation.accounts.list
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.example.clarity.R
 import com.example.clarity.domain.repository.AuthRepository
 import com.example.clarity.domain.usecase.account.GetAccountsUseCase
 import com.example.clarity.domain.usecase.account.SetDefaultAccountUseCase
 import com.example.clarity.domain.util.Resource
-import com.example.clarity.presentation.accounts.accountErrorResource
+import com.example.clarity.presentation.accounts.AccountMessages
+import com.example.clarity.presentation.accounts.accountErrorMessage
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -34,7 +34,7 @@ class AccountListViewModel @Inject constructor(
                         is Resource.Success -> state.copy(isLoading = false, accounts = result.data.orEmpty(), error = null)
                         is Resource.Error -> state.copy(
                             isLoading = false, accounts = result.data.orEmpty(),
-                            error = if (user == null) R.string.accounts_sign_in else R.string.accounts_load_error
+                            error = if (user == null) AccountMessages.SIGN_IN else AccountMessages.LOAD_ERROR
                         )
                     }
                 }
@@ -51,7 +51,7 @@ class AccountListViewModel @Inject constructor(
             _uiState.update { it.copy(
                 changingDefaultId = null,
                 actionError = result.exceptionOrNull()?.let { error ->
-                    accountErrorResource(error, R.string.accounts_default_error)
+                    accountErrorMessage(error, AccountMessages.DEFAULT_ERROR)
                 }
             ) }
         }

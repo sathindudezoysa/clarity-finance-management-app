@@ -23,7 +23,7 @@ import javax.inject.Singleton
 @Singleton
 class AndroidBudgetNotifications @Inject constructor(@ApplicationContext private val context: Context) : BudgetNotificationDelivery {
     private val manager get() = context.getSystemService(NotificationManager::class.java)
-    private fun channel() { manager.createNotificationChannel(NotificationChannel(CHANNEL, context.getString(R.string.budget_channel), NotificationManager.IMPORTANCE_DEFAULT)) }
+    private fun channel() { manager.createNotificationChannel(NotificationChannel(CHANNEL, "Budget threshold alerts", NotificationManager.IMPORTANCE_DEFAULT)) }
     override fun available(): Boolean {
         channel()
         return (Build.VERSION.SDK_INT < 33 || ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED) &&
@@ -48,22 +48,21 @@ class AndroidBudgetNotifications @Inject constructor(@ApplicationContext private
         }
         val pending = PendingIntent.getActivity(context, 0, intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         fun money(value: BigInteger) = "${budget.currency} ${BigDecimal(value, Currencies.digits(budget.currency)).toPlainString()}"
-        val statusId = when (status.threshold) {
-            BudgetThreshold.NEARING -> R.string.budget_nearing
-            BudgetThreshold.REACHED -> R.string.budget_reached
-            else -> R.string.budget_exceeded
+        val statusText = when (status.threshold) {
+            BudgetThreshold.NEARING -> "Nearing budget limit"
+            BudgetThreshold.REACHED -> "Budget reached"
+            else -> "Budget exceeded"
         }
-        val feedbackId = when (status.threshold) {
-            BudgetThreshold.NEARING -> R.string.budget_feedback_nearing
-            BudgetThreshold.REACHED -> R.string.budget_feedback_reached
-            else -> R.string.budget_feedback_exceeded
+        val feedbackText = when (status.threshold) {
+            BudgetThreshold.NEARING -> "You’re close to your ${budget.category} budget. A small adjustment now can help you stay on track."
+            BudgetThreshold.REACHED -> "You’ve reached your ${budget.category} budget. Review your next expenses and make a fresh plan."
+            else -> "You’ve passed this month’s ${budget.category} budget. Review your next expenses and make a fresh plan."
         }
-        val details = context.getString(R.string.budget_notification_body, budget.category, budget.month,
-            money(status.spent), money(budget.limitMinor.toBigInteger()), context.getString(statusId), context.getString(feedbackId, budget.category)) +
-            (if (status.remaining.signum() < 0) " " + context.getString(R.string.budget_exceeded_by, money(-status.remaining)) else "") +
-            (if (status.uncounted > 0) " " + context.getString(R.string.budget_incomplete, status.uncounted) else "")
+        val details = "${budget.category} · ${budget.month}: ${money(status.spent)} of ${money(budget.limitMinor.toBigInteger())}. $statusText. $feedbackText" +
+            (if (status.remaining.signum() < 0) " Exceeded by ${money(-status.remaining)}" else "") +
+            (if (status.uncounted > 0) " " + String.format("%d expense(s) are uncounted because their currency is not yet comparable. This total is incomplete.", status.uncounted) else "")
         val builder = NotificationCompat.Builder(context, CHANNEL).setSmallIcon(R.drawable.ic_budget_notification)
-            .setContentTitle(context.getString(R.string.budget_alert_title)).setContentText(details)
+            .setContentTitle("Budget update").setContentText(details)
             .setStyle(NotificationCompat.BigTextStyle().bigText(details)).setContentIntent(pending)
             .setAutoCancel(true).setOnlyAlertOnce(silent).setSilent(silent).setVisibility(NotificationCompat.VISIBILITY_SECRET)
         if (whenMillis != null) builder.setWhen(whenMillis)

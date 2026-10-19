@@ -3,12 +3,12 @@ package com.example.clarity.presentation.accounts.edit
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.example.clarity.R
 import com.example.clarity.domain.model.Account
 import com.example.clarity.domain.usecase.account.CreateAccountUseCase
 import com.example.clarity.domain.usecase.account.GetAccountUseCase
 import com.example.clarity.domain.usecase.account.UpdateAccountUseCase
-import com.example.clarity.presentation.accounts.accountErrorResource
+import com.example.clarity.presentation.accounts.AccountMessages
+import com.example.clarity.presentation.accounts.accountErrorMessage
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -58,7 +58,7 @@ class AccountEditViewModel @Inject constructor(
                     savedStateHandle[KEY_SAVED] = committed
                     _uiState.update { it.copy(isLoading = false, canSave = true, isSuccess = committed) }
                 } else if (loaded == null) {
-                    _uiState.update { it.copy(isLoading = false, canSave = false, error = R.string.accounts_not_found) }
+                    _uiState.update { it.copy(isLoading = false, canSave = false, error = AccountMessages.NOT_FOUND) }
                 } else {
                     val hasDraft = savedStateHandle.get<Boolean>(KEY_FORM_LOADED) == true
                     _uiState.update { state -> state.copy(
@@ -74,7 +74,7 @@ class AccountEditViewModel @Inject constructor(
                 }
             }.onFailure { error ->
                 _uiState.update { it.copy(isLoading = false, canSave = false,
-                    error = accountErrorResource(error, R.string.accounts_open_error)) }
+                    error = accountErrorMessage(error, AccountMessages.OPEN_ERROR)) }
             }
         }
     }
@@ -119,13 +119,13 @@ class AccountEditViewModel @Inject constructor(
                 savedStateHandle[KEY_SAVED] = true
                 _uiState.update { it.copy(isSaving = false, isSuccess = true) }
             }.onFailure { error ->
-                val message = accountErrorResource(error, R.string.accounts_save_error)
+                val message = accountErrorMessage(error, AccountMessages.SAVE_ERROR)
                 _uiState.update { it.copy(
                     isSaving = false,
-                    nameError = message.takeIf { it == R.string.accounts_name_blank || it == R.string.accounts_name_duplicate },
-                    currencyError = message.takeIf { it == R.string.accounts_currency_invalid },
+                    nameError = message.takeIf { it == AccountMessages.NAME_BLANK || it == AccountMessages.NAME_DUPLICATE },
+                    currencyError = message.takeIf { it == AccountMessages.CURRENCY_INVALID },
                     error = message.takeUnless {
-                        it == R.string.accounts_name_blank || it == R.string.accounts_name_duplicate || it == R.string.accounts_currency_invalid
+                        it == AccountMessages.NAME_BLANK || it == AccountMessages.NAME_DUPLICATE || it == AccountMessages.CURRENCY_INVALID
                     }
                 ) }
             }

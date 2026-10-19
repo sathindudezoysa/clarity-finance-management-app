@@ -7,7 +7,7 @@ import java.math.BigInteger
 data class TransactionListState(
     val isLoading: Boolean = true,
     val transactions: List<Transaction> = emptyList(),
-    val error: Int? = null,
+    val error: String? = null,
     val accountNames: Map<String, String> = emptyMap()
 ) {
     val pendingCount: Int get() = transactions.count { it.pendingConversion }

@@ -17,7 +17,8 @@ import com.example.clarity.domain.model.AccountException
 import com.example.clarity.domain.model.User
 import com.example.clarity.domain.repository.AuthRepository
 import com.example.clarity.domain.util.Resource
-import com.example.clarity.presentation.accounts.accountErrorResource
+import com.example.clarity.presentation.accounts.AccountMessages
+import com.example.clarity.presentation.accounts.accountErrorMessage
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.CoroutineStart
@@ -222,12 +223,12 @@ class AccountRepositoryTest {
     }
 
     @Test
-    fun accountErrorResourcesUseTypedErrorsRegardlessOfExceptionMessage() {
-        val fallback = R.string.accounts_save_error
-        assertEquals(R.string.accounts_name_duplicate,
-            accountErrorResource(AccountException(AccountError.NAME_DUPLICATE, "Different log text"), fallback))
-        assertEquals(fallback, accountErrorResource(IllegalArgumentException("An account with this name already exists"), fallback))
-        assertEquals(fallback, accountErrorResource(null, fallback))
+    fun accountErrorMessagesUseTypedErrorsRegardlessOfExceptionMessage() {
+        val fallback = AccountMessages.SAVE_ERROR
+        assertEquals(AccountMessages.NAME_DUPLICATE,
+            accountErrorMessage(AccountException(AccountError.NAME_DUPLICATE, "Different log text"), fallback))
+        assertEquals(fallback, accountErrorMessage(IllegalArgumentException("An account with this name already exists"), fallback))
+        assertEquals(fallback, accountErrorMessage(null, fallback))
     }
 
     @Test

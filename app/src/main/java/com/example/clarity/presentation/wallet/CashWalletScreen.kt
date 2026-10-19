@@ -15,14 +15,12 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.clarity.domain.model.WalletActivity
-import com.example.clarity.R
 import com.example.clarity.presentation.transactions.formatTransactionTimestamp
 import java.math.BigInteger
 
@@ -35,11 +33,11 @@ fun CashWalletScreen(
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     var showDetails by rememberSaveable(state.action) { mutableStateOf(false) }
-    Scaffold(topBar = { TopAppBar(title = { Text(stringResource(R.string.wallet_title)) }, navigationIcon = {
-        IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, stringResource(R.string.wallet_back)) }
+    Scaffold(topBar = { TopAppBar(title = { Text("Cash Wallet") }, navigationIcon = {
+        IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, "Back") }
     }, actions = {
         IconButton(onClick = { viewModel.selectAction(WalletAction.AUTOMATIC) }, enabled = !state.isSaving) {
-            Icon(Icons.Default.Settings, stringResource(R.string.wallet_automatic))
+            Icon(Icons.Default.Settings, "Top-up Settings")
         }
     }) }) { padding ->
         Box(Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding), contentAlignment = Alignment.TopCenter) {
@@ -48,10 +46,10 @@ fun CashWalletScreen(
                 item {
                     Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer), modifier = Modifier.fillMaxWidth()) {
                         Column(Modifier.padding(24.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Text(stringResource(R.string.wallet_available_balance))
+                            Text("Available Cash Balance")
                             Text(walletMoney(state.wallet.balanceMinor), style = MaterialTheme.typography.headlineLarge)
                             if (state.wallet.topUpOption?.enabled == true) Text(
-                                stringResource(if (state.wallet.topUpOption?.automaticExecution == true) R.string.wallet_execution_active else R.string.wallet_automatic_active),
+                                if (state.wallet.topUpOption?.automaticExecution == true) "Automatic top-ups enabled" else "Low-balance reminder enabled",
                                 style = MaterialTheme.typography.bodySmall)
                         }
                     }
@@ -82,54 +80,54 @@ fun CashWalletScreen(
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         val enabled = !state.isSaving && !state.isLoading
                         Text(when (state.action) {
-                            WalletAction.EXPENSE -> stringResource(R.string.wallet_cash_expense)
-                            WalletAction.INCOME -> stringResource(R.string.wallet_cash_income)
-                            WalletAction.TOP_UP -> stringResource(R.string.wallet_top_up)
+                            WalletAction.EXPENSE -> "Record cash expense"
+                            WalletAction.INCOME -> "Receive cash income"
+                            WalletAction.TOP_UP -> "Transfer From Bank"
                             WalletAction.ADJUSTMENT -> "Starting Cash / Balance Adjustment"
-                            WalletAction.AUTOMATIC -> stringResource(R.string.wallet_automatic)
+                            WalletAction.AUTOMATIC -> "Top-up Settings"
                         }, style = MaterialTheme.typography.titleLarge)
                         if (state.action == WalletAction.TOP_UP || state.action == WalletAction.AUTOMATIC) {
                             RegisteredAccountSelector(state, enabled, viewModel::selectBank)
-                            if (state.wallet.accounts.none { it.isActive }) TextButton(onClick = onRegisterBank) { Text(stringResource(R.string.wallet_add_bank)) }
+                            if (state.wallet.accounts.none { it.isActive }) TextButton(onClick = onRegisterBank) { Text("Add Bank Account") }
                         }
                         if (state.action == WalletAction.AUTOMATIC) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text(stringResource(R.string.wallet_enable_automatic), Modifier.weight(1f))
+                                Text("Enable low-balance top-ups", Modifier.weight(1f))
                                 Switch(state.automaticEnabled, viewModel::setAutomatic, enabled = enabled)
                             }
-                            Text(stringResource(R.string.wallet_automatic_explanation))
+                            Text("Choose reminders or automatic recording, a source account, a minimum cash balance, and a top-up amount.")
                             Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text(stringResource(R.string.wallet_execute_automatic), Modifier.weight(1f))
+                                Text("Automatically record top-ups", Modifier.weight(1f))
                                 Switch(state.automaticExecution, viewModel::setAutomaticExecution, enabled = enabled && state.automaticEnabled)
                             }
-                            Text(stringResource(R.string.wallet_execution_explanation), style = MaterialTheme.typography.bodySmall)
-                            MoneyField(state.threshold, stringResource(R.string.wallet_threshold), enabled, viewModel::setThreshold)
-                            MoneyField(state.automaticAmount, stringResource(R.string.wallet_top_up_amount), enabled, viewModel::setAutomaticAmount)
+                            Text("When enabled, saving a new cash expense below your minimum automatically records one bank withdrawal and adds the configured amount to cash. Both records save together. This does not withdraw real money from your bank. When off, you receive reminders requiring confirmation. Saving these settings does not transfer funds.", style = MaterialTheme.typography.bodySmall)
+                            MoneyField(state.threshold, "Minimum wallet balance", enabled, viewModel::setThreshold)
+                            MoneyField(state.automaticAmount, "Top-up amount", enabled, viewModel::setAutomaticAmount)
                         } else {
                             if (state.action == WalletAction.ADJUSTMENT) Text("Enter the cash you physically hold now. This corrects your balance without counting as income or expense.")
-                            MoneyField(state.amount, if (state.action == WalletAction.ADJUSTMENT) "Cash balance now" else stringResource(R.string.wallet_amount), enabled, viewModel::setAmount,
+                            MoneyField(state.amount, if (state.action == WalletAction.ADJUSTMENT) "Cash balance now" else "Amount", enabled, viewModel::setAmount,
                                 onDone = if (state.action == WalletAction.TOP_UP) null else viewModel::save)
                             if (state.action != WalletAction.TOP_UP) TextButton(onClick = { showDetails = !showDetails }) {
                                 Text(if (showDetails) "Hide optional details" else "Add optional details")
                             }
                             if (showDetails && (state.action == WalletAction.INCOME || state.action == WalletAction.EXPENSE)) {
-                                OutlinedTextField(state.category, viewModel::setCategory, label = { Text(stringResource(R.string.wallet_category_optional)) }, singleLine = true, enabled = enabled, modifier = Modifier.fillMaxWidth())
+                                OutlinedTextField(state.category, viewModel::setCategory, label = { Text("Category (optional)") }, singleLine = true, enabled = enabled, modifier = Modifier.fillMaxWidth())
                             }
                             if (showDetails && state.action != WalletAction.TOP_UP) OutlinedTextField(state.note, viewModel::setNote,
-                                label = { Text(stringResource(R.string.wallet_note_optional)) }, enabled = enabled, modifier = Modifier.fillMaxWidth(), maxLines = 3)
+                                label = { Text("Note (optional)") }, enabled = enabled, modifier = Modifier.fillMaxWidth(), maxLines = 3)
                         }
                         Feedback(state)
                         Button(onClick = viewModel::save, enabled = enabled, modifier = Modifier.fillMaxWidth()) {
-                            Text(if (state.isSaving) stringResource(R.string.wallet_saving) else if (state.action == WalletAction.TOP_UP) "Review Transfer" else stringResource(R.string.wallet_save))
+                            Text(if (state.isSaving) "Saving…" else if (state.action == WalletAction.TOP_UP) "Review Transfer" else "Save")
                         }
                         if (state.error != null) TextButton(onClick = viewModel::retryLoading, enabled = enabled) { Text("Reload wallet") }
                     }
                 }
-                item { Text(stringResource(R.string.wallet_activity), style = MaterialTheme.typography.titleLarge) }
-                if (state.wallet.activity.isEmpty()) item { Text(stringResource(R.string.wallet_no_activity)) }
+                item { Text("Recent Activity", style = MaterialTheme.typography.titleLarge) }
+                if (state.wallet.activity.isEmpty()) item { Text("Your wallet has no transactions yet.") }
                 items(state.wallet.activity, key = { it.id }) { entry -> ActivityCard(entry, onOpenTransaction,
                     state.wallet.accounts.firstOrNull { it.id == entry.bankAccountId }?.let { "${it.bankName} — ${it.name}" }) }
-                item { Text(stringResource(R.string.wallet_bank_balances), style = MaterialTheme.typography.titleLarge) }
+                item { Text("Bank Accounts", style = MaterialTheme.typography.titleLarge) }
                 if (state.wallet.accounts.isEmpty()) item { Text("Register a bank account to record cash withdrawals.") }
                 items(state.wallet.accounts, key = { it.id }) { bank ->
                     OutlinedCard(Modifier.fillMaxWidth()) {
@@ -139,10 +137,10 @@ fun CashWalletScreen(
                         }
                     }
                 }
-                item { TextButton(onClick = onRegisterBank) { Text(stringResource(R.string.wallet_add_bank)) } }
+                item { TextButton(onClick = onRegisterBank) { Text("Add Bank Account") } }
                 item {
                     Text("Top-up History", style = MaterialTheme.typography.titleLarge)
-                    Text(stringResource(R.string.wallet_transfer_explanation), style = MaterialTheme.typography.bodySmall)
+                    Text("Transfers keep your combined bank and cash total unchanged. They are excluded from income and expense totals.", style = MaterialTheme.typography.bodySmall)
                 }
                 if (state.wallet.topUpHistory.isEmpty()) item { Text("No top-ups recorded yet.") }
                 items(state.wallet.topUpHistory, key = { "history:${it.id}" }) { entry -> ActivityCard(entry, onOpenTransaction,
@@ -162,7 +160,7 @@ fun CashWalletScreen(
             TextButton(onClick = { viewModel.selectAction(WalletAction.TOP_UP) }) { Text("Transfer From Bank") }
             Text("Record cash you withdrew from a registered account.")
         }
-    }, confirmButton = { TextButton(onClick = { viewModel.showAddCash(false) }) { Text(stringResource(R.string.wallet_cancel)) } })
+    }, confirmButton = { TextButton(onClick = { viewModel.showAddCash(false) }) { Text("Cancel") } })
     if (state.showTransferReview) {
         val bank = state.wallet.accounts.firstOrNull { it.id == state.selectedBankId }
         val amount = com.example.clarity.domain.util.MoneyUtils.parseMinor(state.amount).getOrDefault(0)
@@ -213,7 +211,7 @@ private fun RegisteredAccountSelector(state: CashWalletState, enabled: Boolean, 
     Box {
         OutlinedButton(onClick = { expanded = true }, enabled = enabled && accounts.isNotEmpty(), modifier = Modifier.fillMaxWidth()) {
             val selected = accounts.firstOrNull { it.id == state.selectedBankId }
-            Text(selected?.let { "${it.bankName} — ${it.name}" } ?: stringResource(R.string.wallet_select_bank))
+            Text(selected?.let { "${it.bankName} — ${it.name}" } ?: "Choose a bank account")
         }
         DropdownMenu(expanded, onDismissRequest = { expanded = false }) {
             accounts.forEach { bank -> DropdownMenuItem(text = {

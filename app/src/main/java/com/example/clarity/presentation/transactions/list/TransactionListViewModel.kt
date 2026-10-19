@@ -2,7 +2,7 @@ package com.example.clarity.presentation.transactions.list
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.example.clarity.R
+import com.example.clarity.presentation.transactions.TransactionMessages
 import com.example.clarity.domain.usecase.transaction.GetTransactionsUseCase
 import com.example.clarity.domain.usecase.account.GetAccountsUseCase
 import com.example.clarity.domain.util.Resource
@@ -35,8 +35,8 @@ class TransactionListViewModel @Inject constructor(
                         is Resource.Error -> it.copy(
                             isLoading = false, transactions = if (result.cause.isSignInRequired()) result.data.orEmpty()
                                 else result.data ?: it.transactions,
-                            error = if (result.cause.isSignInRequired()) R.string.transactions_sign_in
-                            else R.string.transactions_load_error, accountNames = accountNames
+                            error = if (result.cause.isSignInRequired()) TransactionMessages.SIGN_IN
+                            else TransactionMessages.LOAD_ERROR, accountNames = accountNames
                         )
                     }
                 }

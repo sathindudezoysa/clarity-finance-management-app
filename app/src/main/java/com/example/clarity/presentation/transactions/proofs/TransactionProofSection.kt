@@ -13,7 +13,6 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
-import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
@@ -32,7 +31,7 @@ fun TransactionProofSection(amountMinor: Long, enabled: Boolean, viewModel: Tran
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
-    val chooserTitle = stringResource(R.string.proofs_open)
+    val chooserTitle = "Open proof"
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         uri?.let { viewModel.attachFile(it.toString()) }
     }
@@ -65,46 +64,46 @@ fun TransactionProofContent(
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Box(Modifier.fillMaxWidth().height(1.dp).background(MaterialTheme.colorScheme.outlineVariant))
-        Text(stringResource(R.string.proofs_title), style = MaterialTheme.typography.titleMedium)
+        Text("Transaction proofs", style = MaterialTheme.typography.titleMedium)
         if (state.proofs.any { it.verifies(amountMinor) }) ReceiptVerifiedIcon()
-        Text(stringResource(R.string.proofs_hint), style = MaterialTheme.typography.bodySmall)
-        state.error?.let { Text(stringResource(it), color = MaterialTheme.colorScheme.error,
+        Text("Attach up to 10 photos or PDFs, 10 MB each. Open a receipt and check its amount before marking it verified. Verification records your review.", style = MaterialTheme.typography.bodySmall)
+        state.error?.let { Text(it, color = MaterialTheme.colorScheme.error,
             modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite }) }
         if (state.isLoading || state.isBusy) LinearProgressIndicator(Modifier.fillMaxWidth())
         val canAct = enabled && !state.isBusy && !state.isLoading
         Button(onClick = onAttach, enabled = canAct && state.proofs.size < ProofPolicy.MAX_ATTACHMENTS,
-            modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.proofs_attach)) }
-        if (!state.isLoading && state.proofs.isEmpty()) Text(stringResource(R.string.proofs_empty))
+            modifier = Modifier.fillMaxWidth()) { Text("Attach photo or PDF") }
+        if (!state.isLoading && state.proofs.isEmpty()) Text("No proofs attached yet.")
         state.proofs.forEach { proof ->
             OutlinedCard(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Text(proof.displayName, style = MaterialTheme.typography.titleSmall)
-                    Text(stringResource(R.string.proofs_file_info, proof.mimeType, (proof.sizeBytes + 1023) / 1024), style = MaterialTheme.typography.bodySmall)
+                    Text(String.format("%s · %d KB", proof.mimeType, (proof.sizeBytes + 1023) / 1024), style = MaterialTheme.typography.bodySmall)
                     if (proof.unavailable) {
-                        Text(stringResource(R.string.proofs_missing), color = MaterialTheme.colorScheme.error)
+                        Text("This proof is missing from this device and cloud storage. Remove it, then attach the original again.", color = MaterialTheme.colorScheme.error)
                         TextButton(onClick = { onRemoveUnavailable(proof.id) }, enabled = canAct) {
-                            Text(stringResource(R.string.proofs_remove_missing))
+                            Text("Remove missing proof")
                         }
                     } else {
-                        Text(stringResource(if (proof.pendingUpload) R.string.proofs_pending else R.string.proofs_uploaded), style = MaterialTheme.typography.bodySmall)
+                        Text(if (proof.pendingUpload) "Saved on this device · upload pending" else "Uploaded securely", style = MaterialTheme.typography.bodySmall)
                         if (proof.verifies(amountMinor)) ReceiptVerifiedIcon()
-                        TextButton(onClick = { onOpen(proof.id) }, enabled = canAct) { Text(stringResource(R.string.proofs_open)) }
+                        TextButton(onClick = { onOpen(proof.id) }, enabled = canAct) { Text("Open proof") }
                         TextButton(onClick = { onVerify(proof.id, !proof.verifies(amountMinor)) }, enabled = canAct) {
-                            Text(if (proof.verifies(amountMinor)) stringResource(R.string.proofs_unverify)
-                                else stringResource(R.string.proofs_verify, MoneyUtils.formatMinor(amountMinor)))
+                            Text(if (proof.verifies(amountMinor)) "Clear amount verification"
+                                else "Mark receipt amount ${MoneyUtils.formatMinor(amountMinor)} as verified")
                         }
                     }
                 }
             }
         }
-        TextButton(onClick = onRetry, enabled = canAct) { Text(stringResource(R.string.proofs_refresh)) }
+        TextButton(onClick = onRetry, enabled = canAct) { Text("Refresh / retry upload") }
     }
 }
 
 @Composable
 private fun ReceiptVerifiedIcon() {
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        Icon(painterResource(R.drawable.ic_receipt_verified), stringResource(R.string.proofs_verified), tint = MaterialTheme.colorScheme.primary)
-        Text(stringResource(R.string.proofs_verified), color = MaterialTheme.colorScheme.primary)
+        Icon(painterResource(R.drawable.ic_receipt_verified), "Receipt amount verified by you", tint = MaterialTheme.colorScheme.primary)
+        Text("Receipt amount verified by you", color = MaterialTheme.colorScheme.primary)
     }
 }

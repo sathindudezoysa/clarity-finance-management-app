@@ -30,6 +30,7 @@ import com.example.clarity.presentation.transactions.edit.TransactionEditViewMod
 import com.example.clarity.presentation.transactions.edit.TransactionEditScreen
 import com.example.clarity.presentation.transactions.list.TransactionListViewModel
 import com.example.clarity.presentation.theme.ClarityTheme
+import com.example.clarity.presentation.transactions.TransactionMessages
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.runBlocking
@@ -150,7 +151,7 @@ class TransactionAccountViewModelTest {
         assertEquals("savings", offline.selectedAccountId)
         assertTrue(offline.canSaveWithAccount)
         instrumentation.runOnMainSync { accounts.status.value = Resource.Success(available.filter { it.id == "daily" }) }
-        val removed = withTimeout(10_000) { editor.uiState.first { it.accountError == R.string.transactions_account_unavailable } }
+        val removed = withTimeout(10_000) { editor.uiState.first { it.accountError == TransactionMessages.ACCOUNT_UNAVAILABLE } }
         assertEquals("savings", removed.selectedAccountId)
         assertEquals("savings", handle.get<String>("selected_account_id"))
         assertFalse(removed.canSaveWithAccount)
@@ -195,7 +196,7 @@ class TransactionAccountViewModelTest {
         val detail = model(TransactionDetailViewModel::class.java) {
             TransactionDetailViewModel(handle, GetTransactionUseCase(transactions), DeleteTransactionUseCase(transactions), getAccounts, RetryConversionUseCase(transactions))
         }
-        assertEquals(R.string.transactions_not_found, detail.uiState.value.error)
+        assertEquals(TransactionMessages.NOT_FOUND, detail.uiState.value.error)
         assertTrue(transactions.observedIds.isEmpty())
     }
 
@@ -207,7 +208,7 @@ class TransactionAccountViewModelTest {
                     DeleteTransactionUseCase(transactions), getAccounts, RetryConversionUseCase(transactions))
             }
             assertFalse(detail.uiState.value.isLoading)
-            assertEquals(R.string.transactions_not_found, detail.uiState.value.error)
+            assertEquals(TransactionMessages.NOT_FOUND, detail.uiState.value.error)
             instrumentation.runOnMainSync { detail.showDeleteDialog(); detail.confirmDelete() }
             assertFalse(detail.uiState.value.isDeleteDialogVisible)
             assertFalse(detail.uiState.value.isDeleting)
@@ -230,9 +231,9 @@ class TransactionAccountViewModelTest {
                     ClarityTheme { TransactionDetailScreen(onBack = { back.complete(Unit) }, onEdit = {}, viewModel = detail) }
                 }
             }
-            val error = instrumentation.targetContext.getString(R.string.transactions_not_found)
+            val error = TransactionMessages.NOT_FOUND
             awaitNode { it.text?.toString() == error }
-            val backLabel = instrumentation.targetContext.getString(R.string.transactions_back)
+            val backLabel = TransactionMessages.BACK_LABEL
             val button = awaitNode { it.isClickable && findNode(it) { child -> child.text?.toString() == backLabel } != null }
             assertTrue(button.performAction(AccessibilityNodeInfo.ACTION_CLICK))
             withTimeout(10_000) { back.await() }
@@ -275,10 +276,10 @@ class TransactionAccountViewModelTest {
             accounts.status.value = Resource.Error("Different diagnostic", accounts.values.value,
                 AccountException(AccountError.SIGN_IN_REQUIRED, "Account token expired"))
         }
-        val detailState = withTimeout(10_000) { detail.uiState.first { it.error == R.string.transactions_sign_in } }
-        val listState = withTimeout(10_000) { list.uiState.first { it.error == R.string.transactions_sign_in } }
+        val detailState = withTimeout(10_000) { detail.uiState.first { it.error == TransactionMessages.SIGN_IN } }
+        val listState = withTimeout(10_000) { list.uiState.first { it.error == TransactionMessages.SIGN_IN } }
         val editState = withTimeout(10_000) { editor.uiState.first {
-            it.error == R.string.transactions_sign_in && it.accountsError == R.string.transactions_sign_in
+            it.error == TransactionMessages.SIGN_IN && it.accountsError == TransactionMessages.SIGN_IN
         } }
         assertEquals(transaction, detailState.transaction)
         assertEquals(listOf(transaction), listState.transactions)
@@ -291,10 +292,10 @@ class TransactionAccountViewModelTest {
             transactions.failure.value = IllegalStateException("Please sign in")
             accounts.status.value = Resource.Error("Please sign in", accounts.values.value)
         }
-        withTimeout(10_000) { detail.uiState.first { it.error == R.string.transactions_load_error } }
-        withTimeout(10_000) { list.uiState.first { it.error == R.string.transactions_load_error } }
+        withTimeout(10_000) { detail.uiState.first { it.error == TransactionMessages.LOAD_ERROR } }
+        withTimeout(10_000) { list.uiState.first { it.error == TransactionMessages.LOAD_ERROR } }
         withTimeout(10_000) { editor.uiState.first {
-            it.error == R.string.transactions_load_error && it.accountsError == R.string.transactions_accounts_load_error
+            it.error == TransactionMessages.LOAD_ERROR && it.accountsError == TransactionMessages.ACCOUNTS_LOAD_ERROR
         } }
     }
 
@@ -323,8 +324,8 @@ class TransactionAccountViewModelTest {
             transactions.status.value = Resource.Error("Authentication required", cause = cause)
             transactions.listStatus.value = Resource.Error("Authentication required", cause = cause)
         }
-        assertNull(withTimeout(10_000) { detail.uiState.first { it.error == R.string.transactions_sign_in } }.transaction)
-        assertTrue(withTimeout(10_000) { list.uiState.first { it.error == R.string.transactions_sign_in } }.transactions.isEmpty())
+        assertNull(withTimeout(10_000) { detail.uiState.first { it.error == TransactionMessages.SIGN_IN } }.transaction)
+        assertTrue(withTimeout(10_000) { list.uiState.first { it.error == TransactionMessages.SIGN_IN } }.transactions.isEmpty())
     }
 
     @Test
@@ -398,7 +399,7 @@ class TransactionAccountViewModelTest {
         val editor = editor()
         assertFalse(ready(editor).canSaveWithAccount)
         save(editor)
-        assertEquals(R.string.transactions_account_required, editor.uiState.value.accountError)
+        assertEquals(TransactionMessages.ACCOUNT_REQUIRED, editor.uiState.value.accountError)
         assertTrue(transactions.rows.value.isEmpty())
         accounts.values.value = listOf(Account(id = "new", name = "New account", bankName = "Bank", isDefault = true))
         withTimeout(10_000) { editor.uiState.first { it.canSaveWithAccount && it.selectedAccountId == "new" } }
@@ -424,7 +425,7 @@ class TransactionAccountViewModelTest {
         val editor = editor(SavedStateHandle(mapOf("id" to "legacy")))
         val state = ready(editor)
         assertEquals("missing", state.selectedAccountId)
-        assertEquals(R.string.transactions_account_unavailable, state.accountError)
+        assertEquals(TransactionMessages.ACCOUNT_UNAVAILABLE, state.accountError)
         assertFalse(state.canSaveWithAccount)
         save(editor)
         assertEquals("missing", transactions.rows.value["legacy"]!!.accountId)
@@ -438,7 +439,7 @@ class TransactionAccountViewModelTest {
         val editor = editor(SavedStateHandle(mapOf("id" to legacy.id)))
         assertNull(ready(editor).selectedAccountId)
         save(editor)
-        assertEquals(R.string.transactions_account_select, editor.uiState.value.accountError)
+        assertEquals(TransactionMessages.ACCOUNT_SELECT, editor.uiState.value.accountError)
         assertEquals(legacy, transactions.rows.value[legacy.id])
     }
 
@@ -456,14 +457,14 @@ class TransactionAccountViewModelTest {
                     ClarityTheme { TransactionEditScreen(onBack = {}, viewModel = editor) }
                 }
             }
-            val saveLabel = instrumentation.targetContext.getString(R.string.transactions_save)
+            val saveLabel = TransactionMessages.SAVE_LABEL
             val saveButton = awaitNode { node ->
                 node.isClickable && findNode(node) { it.text?.toString() == saveLabel } != null
             }
             assertTrue(saveButton.isEnabled)
             assertTrue(saveButton.performAction(AccessibilityNodeInfo.ACTION_CLICK))
-            withTimeout(10_000) { editor.uiState.first { it.accountError == R.string.transactions_account_required } }
-            val error = instrumentation.targetContext.getString(R.string.transactions_account_required)
+            withTimeout(10_000) { editor.uiState.first { it.accountError == TransactionMessages.ACCOUNT_REQUIRED } }
+            val error = TransactionMessages.ACCOUNT_REQUIRED
             awaitNode(scrollBack = true) { it.text?.toString() == error }
             assertEquals(legacy, transactions.rows.value[legacy.id])
         }

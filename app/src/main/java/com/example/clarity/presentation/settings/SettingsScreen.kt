@@ -7,9 +7,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
-import com.example.clarity.R
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 
@@ -31,19 +29,19 @@ fun SettingsScreen(
     }
     Scaffold(topBar = {
         TopAppBar(
-            title = { Text(stringResource(R.string.settings_title)) },
-            navigationIcon = { TextButton(onClick = viewModel::onBack) { Text(stringResource(R.string.accounts_back)) } }
+            title = { Text("Settings") },
+            navigationIcon = { TextButton(onClick = viewModel::onBack) { Text("Back") } }
         )
     }) { padding ->
         Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.TopCenter) {
             Column(Modifier.widthIn(max = 600.dp).fillMaxWidth().padding(16.dp)) {
-                Text(stringResource(R.string.currency_preference))
+                Text("Primary reporting currency")
                 com.example.clarity.presentation.transactions.CurrencyPicker(state.currency, viewModel::setCurrency, !state.saving)
-                Text(stringResource(R.string.currency_preference_help))
-                if (state.pendingSync) Text(stringResource(R.string.currency_preference_pending))
-                if (state.error) Text(stringResource(R.string.currency_preference_error), color = MaterialTheme.colorScheme.error)
+                Text("New entries use this reporting currency. Existing entries keep their recorded currency. The initial default is LKR; cash wallet entries remain LKR.")
+                if (state.pendingSync) Text("Saved on this device. Cloud sync pending.")
+                if (state.error) Text("Could not save. Select the currency to retry.", color = MaterialTheme.colorScheme.error)
                 OutlinedButton(onClick = viewModel::onBankAccounts, modifier = Modifier.fillMaxWidth()) {
-                    Text(stringResource(R.string.accounts_title))
+                    Text("Bank accounts")
                 }
             }
         }

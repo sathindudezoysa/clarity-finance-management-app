@@ -12,7 +12,7 @@ data class AccountEditState(
     val isDefaultLocked: Boolean = false,
     val isSaving: Boolean = false,
     val isSuccess: Boolean = false,
-    val nameError: Int? = null,
-    val currencyError: Int? = null,
-    val error: Int? = null
+    val nameError: String? = null,
+    val currencyError: String? = null,
+    val error: String? = null
 )

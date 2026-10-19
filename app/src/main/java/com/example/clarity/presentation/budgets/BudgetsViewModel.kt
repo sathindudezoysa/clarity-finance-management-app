@@ -2,7 +2,6 @@ package com.example.clarity.presentation.budgets
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.example.clarity.R
 import com.example.clarity.domain.model.*
 import com.example.clarity.domain.repository.AuthRepository
 import com.example.clarity.domain.repository.BudgetOverview
@@ -21,7 +20,7 @@ data class BudgetEditor(val budget: Budget? = null, val category: String = "Food
     val amount: String = "", val currency: String, val owner: String)
 data class BudgetsState(val loading: Boolean = true, val overview: BudgetOverview = BudgetOverview(),
     val tags: List<String> = TransactionTags.predefined, val currency: String = "LKR", val editor: BudgetEditor? = null,
-    val busy: Boolean = false, val error: Int? = null, val currentMonth: String = "")
+    val busy: Boolean = false, val error: String? = null, val currentMonth: String = "")
 
 @HiltViewModel
 class BudgetsViewModel @Inject constructor(
@@ -35,7 +34,7 @@ class BudgetsViewModel @Inject constructor(
         viewModelScope.launch {
             observe().catch { error ->
                 if (error is CancellationException) throw error
-                mutable.update { it.copy(loading = false, error = R.string.budget_load_error) }
+                mutable.update { it.copy(loading = false, error = BudgetMessages.LOAD_ERROR) }
             }.collect { overview -> mutable.update { old ->
                 val changedOwner = old.overview.ownerId != overview.ownerId
                 old.copy(loading = overview.loading, overview = overview, currentMonth = BudgetPolicy.currentMonth(clock),
@@ -65,15 +64,15 @@ class BudgetsViewModel @Inject constructor(
             // Existing budgets, including disabled ones, are edited with their recorded currency.
             require(editor.budget != null || state.value.overview.statuses.none { it.budget.id == id })
             Budget(id, editor.owner, editor.month, category, amount, editor.currency).also { BudgetPolicy.validate(it) }
-        }.getOrElse { mutable.update { it.copy(error = R.string.budget_validation) }; return }
-        action(R.string.budget_save_error) {
+        }.getOrElse { mutable.update { it.copy(error = BudgetMessages.VALIDATION) }; return }
+        action(BudgetMessages.SAVE_ERROR) {
             saveBudget(budget).getOrThrow()
             mutable.update { if (it.editor == editor) it.copy(editor = null) else it }
         }
     }
-    fun disable(id: String) = action(R.string.budget_save_error) { disableBudget(id).getOrThrow() }
-    fun retryCurrency(id: String) = action(R.string.budget_conversion_error) { resolve(id).getOrThrow() }
-    private fun action(errorMessage: Int, block: suspend () -> Unit) {
+    fun disable(id: String) = action(BudgetMessages.SAVE_ERROR) { disableBudget(id).getOrThrow() }
+    fun retryCurrency(id: String) = action(BudgetMessages.CONVERSION_ERROR) { resolve(id).getOrThrow() }
+    private fun action(errorMessage: String, block: suspend () -> Unit) {
         if (state.value.busy) return
         viewModelScope.launch {
             val owner = state.value.overview.ownerId
