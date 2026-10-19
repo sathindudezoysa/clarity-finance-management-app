@@ -3,6 +3,7 @@ package com.example.clarity.di
 import android.content.Context
 import androidx.room.Room
 import com.example.clarity.data.local.ClarityDatabase
+import com.example.clarity.data.local.MIGRATION_10_11
 import com.example.clarity.data.local.dao.AccountDao
 import com.example.clarity.data.local.dao.SampleDao
 import com.example.clarity.data.local.dao.TransactionDao
@@ -22,14 +23,20 @@ object DatabaseModule {
     @Singleton
     fun provideDatabase(
         @ApplicationContext context: Context
-    ): ClarityDatabase {
-        // This permits both upgrades and downgrades. The downgrade-only builder method
-        // would re-enable requireMigration and disable destructive upgrades in Room 2.6.
+    ): ClarityDatabase = createDatabase(context, ClarityDatabase.DATABASE_NAME)
+
+    fun createDatabase(context: Context, name: String): ClarityDatabase {
         return Room.databaseBuilder(
             context,
             ClarityDatabase::class.java,
-            ClarityDatabase.DATABASE_NAME
-        ).fallbackToDestructiveMigration().build()
+            name
+        )
+            .addMigrations(MIGRATION_10_11)
+            // Keep the general fallback last: Room 2.6's downgrade-only option
+            // re-enables requireMigration, which would disable older-version upgrades.
+            .fallbackToDestructiveMigrationOnDowngrade()
+            .fallbackToDestructiveMigration()
+            .build()
     }
 
     @Provides

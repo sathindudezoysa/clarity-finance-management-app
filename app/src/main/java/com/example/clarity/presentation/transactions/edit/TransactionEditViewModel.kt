@@ -1,5 +1,7 @@
 package com.example.clarity.presentation.transactions.edit
 
+import com.example.clarity.presentation.navigation.transactionIdArgument
+import com.example.clarity.presentation.navigation.TRANSACTION_ID_ARGUMENT
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -35,9 +37,8 @@ class TransactionEditViewModel @Inject constructor(
     private val currencyPreference: com.example.clarity.domain.usecase.currency.ObserveCurrencyPreferenceUseCase,
     private val previewConversion: com.example.clarity.domain.usecase.transaction.PreviewConversionUseCase
 ) : ViewModel() {
-    private val isEditMode = savedStateHandle.get<Any?>("id") != null
-    private val id = (savedStateHandle.get<Any?>("id") as? String)
-        ?.takeIf { it.isNotBlank() && it.length <= 128 && '/' !in it }
+    private val isEditMode = savedStateHandle.get<Any?>(TRANSACTION_ID_ARGUMENT) != null
+    private val id = savedStateHandle.transactionIdArgument()
     private val restoredAccountId = savedStateHandle.get<Any?>("selected_account_id") as? String
     private val stateLock = Any()
     private var hasAccountData = false

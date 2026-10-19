@@ -21,11 +21,11 @@ sealed class Screen(val route: String) {
         fun createRoute(id: String? = null) = if (id == null) "accounts/edit"
             else "accounts/edit?id=${Uri.encode(id)}"
     }
-    object TransactionDetail : Screen("transactions/{id}") {
+    object TransactionDetail : Screen("transactions/{$TRANSACTION_ID_ARGUMENT}") {
         fun createRoute(id: String) = "transactions/${Uri.encode(id)}"
     }
-    object TransactionEdit : Screen("transactions/edit?id={id}") {
+    object TransactionEdit : Screen("transactions/edit?$TRANSACTION_ID_ARGUMENT={$TRANSACTION_ID_ARGUMENT}") {
         fun createRoute(id: String? = null) = if (id == null) "transactions/edit"
-            else "transactions/edit?id=${Uri.encode(id)}"
+            else "transactions/edit?$TRANSACTION_ID_ARGUMENT=${Uri.encode(id)}"
     }
 }

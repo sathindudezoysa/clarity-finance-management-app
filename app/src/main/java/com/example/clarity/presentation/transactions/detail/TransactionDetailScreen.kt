@@ -1,5 +1,6 @@
 package com.example.clarity.presentation.transactions.detail
 
+import com.example.clarity.presentation.transactions.proofs.TransactionProofSection
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -72,6 +73,7 @@ fun TransactionDetailScreen(
                     Field(R.string.transactions_updated, formatTransactionTimestamp(transaction.updatedAt))
                     Field(R.string.transactions_id, transaction.id)
                     Field(R.string.transactions_owner, transaction.userId)
+                    TransactionProofSection(transaction.amountMinor, !state.isDeleting)
                     Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                         Button(onClick = { onEdit(transaction.id) }, enabled = !state.isDeleting) {
                             Text(stringResource(R.string.transactions_edit))

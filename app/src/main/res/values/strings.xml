@@ -90,4 +90,7 @@
     <string name="transactions_account_unassigned">No account assigned</string>
     <string name="transactions_account_unavailable">Account unavailable. Choose another account when editing.</string>
     <string name="transactions_accounts_load_error">Unable to load or sync bank accounts. Saved accounts are still available.</string>
+    <string name="proofs_missing">This proof is missing from this device and cloud storage. Remove it, then attach the original again.</string>
+    <string name="proofs_remove_missing">Remove missing proof</string>
+    <string name="proofs_remove_error">Could not remove this missing proof. Please try again.</string>
 </resources>
