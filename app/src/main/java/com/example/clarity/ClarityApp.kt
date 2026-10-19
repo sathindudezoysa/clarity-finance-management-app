@@ -1,6 +1,7 @@
 package com.example.clarity
 
 import android.app.Application
+import com.example.clarity.data.sync.ProofSyncManager
 import dagger.hilt.android.HiltAndroidApp
 import com.example.clarity.domain.repository.TransactionRepository
 import com.example.clarity.domain.repository.AccountRepository
@@ -14,4 +15,12 @@ class ClarityApp : Application() {
 
     @Inject
     lateinit var accountRepository: AccountRepository
+
+    @Inject
+    lateinit var proofSyncManager: ProofSyncManager
+
+    override fun onCreate() {
+        super.onCreate()
+        proofSyncManager.start()
+    }
 }

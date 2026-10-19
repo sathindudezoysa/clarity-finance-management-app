@@ -1,5 +1,9 @@
 package com.example.clarity.di
 
+import com.example.clarity.domain.repository.TransactionProofRepository
+import com.example.clarity.data.repository.TransactionProofRepositoryImpl
+import com.example.clarity.data.remote.FirebaseProofDataSource
+import com.example.clarity.data.remote.ProofRemoteDataSource
 import com.example.clarity.data.repository.AuthRepositoryImpl
 import com.example.clarity.data.repository.AccountRepositoryImpl
 import com.example.clarity.data.sync.AccountUploader
@@ -38,6 +42,14 @@ abstract class RepositoryModule {
         fun provideApplicationScope(ioDispatcher: CoroutineDispatcher): CoroutineScope =
             CoroutineScope(SupervisorJob() + ioDispatcher)
     }
+
+    @Binds
+    @Singleton
+    abstract fun bindTransactionProofRepository(impl: TransactionProofRepositoryImpl): TransactionProofRepository
+
+    @Binds
+    @Singleton
+    abstract fun bindProofRemoteDataSource(impl: FirebaseProofDataSource): ProofRemoteDataSource
 
     @Binds
     @Singleton

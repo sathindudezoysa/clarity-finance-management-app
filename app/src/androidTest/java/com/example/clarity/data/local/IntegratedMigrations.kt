@@ -3,15 +3,18 @@ package com.example.clarity.data.local
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 
-/** Versions 4–6 were used by two branches. Inspect the schema, never guess from the version. */
+/** Historical upgrade fixtures only; the application uses destructive cache recreation. */
 object IntegratedMigrations {
     val all: Array<Migration> = arrayOf(
         InitialTransactionMigration, TransactionTagMigration,
         AccountMigration, TransactionAccountMigration, TransactionAccountIndexMigration,
-        bridge(3), bridge(4), bridge(5), bridge(6)
+        bridge(3), bridge(4), bridge(5), bridge(6),
+        TransactionProofMigration(), TransactionProofMigration(7), ProofRecoveryMigration,
+        // Proof-only 8/9 databases also need the wallet tables now present in main.
+        bridge(9, 10)
     )
 
-    private fun bridge(from: Int) = object : Migration(from, 7) {
+    private fun bridge(from: Int, to: Int = 7) = object : Migration(from, to) {
         override fun migrate(db: SupportSQLiteDatabase) {
             if (!db.hasTable("accounts")) AccountMigration.migrate(db)
             if (!db.hasTable("wallet_bank_accounts")) CashWalletMigration.migrate(db)

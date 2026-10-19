@@ -126,7 +126,7 @@ fun SetupNavGraph(
         }
         composable(
             route = Screen.TransactionDetail.route,
-            arguments = listOf(navArgument("id") { type = NavType.StringType })
+            arguments = listOf(navArgument(TRANSACTION_ID_ARGUMENT) { type = NavType.StringType })
         ) {
             TransactionDetailScreen(
                 onBack = {
@@ -140,7 +140,7 @@ fun SetupNavGraph(
         }
         composable(
             route = Screen.TransactionEdit.route,
-            arguments = listOf(navArgument("id") { type = NavType.StringType; nullable = true; defaultValue = null })
+            arguments = listOf(navArgument(TRANSACTION_ID_ARGUMENT) { type = NavType.StringType; nullable = true; defaultValue = null })
         ) {
             TransactionEditScreen(
                 onBack = { navController.popBackStack() },

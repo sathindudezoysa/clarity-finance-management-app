@@ -22,12 +22,17 @@ object DatabaseModule {
     @Singleton
     fun provideDatabase(
         @ApplicationContext context: Context
-    ): ClarityDatabase {
+    ): ClarityDatabase = createDatabase(context, ClarityDatabase.DATABASE_NAME)
+
+    fun createDatabase(context: Context, name: String): ClarityDatabase {
         return Room.databaseBuilder(
             context,
             ClarityDatabase::class.java,
-            ClarityDatabase.DATABASE_NAME
-        ).addMigrations(*com.example.clarity.data.local.IntegratedMigrations.all).build()
+            name
+        )
+            .fallbackToDestructiveMigration()
+            .fallbackToDestructiveMigrationOnDowngrade()
+            .build()
     }
 
     @Provides
