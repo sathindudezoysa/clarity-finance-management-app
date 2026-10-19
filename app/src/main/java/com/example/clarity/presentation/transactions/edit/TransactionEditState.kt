@@ -26,5 +26,5 @@ data class TransactionEditState(
     val previewLoading: Boolean = false,
     val previewError: Boolean = false
 ) {
-    val canSaveWithAccount: Boolean get() = transaction?.isCash == true || (!isAccountsLoading && accounts.any { it.id == selectedAccountId })
+    val canSaveWithAccount: Boolean get() = !isAccountsLoading && accounts.any { it.id == selectedAccountId }
 }

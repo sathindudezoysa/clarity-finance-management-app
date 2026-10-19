@@ -3,17 +3,16 @@ package com.example.clarity.presentation.main
 import android.content.SharedPreferences
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.example.clarity.domain.model.CashWallet
 import com.example.clarity.domain.model.Currencies
 import com.example.clarity.domain.model.CurrencyConversion
 import com.example.clarity.domain.model.IncomeSources
 import com.example.clarity.domain.model.Transaction
 import com.example.clarity.domain.model.TransactionType
 import com.example.clarity.domain.repository.ExchangeRateRepository
+import com.example.clarity.domain.usecase.account.GetAccountsUseCase
 import com.example.clarity.domain.usecase.currency.ObserveCurrencyPreferenceUseCase
 import com.example.clarity.domain.usecase.income.ObserveIncomeSourcesUseCase
 import com.example.clarity.domain.usecase.transaction.GetTransactionsUseCase
-import com.example.clarity.domain.usecase.wallet.ObserveCashWalletUseCase
 import com.example.clarity.domain.util.MoneyUtils
 import com.example.clarity.domain.util.Resource
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -33,8 +32,8 @@ import javax.inject.Inject
 class MainViewModel @Inject constructor(
     private val prefs: SharedPreferences,
     private val rates: ExchangeRateRepository,
+    getAccounts: GetAccountsUseCase,
     getTransactions: GetTransactionsUseCase,
-    observeWallet: ObserveCashWalletUseCase,
     observeIncomeSources: ObserveIncomeSourcesUseCase,
     observeCurrency: ObserveCurrencyPreferenceUseCase
 ) : ViewModel() {
@@ -45,12 +44,13 @@ class MainViewModel @Inject constructor(
     init {
         viewModelScope.launch {
             combine(
+                getAccounts().catch { emit(Resource.Success(emptyList())) },
                 getTransactions().catch { emit(Resource.Success(emptyList())) },
-                observeWallet().catch { emit(CashWallet()) },
                 observeIncomeSources().catch { emit(IncomeSources(null, emptyList())) },
                 observeCurrency()
-            ) { txResult, wallet, incomeSources, pref ->
+            ) { accountsResult, txResult, incomeSources, pref ->
                 val targetCurrency = pref.currency
+                val accounts = accountsResult.data ?: return@combine null
                 val transactions = txResult.data ?: return@combine null
                 val rateCache = mutableMapOf<String, BigDecimal?>()
 
@@ -83,33 +83,32 @@ class MainViewModel @Inject constructor(
                     return convertMinor(BigInteger.valueOf(tx.amountMinor), tx.currency)
                 }
 
+                val cashAccount = accounts.firstOrNull { it.isCashWallet }
+                var cashBalanceMinor = BigInteger.ZERO
+
                 var incomeMinor = BigInteger.ZERO
                 var expenseMinor = BigInteger.ZERO
-                var nonCashNetMinor = BigInteger.ZERO
+                var netWorthMinor = BigInteger.ZERO
                 var expenseCount = 0
 
                 for (tx in transactions) {
                     val amount = resolveTransactionMinor(tx)
+                    val isCashTx = (cashAccount != null && tx.accountId == cashAccount.id) || tx.isCash
+                    val isTopUp = tx.category == "Cash Top-Up"
+
                     if (tx.type == TransactionType.INCOME) {
-                        incomeMinor += amount
-                        if (!tx.isCash) nonCashNetMinor += amount
+                        netWorthMinor += amount
+                        if (isCashTx) cashBalanceMinor += amount
+                        if (!isTopUp) incomeMinor += amount
                     } else {
-                        expenseMinor += amount
-                        expenseCount++
-                        if (!tx.isCash) nonCashNetMinor -= amount
+                        netWorthMinor -= amount
+                        if (isCashTx) cashBalanceMinor -= amount
+                        if (!isTopUp) {
+                            expenseMinor += amount
+                            expenseCount++
+                        }
                     }
                 }
-
-                var bankBalancesMinor = BigInteger.ZERO
-                for (account in wallet.accounts) {
-                    if (account.isActive) {
-                        bankBalancesMinor += convertMinor(account.balanceMinor, account.currency)
-                    }
-                }
-
-                val defaultWalletCurrency = wallet.accounts.firstOrNull { it.isDefault }?.currency ?: targetCurrency
-                val cashBalanceTargetMinor = convertMinor(wallet.balanceMinor, defaultWalletCurrency)
-                val netWorthMinor = cashBalanceTargetMinor + bankBalancesMinor + nonCashNetMinor
 
                 val activeSources = incomeSources.sources.filter { it.active }.map { it.name }
                 val incomeSubtitle = when {
@@ -135,7 +134,7 @@ class MainViewModel @Inject constructor(
                     incomeSubtitle = incomeSubtitle,
                     expenses = "-${MoneyUtils.formatMinor(expenseMinor, targetCurrency)}",
                     expenseSubtitle = expenseSubtitle,
-                    cashBalance = MoneyUtils.formatMinor(cashBalanceTargetMinor, targetCurrency)
+                    cashBalance = MoneyUtils.formatMinor(cashBalanceMinor, targetCurrency)
                 )
             }.collect { updated ->
                 if (updated != null) {

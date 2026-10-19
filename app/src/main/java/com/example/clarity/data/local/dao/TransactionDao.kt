@@ -10,7 +10,7 @@ import com.example.clarity.data.local.entity.TransactionTagEntity
 import kotlinx.coroutines.flow.Flow
 
 @Dao
-abstract class TransactionDao : WalletBalanceReader {
+abstract class TransactionDao {
     @Query("SELECT * FROM transactions WHERE userId = :userId AND isDeleted = 0 ORDER BY dateEpochMillis DESC, createdAt DESC")
     abstract fun observeAll(userId: String): Flow<List<TransactionEntity>>
 
@@ -69,19 +69,30 @@ abstract class TransactionDao : WalletBalanceReader {
         return true
     }
 
-    @Query("SELECT EXISTS(SELECT 1 FROM wallet_cash_links WHERE userId = :uid AND transactionId = :id)")
-    abstract suspend fun isWalletCash(uid: String, id: String): Boolean
+    @Query("SELECT * FROM transactions WHERE userId = :userId AND isDeleted = 0")
+    abstract suspend fun getActiveForUser(userId: String): List<TransactionEntity>
 
-    /** Keep local transaction persistence and dependent wallet integrity in one storage transaction. */
     @Transaction
     open suspend fun persistLocal(entity: TransactionEntity) {
-        require(!isWalletCash(entity.userId, entity.id) || (entity.currency == "LKR" && entity.accountId == null)) {
-            "Cash wallet entries must remain LKR"
-        }
+        val previousAccountId = getById(entity.id)?.accountId
         upsertWithTag(entity)
-        if (isWalletCash(entity.userId, entity.id)) {
-            com.example.clarity.data.local.validateWalletBalance(balance(entity.userId).value())
+        val active = getActiveForUser(entity.userId)
+        fun netMinor(txs: List<TransactionEntity>): java.math.BigInteger {
+            var total = java.math.BigInteger.ZERO
+            for (tx in txs) {
+                val amount = java.math.BigInteger.valueOf(tx.conversion?.amountMinor ?: tx.amountMinor)
+                if (tx.type == "INCOME") total += amount else total -= amount
+            }
+            return total
         }
+        require(netMinor(active) >= java.math.BigInteger.ZERO) { "Insufficient net worth balance" }
+        listOfNotNull(previousAccountId, entity.accountId)
+            .distinct()
+            .forEach { accountId ->
+                require(netMinor(active.filter { it.accountId == accountId }) >= java.math.BigInteger.ZERO) {
+                    "Insufficient account balance"
+                }
+            }
     }
 
     @Transaction
@@ -96,7 +107,6 @@ abstract class TransactionDao : WalletBalanceReader {
             val local = getById(incoming.id)
             when {
                 incoming.userId != userId -> null
-                isWalletCash(userId, incoming.id) && (incoming.currency != "LKR" || incoming.accountId != null) -> null
                 local != null && local.userId != userId -> null
                 local?.isDeleted == true -> null
                 local?.pendingSync == true -> {

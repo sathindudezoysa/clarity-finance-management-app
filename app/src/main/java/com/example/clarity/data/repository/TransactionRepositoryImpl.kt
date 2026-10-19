@@ -130,7 +130,7 @@ class TransactionRepositoryImpl @Inject internal constructor(
             else combine(
                 dao.observeAll(user.uid), syncState.filter { it.uid == user.uid }
             ) { local, status ->
-                val transactions = local.map { it.toDomain().copy(isCash = dao.isWalletCash(user.uid, it.id)) }
+                val transactions = local.map { it.toDomain() }
                 if (status.warning == null) Resource.Success(transactions)
                 else Resource.Error(status.warning, transactions)
             }.onStart { emit(Resource.Loading()) }
@@ -146,7 +146,7 @@ class TransactionRepositoryImpl @Inject internal constructor(
             else combine(
                 dao.observeById(id, user.uid), syncState.filter { it.uid == user.uid }
             ) { local, status ->
-                val transaction = local?.toDomain()?.copy(isCash = dao.isWalletCash(user.uid, local.id))
+                val transaction = local?.toDomain()
                 if (status.warning == null) Resource.Success<Transaction?>(transaction)
                 else Resource.Error<Transaction?>(status.warning, transaction)
             }.onStart { emit(Resource.Loading()) }
@@ -216,11 +216,6 @@ class TransactionRepositoryImpl @Inject internal constructor(
         }
     }
 
-    override suspend fun isCashTransaction(id: String): Boolean = withContext(ioDispatcher) {
-        val uid = authRepository.currentUser.first()?.uid ?: return@withContext false
-        dao.isWalletCash(uid, id)
-    }
-
     override suspend fun addTransaction(t: Transaction): Result<Unit> = localWrite { uid ->
         require(t.amountMinor > 0) { "Amount must be greater than zero" }
         require(dao.getById(t.id) == null) { "Transaction already exists" }
@@ -238,8 +233,6 @@ class TransactionRepositoryImpl @Inject internal constructor(
         require(t.userId == existing.userId) { "Cannot change transaction owner" }
         require(t.amountMinor > 0) { "Amount must be greater than zero" }
         require(existing.updatedAt < Long.MAX_VALUE) { "Transaction timestamp is out of range" }
-        require(!dao.isWalletCash(uid, t.id) || t.accountId == null) { "Cash transactions cannot be assigned to a bank account" }
-        require(!dao.isWalletCash(uid, t.id) || t.currency == "LKR") { "Cash wallet entries must remain LKR" }
         val money = prepareMoney(t.copy(targetCurrency = existing.targetCurrency), existing.toDomain())
         val entity = money.copy(
             userId = uid, createdAt = existing.createdAt,
