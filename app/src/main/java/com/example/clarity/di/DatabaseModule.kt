@@ -31,9 +31,7 @@ object DatabaseModule {
             ClarityDatabase::class.java,
             name
         )
-            .addMigrations(MIGRATION_10_11)
-            // Keep the general fallback last: Room 2.6's downgrade-only option
-            // re-enables requireMigration, which would disable older-version upgrades.
+            
             .fallbackToDestructiveMigrationOnDowngrade()
             .fallbackToDestructiveMigration()
             .build()
