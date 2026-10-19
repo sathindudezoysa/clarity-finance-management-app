@@ -57,7 +57,7 @@ fun TransactionDetailScreen(
                         if (transaction.type == TransactionType.INCOME) R.string.transactions_income else R.string.transactions_expense
                     ))
                     Field(R.string.transactions_amount, MoneyUtils.formatMinor(transaction.amountMinor))
-                    Field(R.string.transactions_account, state.accountName ?: stringResource(
+                    Field(R.string.transactions_account, if (transaction.isCash) stringResource(R.string.wallet_title) else state.accountName ?: stringResource(
                         if (transaction.accountId == null) R.string.transactions_account_unassigned
                         else R.string.transactions_account_unavailable))
                     Field(R.string.transactions_tag, transaction.category)

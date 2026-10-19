@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="bank_account_title">Bank Account</string>
+    <string name="bank_account_other_bank">Other Bank / Financial Institution</string>
+    <string name="bank_account_change_bank">Change bank</string>
+    <string name="bank_account_last_four">Last four digits (optional)</string>
+    <string name="bank_account_type">Account Type</string>
+    <string name="bank_account_savings">Savings</string>
+    <string name="bank_account_current">Current</string>
+    <string name="bank_account_other">Other</string>
+    <string name="bank_account_currency">Currency: LKR</string>
+    <string name="bank_account_set_default">Set as default account</string>
+    <string name="bank_account_save">Save Account</string>
+    <string name="bank_account_archive_action">Archive account</string>
+    <string name="bank_account_archived">This account is archived. Its balance and history are preserved.</string>
+    <string name="bank_account_recent_activity">Recent account activity</string>
+    <string name="bank_account_empty_activity">No cash withdrawals recorded for this account.</string>
+    <string name="bank_account_withdrawal">Withdrawal to Cash Wallet</string>
+    <string name="bank_account_history_hint">Showing up to 50 recent cash withdrawals. Other bank activity is not connected automatically.</string>
+    <string name="bank_account_archive_title">Archive this account?</string>
+    <string name="bank_account_archive_message">Your balance and history will be kept. This account will no longer be available for new top-ups or reminders.</string>
+    <string name="bank_account_archive_confirm">Archive</string>
+</resources>

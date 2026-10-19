@@ -46,7 +46,7 @@ class TransactionProofPersistenceTest {
                 }).build())
             helper.writableDatabase
             helper.close()
-            val db = Room.databaseBuilder(context, ClarityDatabase::class.java, name).addMigrations(TransactionProofMigration(), ProofRecoveryMigration).build()
+            val db = Room.databaseBuilder(context, ClarityDatabase::class.java, name).addMigrations(*IntegratedMigrations.all).build()
             try {
                 val transaction = db.transactionDao.getById("transaction")!!
                 assertEquals("Paint", transaction.note)
@@ -81,7 +81,7 @@ class TransactionProofPersistenceTest {
                 }).build())
             helper.writableDatabase
             helper.close()
-            val db = Room.databaseBuilder(context, ClarityDatabase::class.java, name).addMigrations(ProofRecoveryMigration).build()
+            val db = Room.databaseBuilder(context, ClarityDatabase::class.java, name).addMigrations(*IntegratedMigrations.all).build()
             try {
                 val row = db.transactionProofDao.get("owner", "transaction", "proof")!!
                 assertFalse(row.unavailable)

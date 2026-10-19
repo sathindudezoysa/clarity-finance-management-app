@@ -106,3 +106,18 @@ Conflict decisions:
 A backup branch, `backup/proofs-before-main-20261019-386a654`, preserves the pre-merge feature commit. The merge is staged for review, without an automatic merge commit or push. Local IDE files are retained and excluded by main's ignore rules.
 
 Merge validation: the debug APK and instrumentation APK built successfully; all 75 unit tests passed with zero failures, errors or skips. Lint completed with 0 errors and 24 warnings. Host SQLite checks preserved financial records and proofs across the existing migration chains. No device is connected, so instrumentation tests were compiled but not executed. Git has no unmerged paths or conflict markers in application sources. An existing extra blank line at EOF in main's imported Feature Implementation skill is the only staged whitespace warning; its instructions were left unchanged.
+
+
+## Combined wallet/proof merge with main at 7fe5430
+
+Main now contains the cash-wallet implementation from PR #37. PR #39 therefore keeps all wallet entities and the proof entity together, using `ClarityDatabase.SCHEMA_VERSION = 10`. The existing user's requirement to preserve financial records and valid migrations takes precedence over the development cache-reset policy. No local or remote database reset is performed.
+
+`IntegratedMigrations.all` is the shared production/test registration. It retains the published migration steps, adds the existing proof 6/7-to-8 and 8-to-9 steps, and uses the existing wallet completion logic for the 9-to-10 upgrade. Wallet 7 upgrades through proof 8/9 without dropping wallet tables. Proof-only 8/9 databases gain the missing wallet tables on reaching version 10. Existing cash links keep null bank-account associations; existing accounts, amounts, categories, descriptions, top-ups, authorization flags, proof verification, unavailable flags and pending uploads remain intact.
+
+The five conflicted files retain main's account/wallet persistence coverage and both feature DAOs. All Room migration tests use the same integrated registration. `WalletProofMigrationTest` exercises wallet 7, proof 8/9 and combined 10 fixtures, checks financial and proof outboxes, exact wallet balance, configured top-up authorization and reopening. Historical account/wallet versions remain covered by `IntegratedMigrationTest`.
+
+Automatic navigation merges were checked: all 12 destinations occur once, wallet cash edits retain their bank-selection rules, and transaction details retain the proof section. Main's IDE cleanup is kept in Git while the old local configuration files are restored locally under the existing ignore rules. The pre-merge feature head is available at `backup/proofs-before-wallet-main-20261019-e828148`.
+
+Host SQLite checks cover 16 schema fixtures against Room-generated version 10 SQL, preserving ledger records and proof metadata. Wallet SQL checks cover exact balances, bounded history, owner isolation and concurrent reads during transfers. These checks complement Android Room tests; no device is connected for instrumentation execution.
+
+Combined-merge validation: `BUILD SUCCESSFUL` for app APK, instrumentation APK, unit tests and lint. All 92 JVM tests passed (zero failures, errors or skips). Lint: 0 errors and 25 warnings. All 16 host migration fixtures and wallet SQL checks passed. Instrumentation tests compiled but could not run without a device; live Firebase upload/viewer checks remain unverified. The resolved merge is staged for review without an automatic commit or push.

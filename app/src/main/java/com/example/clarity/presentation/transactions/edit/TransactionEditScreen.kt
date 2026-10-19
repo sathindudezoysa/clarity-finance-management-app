@@ -138,17 +138,21 @@ private fun TransactionEditContent(
                     enabled = !state.isSaving, singleLine = true,
                     modifier = Modifier.fillMaxWidth().focusRequester(amountFocus)
                 )
-                state.accountsError?.let { Text(stringResource(it), color = MaterialTheme.colorScheme.error) }
-                if (state.isAccountsLoading) CircularProgressIndicator()
-                else if (state.accounts.isEmpty()) {
-                    Text(stringResource(R.string.transactions_account_required), color = MaterialTheme.colorScheme.error)
-                    OutlinedButton(onClick = onCreateAccount, enabled = !state.isSaving) {
-                        Text(stringResource(R.string.transactions_create_account))
+                if (state.transaction?.isCash == true) {
+                    Text(stringResource(R.string.wallet_title))
+                } else {
+                    state.accountsError?.let { Text(stringResource(it), color = MaterialTheme.colorScheme.error) }
+                    if (state.isAccountsLoading) CircularProgressIndicator()
+                    else if (state.accounts.isEmpty()) {
+                        Text(stringResource(R.string.transactions_account_required), color = MaterialTheme.colorScheme.error)
+                        OutlinedButton(onClick = onCreateAccount, enabled = !state.isSaving) {
+                            Text(stringResource(R.string.transactions_create_account))
+                        }
                     }
-                }
-                if (!state.isAccountsLoading) {
-                    TransactionAccountField(state.accounts, state.selectedAccountId, onAccountSelected,
-                        enabled = !state.isSaving, error = state.accountError, modifier = Modifier.fillMaxWidth())
+                    if (!state.isAccountsLoading) {
+                        TransactionAccountField(state.accounts, state.selectedAccountId, onAccountSelected,
+                            enabled = !state.isSaving, error = state.accountError, modifier = Modifier.fillMaxWidth())
+                    }
                 }
                 TransactionTagField(
                     value = category, tags = state.tags, onValueChange = { category = it },
