@@ -68,6 +68,16 @@ class TransactionTagsPersistenceTest {
     }
 
     @Test
+    fun remoteReconciliationKeepsTagsReusableAfterTransactionDeletion() = runBlocking {
+        val db = openDatabase()
+        val synced = row("remote-1", "Hobby", "Synced description").copy(pendingSync = false)
+        db.transactionDao.reconcileRemote("user-a", listOf(synced), setOf("remote-1"), authoritative = true)
+        assertEquals(synced, db.transactionDao.getById("remote-1"))
+        db.transactionDao.deleteById("remote-1", "user-a")
+        assertEquals(listOf("Hobby"), db.transactionTagDao.observeTags("user-a").first())
+    }
+
+    @Test
     fun versionTwoMigrationPreservesExistingDataAndBackfillsUserScopedTags() = runBlocking {
         val path = context.getDatabasePath(databaseName)
         path.parentFile!!.mkdirs()

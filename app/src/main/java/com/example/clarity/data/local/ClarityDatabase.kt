@@ -18,7 +18,7 @@ import com.example.clarity.data.local.entity.TransactionTagEntity
         com.example.clarity.data.local.entity.WalletCashLinkEntity::class,
         com.example.clarity.data.local.entity.WalletTopUpOptionEntity::class,
         com.example.clarity.data.local.entity.WalletAdjustmentEntity::class],
-    version = 7,
+    version = ClarityDatabase.SCHEMA_VERSION,
     exportSchema = false
 )
 abstract class ClarityDatabase : RoomDatabase() {
@@ -30,5 +30,6 @@ abstract class ClarityDatabase : RoomDatabase() {
 
     companion object {
         const val DATABASE_NAME = "clarity_db"
+        const val SCHEMA_VERSION = 7
     }
 }
