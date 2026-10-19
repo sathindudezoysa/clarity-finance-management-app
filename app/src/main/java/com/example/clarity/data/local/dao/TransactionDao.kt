@@ -26,6 +26,9 @@ abstract class TransactionDao {
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     abstract suspend fun insertTag(entity: TransactionTagEntity)
 
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    abstract suspend fun insertTags(entities: List<TransactionTagEntity>)
+
     // A single save creates both the transaction and its reusable tag, including offline.
     @Transaction
     open suspend fun upsertWithTag(entity: TransactionEntity) {
@@ -75,6 +78,12 @@ abstract class TransactionDao {
             }
         }
         upsertAll(replacements)
+        insertTags(
+            replacements.mapNotNull {
+                val tag = it.category.trim()
+                if (!it.isDeleted && tag.length in 1..100) TransactionTagEntity(it.userId, tag) else null
+            }.distinct()
+        )
         // An incomplete cache snapshot is never evidence of a remote deletion.
         if (authoritative) {
             (getIdsForUser(userId) - remoteIds).forEach { id ->

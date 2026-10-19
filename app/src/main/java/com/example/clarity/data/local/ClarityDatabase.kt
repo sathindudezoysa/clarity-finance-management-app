@@ -15,7 +15,7 @@ import com.example.clarity.data.local.entity.TransactionTagEntity
 
 @Database(
     entities = [SampleEntity::class, TransactionEntity::class, TransactionTagEntity::class, AccountEntity::class, TransactionProofEntity::class],
-    version = 9,
+    version = ClarityDatabase.SCHEMA_VERSION,
     exportSchema = false
 )
 abstract class ClarityDatabase : RoomDatabase() {
@@ -27,5 +27,6 @@ abstract class ClarityDatabase : RoomDatabase() {
 
     companion object {
         const val DATABASE_NAME = "clarity_db"
+        const val SCHEMA_VERSION = 9
     }
 }

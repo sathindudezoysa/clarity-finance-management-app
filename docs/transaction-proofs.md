@@ -87,3 +87,22 @@ Review validation: both APK builds, 69 unit tests, lint (zero errors), and relea
 The implementation follows Firebase's documented [file download API](https://firebase.google.com/docs/storage/android/download-files) and [metadata update API](https://firebase.google.com/docs/storage/android/file-metadata).
 
 Validation for this follow-up: `BUILD SUCCESSFUL` for the debug APK, instrumentation APK, unit tests and lint. All 75 JVM tests passed (zero failures, errors or skips). Lint reports zero errors and 24 warnings. Host SQLite migration checks passed for versions 1 through 6 and for existing version 8 proofs, using Room-generated schema SQL. No Android device is connected, so Room instrumentation, recovery UI and external-viewer tests were compiled but not executed. Live Firebase uploads and Storage rule runtime tests remain unverified; the previously documented npm certificate-trust blocker remains.
+
+
+## Merge with main at dcaccdd (PR #39)
+
+The merge retains main's transaction-tag reconciliation, Firestore cache configuration, shared schema-version constant, repository instructions and ignore rules. `ClarityDatabase.SCHEMA_VERSION` is 9, matching the existing proof schema; the entities and proof DAO are preserved. No new schema change or migration is introduced by this merge.
+
+Main's new pre-production schema policy removes migrations and enables destructive cache resets. For this merge, the user's existing instruction to preserve financial records and valid migrations takes precedence: the existing additive migration chain and migration persistence tests are retained. Production database construction does not enable destructive migration or downgrade fallback. In particular, pending proof uploads and offline verification records must not be erased on upgrade from main's version 6.
+
+Conflict decisions:
+
+- `AccountDaoTest.kt`: retain migration/persistence tests and their non-destructive builder.
+- `TransactionAccountMigrationTest.kt`: retain the file and its account-association/backfill tests instead of main's deletion.
+- `TransactionTagsPersistenceTest.kt`: retain persistence and migration coverage; add a reconciliation test for main's new tag-catalog rebuilding behavior.
+- `ClarityDatabase.kt`: retain all five entities and the proof DAO; use the shared schema constant required by main's Firebase configuration.
+- `DatabaseModule.kt`: retain existing registrations for versions 1 through 9 and the existing version 7 compatibility path. Restore the four migration source files removed in main so every registered migration resolves.
+
+A backup branch, `backup/proofs-before-main-20261019-386a654`, preserves the pre-merge feature commit. The merge is staged for review, without an automatic merge commit or push. Local IDE files are retained and excluded by main's ignore rules.
+
+Merge validation: the debug APK and instrumentation APK built successfully; all 75 unit tests passed with zero failures, errors or skips. Lint completed with 0 errors and 24 warnings. Host SQLite checks preserved financial records and proofs across the existing migration chains. No device is connected, so instrumentation tests were compiled but not executed. Git has no unmerged paths or conflict markers in application sources. An existing extra blank line at EOF in main's imported Feature Implementation skill is the only staged whitespace warning; its instructions were left unchanged.
