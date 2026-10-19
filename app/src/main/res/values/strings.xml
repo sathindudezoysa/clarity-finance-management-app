@@ -43,7 +43,7 @@
     <string name="transactions_load_error">Unable to sync transactions. Your saved local data is still available.</string>
     <string name="transactions_save_error">Unable to save this transaction. Please try again.</string>
     <string name="transactions_delete_error">Unable to delete this transaction. Please try again.</string>
-    <string name="transactions_amount_invalid">Enter a number with at most two decimal places that fits within the supported amount range.</string>
+    <string name="transactions_amount_invalid">Enter a number within the supported range and currency precision (JPY: 0, KWD: 3, others: 2 decimal places).</string>
     <string name="transactions_amount_positive">Amount must be greater than zero.</string>
     <string name="transactions_category_long">Category must be at most 100 characters.</string>
     <string name="transactions_note_long">Note must be at most 2000 characters.</string>

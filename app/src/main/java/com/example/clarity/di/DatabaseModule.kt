@@ -23,11 +23,13 @@ object DatabaseModule {
     fun provideDatabase(
         @ApplicationContext context: Context
     ): ClarityDatabase {
+        // This permits both upgrades and downgrades. The downgrade-only builder method
+        // would re-enable requireMigration and disable destructive upgrades in Room 2.6.
         return Room.databaseBuilder(
             context,
             ClarityDatabase::class.java,
             ClarityDatabase.DATABASE_NAME
-        ).addMigrations(*com.example.clarity.data.local.IntegratedMigrations.all).build()
+        ).fallbackToDestructiveMigration().build()
     }
 
     @Provides
@@ -47,4 +49,7 @@ object DatabaseModule {
     @Provides
     @Singleton
     fun provideAccountDao(database: ClarityDatabase): AccountDao = database.accountDao
+
+    @Provides
+    fun provideCurrencyDao(database: ClarityDatabase): com.example.clarity.data.local.dao.CurrencyDao = database.currencyDao
 }

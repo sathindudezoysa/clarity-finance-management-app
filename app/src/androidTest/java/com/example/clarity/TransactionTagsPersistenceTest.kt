@@ -32,7 +32,7 @@ class TransactionTagsPersistenceTest {
 
     private fun openDatabase(): ClarityDatabase = Room.databaseBuilder(
         context, ClarityDatabase::class.java, databaseName
-    ).addMigrations(*com.example.clarity.data.local.IntegratedMigrations.all).build().also { database = it }
+    ).fallbackToDestructiveMigration().build().also { database = it }
 
     private fun row(id: String, tag: String, description: String = "", user: String = "user-a") =
         TransactionEntity(id, user, "EXPENSE", 1250, tag, description, 100, 1, 10, pendingSync = true)
@@ -78,7 +78,7 @@ class TransactionTagsPersistenceTest {
     }
 
     @Test
-    fun versionTwoMigrationPreservesExistingDataAndBackfillsUserScopedTags() = runBlocking {
+    fun versionTwoSchemaRecreationDiscardsOldRowsAndCreatesAnEmptyTagCatalog() = runBlocking {
         val path = context.getDatabasePath(databaseName)
         path.parentFile!!.mkdirs()
         SQLiteDatabase.openOrCreateDatabase(path, null).use { legacy ->
@@ -98,13 +98,11 @@ class TransactionTagsPersistenceTest {
             legacy.version = 2
         }
         val db = openDatabase()
-        assertEquals(row("legacy", "Hobby", "Original description"), db.transactionDao.getById("legacy"))
-        assertEquals(listOf("Hobby"), db.transactionTagDao.observeTags("user-a").first())
-        assertEquals(listOf("Private"), db.transactionTagDao.observeTags("user-b").first())
+        assertNull(db.transactionDao.getById("legacy"))
+        assertTrue(db.transactionTagDao.observeTags("user-a").first().isEmpty())
+        assertTrue(db.transactionTagDao.observeTags("user-b").first().isEmpty())
         db.openHelper.readableDatabase.query("SELECT title, description FROM sample_table WHERE id = 'sample'").use {
-            assertTrue(it.moveToFirst())
-            assertEquals("Existing sample", it.getString(0))
-            assertEquals("Keep this", it.getString(1))
+            assertFalse(it.moveToFirst())
         }
     }
 }

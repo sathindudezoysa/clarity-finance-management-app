@@ -61,10 +61,17 @@ private fun TransactionListContent(
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             item {
+                Column {
+                if (state.pendingCount > 0) Text(stringResource(R.string.currency_incomplete_totals, state.pendingCount))
+                state.totalsByCurrency.forEach { (currency, totals) ->
+                Text(currency)
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Total(Modifier.weight(1f), R.string.transactions_income, MoneyUtils.formatMinor(state.incomeMinor))
-                    Total(Modifier.weight(1f), R.string.transactions_expense, MoneyUtils.formatMinor(state.expenseMinor))
-                    Total(Modifier.weight(1f), R.string.transactions_net, MoneyUtils.formatMinor(state.netMinor))
+                    Total(Modifier.weight(1f), R.string.transactions_income, MoneyUtils.formatMinor(totals.income, currency))
+                    Total(Modifier.weight(1f), R.string.transactions_expense, MoneyUtils.formatMinor(totals.expense, currency))
+                    Total(Modifier.weight(1f), R.string.transactions_net, MoneyUtils.formatMinor(totals.net, currency))
+                }
+                }
+                if (state.transactions.any { it.conversion?.provider == "ExchangeRate-API" }) com.example.clarity.presentation.transactions.RateAttribution()
                 }
             }
             state.error?.let { error -> item { Text(stringResource(error), color = MaterialTheme.colorScheme.error) } }
@@ -84,11 +91,13 @@ private fun TransactionListContent(
                             stringResource(
                                 if (transaction.type == TransactionType.INCOME) R.string.transactions_income_amount
                                 else R.string.transactions_expense_amount,
-                                MoneyUtils.formatMinor(transaction.amountMinor)
+                                transaction.currency + " " + MoneyUtils.formatMinor(transaction.amountMinor, transaction.currency)
                             ),
                             style = MaterialTheme.typography.titleLarge,
                             color = MaterialTheme.colorScheme.primary
                         )
+                        com.example.clarity.presentation.transactions.ConversionInfo(transaction.targetCurrency,
+                            transaction.conversion, transaction.pendingConversion)
                         if (transaction.note.isNotBlank()) Text(
                             transaction.note, maxLines = 2, overflow = TextOverflow.Ellipsis,
                             style = MaterialTheme.typography.bodyMedium

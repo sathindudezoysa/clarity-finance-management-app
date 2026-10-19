@@ -32,3 +32,11 @@ app/google-services.json
 # Local MCP Secrets
 .agents/mcp_config.json
 .agents/plugins/stitch/mcp_config.json
+tools/firestore-rules/node_modules/
+*-build.log
+firebase-debug.log
+firestore-debug.log
+rules-test.log
+.baseline-check/
+baseline-check.zip
+baseline-wallet-test.log

@@ -54,12 +54,30 @@ abstract class TransactionDao : WalletBalanceReader {
     @Query("SELECT * FROM transactions WHERE userId = :userId AND pendingSync = 1 ORDER BY id")
     abstract fun observePendingForUser(userId: String): Flow<List<TransactionEntity>>
 
+    @Query("SELECT * FROM transactions WHERE userId = :uid AND pendingConversion = 1 AND isDeleted = 0")
+    abstract suspend fun pendingConversions(uid: String): List<TransactionEntity>
+
+    @Transaction
+    open suspend fun resolveConversion(expected: TransactionEntity, snapshot: com.example.clarity.domain.model.ConversionSnapshot, now: Long): Boolean {
+        val current = getById(expected.id) ?: return false
+        if (current.userId != expected.userId || current.updatedAt != expected.updatedAt ||
+            current.amountMinor != expected.amountMinor || current.currency != expected.currency ||
+            current.targetCurrency != expected.targetCurrency || !current.pendingConversion || current.isDeleted) return false
+        require(current.updatedAt < Long.MAX_VALUE)
+        persistLocal(current.copy(conversion = snapshot, pendingConversion = false, pendingSync = true,
+            updatedAt = maxOf(now, snapshot.fetchedAt, current.updatedAt + 1)))
+        return true
+    }
+
     @Query("SELECT EXISTS(SELECT 1 FROM wallet_cash_links WHERE userId = :uid AND transactionId = :id)")
     abstract suspend fun isWalletCash(uid: String, id: String): Boolean
 
     /** Keep local transaction persistence and dependent wallet integrity in one storage transaction. */
     @Transaction
     open suspend fun persistLocal(entity: TransactionEntity) {
+        require(!isWalletCash(entity.userId, entity.id) || (entity.currency == "LKR" && entity.accountId == null)) {
+            "Cash wallet entries must remain LKR"
+        }
         upsertWithTag(entity)
         if (isWalletCash(entity.userId, entity.id)) {
             com.example.clarity.data.local.validateWalletBalance(balance(entity.userId).value())
@@ -78,6 +96,7 @@ abstract class TransactionDao : WalletBalanceReader {
             val local = getById(incoming.id)
             when {
                 incoming.userId != userId -> null
+                isWalletCash(userId, incoming.id) && (incoming.currency != "LKR" || incoming.accountId != null) -> null
                 local != null && local.userId != userId -> null
                 local?.isDeleted == true -> null
                 local?.pendingSync == true -> {

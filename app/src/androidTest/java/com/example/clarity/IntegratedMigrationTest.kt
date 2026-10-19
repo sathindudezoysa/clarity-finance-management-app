@@ -14,7 +14,7 @@ import org.junit.runner.RunWith
 
 @RunWith(AndroidJUnit4::class)
 class IntegratedMigrationTest {
-    @Test fun bothPublishedSchemaFamiliesUpgradeWithoutLosingFinancialRecords() = runBlocking {
+    @Test fun developmentSchemaChangeRecreatesBothOldSchemaFamilies() = runBlocking {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         for (wallet in listOf(false, true)) for (version in 3..6) {
             val name = "integration-${wallet}-${version}"
@@ -52,23 +52,18 @@ class IntegratedMigrationTest {
                 helper.writableDatabase
                 helper.close()
                 val db = Room.databaseBuilder(context, ClarityDatabase::class.java, name)
-                    .addMigrations(*IntegratedMigrations.all).build()
+                    .fallbackToDestructiveMigration().build()
                 try {
-                        // Opening through Room also validates every table, column and index.
-                        val transaction = checkNotNull(db.transactionDao.getById("cash"))
-                        assertEquals("Hobby", transaction.category)
-                        assertEquals("Keep description", transaction.note)
-                        assertEquals(5000L, transaction.amountMinor)
-                        assertTrue(transaction.pendingSync)
-                        assertFalse(transaction.isDeleted)
-                        assertEquals(if (!wallet && version >= 4) "bank" else null, transaction.accountId)
-                        assertEquals(if (!wallet && version >= 4) 1 else 0, db.accountDao.getAllForUser("owner").size)
+                        // Development policy explicitly discards unsynced data on schema change.
+                        assertNull(db.transactionDao.getById("cash"))
+                        assertTrue(db.accountDao.getAllForUser("owner").isEmpty())
+                        assertNull(db.currencyDao.preference("owner"))
                         db.openHelper.readableDatabase.query("SELECT COUNT(*) FROM wallet_top_ups").use {
                             assertTrue(it.moveToFirst())
-                            assertEquals(if (wallet && version >= 4) 1 else 0, it.getInt(0))
+                            assertEquals(0, it.getInt(0))
                         }
                         db.openHelper.readableDatabase.query("SELECT automaticExecution FROM wallet_top_up_options").use {
-                            if (wallet && version >= 4) { assertTrue(it.moveToFirst()); assertEquals(0, it.getInt(0)) }
+                            assertFalse(it.moveToFirst())
                         }
                 } finally { db.close() }
             } finally { context.deleteDatabase(name) }

@@ -49,6 +49,9 @@ class TransactionRepositoryImpl @Inject internal constructor(
     private val ioDispatcher: CoroutineDispatcher,
     private val accountUploader: AccountUploader,
     @ApplicationScope applicationScope: CoroutineScope,
+    private val rates: com.example.clarity.domain.repository.ExchangeRateRepository,
+    private val preferences: com.example.clarity.domain.repository.CurrencyPreferenceRepository,
+    private val currencyWork: com.example.clarity.data.sync.CurrencyWorkScheduler,
     private val clock: java.time.Clock = java.time.Clock.systemUTC()
 ) : TransactionRepository {
     private val mutationMutex = Mutex()
@@ -78,6 +81,7 @@ class TransactionRepositoryImpl @Inject internal constructor(
                     syncState.value = SyncState(user?.uid)
                 }
                 if (user != null) coroutineScope {
+                    currencyWork.schedule(user.uid)
                     val outbox = launch {
                         dao.observePendingForUser(user.uid).distinctUntilChanged().conflate()
                             .retryWhen { error, _ ->
@@ -85,7 +89,8 @@ class TransactionRepositoryImpl @Inject internal constructor(
                                 Log.w(TAG, "Outbox observation failed; retrying", error)
                                 delay(5_000)
                                 true
-                            }.collect {
+                            }.collect { pending ->
+                                if (pending.isNotEmpty()) currencyWork.schedule(user.uid)
                                 try {
                                     mutationMutex.withLock { retryPending(user.uid) }
                                 } catch (error: Exception) {
@@ -220,7 +225,9 @@ class TransactionRepositoryImpl @Inject internal constructor(
         require(t.amountMinor > 0) { "Amount must be greater than zero" }
         require(dao.getById(t.id) == null) { "Transaction already exists" }
         val now = clock.millis()
-        val entity = t.copy(userId = uid, createdAt = now, updatedAt = now).toEntity()
+        val money = prepareMoney(t.copy(targetCurrency = preferences.current()), null)
+        val entity = money.copy(userId = uid, createdAt = now, updatedAt = maxOf(now, money.conversion?.fetchedAt ?: 0))
+            .also { com.example.clarity.domain.model.CurrencyConversion.validate(it) }.toEntity()
             .copy(pendingSync = true)
         entity
     }
@@ -232,10 +239,12 @@ class TransactionRepositoryImpl @Inject internal constructor(
         require(t.amountMinor > 0) { "Amount must be greater than zero" }
         require(existing.updatedAt < Long.MAX_VALUE) { "Transaction timestamp is out of range" }
         require(!dao.isWalletCash(uid, t.id) || t.accountId == null) { "Cash transactions cannot be assigned to a bank account" }
-        val entity = t.copy(
+        require(!dao.isWalletCash(uid, t.id) || t.currency == "LKR") { "Cash wallet entries must remain LKR" }
+        val money = prepareMoney(t.copy(targetCurrency = existing.targetCurrency), existing.toDomain())
+        val entity = money.copy(
             userId = uid, createdAt = existing.createdAt,
-            updatedAt = maxOf(clock.millis(), existing.updatedAt + 1)
-        ).toEntity().copy(pendingSync = true)
+            updatedAt = maxOf(clock.millis(), existing.updatedAt + 1, money.conversion?.fetchedAt ?: 0)
+        ).also { com.example.clarity.domain.model.CurrencyConversion.validate(it) }.toEntity().copy(pendingSync = true)
         entity
     }
 
@@ -244,6 +253,19 @@ class TransactionRepositoryImpl @Inject internal constructor(
         require(existing != null && existing.userId == uid && !existing.isDeleted) { "Transaction not found" }
         val deleted = existing.copy(isDeleted = true, pendingSync = true)
         deleted
+    }
+
+    override suspend fun retryConversion(id: String): Result<Unit> = withContext(ioDispatcher) {
+        try {
+            val uid = authRepository.currentUser.first()?.uid ?: throw TransactionException(TransactionError.SIGN_IN_REQUIRED)
+            val row = dao.getById(id)
+            require(row != null && row.userId == uid && !row.isDeleted) { "Transaction not found" }
+            if (row.pendingConversion) currencyWork.schedule(uid, replace = true)
+            Result.success(Unit)
+        } catch (error: Exception) {
+            if (error is CancellationException) throw error
+            Result.failure(error)
+        }
     }
 
     private suspend fun localWrite(block: suspend (String) -> TransactionEntity): Result<Unit> = withContext(ioDispatcher) {
@@ -256,6 +278,7 @@ class TransactionRepositoryImpl @Inject internal constructor(
                 require(authRepository.currentUser.first()?.uid == uid) { "Your session changed. Please try again." }
                 dao.persistLocal(entity)
                 enqueueRemote(entity)
+                currencyWork.schedule(uid)
             }
             Result.success(Unit)
         } catch (error: Exception) {
@@ -351,6 +374,46 @@ class TransactionRepositoryImpl @Inject internal constructor(
     }
 
     internal fun stopSync(): Job = checkNotNull(syncScope.coroutineContext[Job]).also { it.cancel() }
+
+    // Local save never waits for exchange-rate network access.
+    private suspend fun prepareMoney(t: Transaction, old: Transaction?): Transaction {
+        com.example.clarity.domain.model.Currencies.digits(t.currency)
+        com.example.clarity.domain.model.Currencies.digits(t.targetCurrency)
+        val snapshot = when {
+            old?.conversion != null && old.amountMinor == t.amountMinor && old.currency == t.currency -> old.conversion
+            t.currency == t.targetCurrency -> com.example.clarity.domain.model.ConversionSnapshot.identity(t.amountMinor)
+            else -> rates.cached(t.currency, t.targetCurrency)?.let {
+                com.example.clarity.domain.model.CurrencyConversion.snapshot(t.amountMinor, it)
+            }
+        }
+        return t.copy(conversion = snapshot, pendingConversion = snapshot == null)
+    }
+
+    suspend fun backgroundSync(uid: String): Boolean {
+        if (authRepository.currentUser.first()?.uid != uid) return true
+        // Fetching runs outside mutationMutex. Every late result is checked again in Room.
+        for (request in dao.pendingConversions(uid)) {
+            try {
+                val quote = rates.latest(request.currency, request.targetCurrency)
+                val snapshot = com.example.clarity.domain.model.CurrencyConversion.snapshot(request.amountMinor, quote)
+                mutationMutex.withLock {
+                    if (activeUid == uid && authRepository.currentUser.first()?.uid == uid) {
+                        dao.resolveConversion(request, snapshot, clock.millis())
+                    }
+                }
+            } catch (error: Exception) {
+                if (error is CancellationException) throw error
+                Log.w(TAG, "Conversion remains pending", error)
+            }
+        }
+        if (authRepository.currentUser.first()?.uid != uid) return true
+        mutationMutex.withLock { retryPending(uid) }
+        val synced = withTimeoutOrNull(20_000) {
+            dao.observePendingForUser(uid).first { it.isEmpty() }
+            true
+        } ?: false
+        return synced && dao.pendingConversions(uid).isEmpty()
+    }
 
     private companion object {
         const val TAG = "TransactionRepository"

@@ -34,17 +34,20 @@ fun TransactionEditScreen(
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     LaunchedEffect(state.isSuccess) { if (state.isSuccess) onBack() }
-    TransactionEditContent(state, onBack, viewModel::save, viewModel::onAccountSelected, onCreateAccount)
+    TransactionEditContent(state, onBack, viewModel::save, viewModel::onAccountSelected, onCreateAccount,
+        viewModel::onCurrencySelected, viewModel::preview)
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun TransactionEditContent(
+internal fun TransactionEditContent(
     state: TransactionEditState,
     onBack: () -> Unit,
     onSave: (TransactionType, String, String, String, Long) -> Unit,
     onAccountSelected: (String) -> Unit,
-    onCreateAccount: () -> Unit
+    onCreateAccount: () -> Unit,
+    onCurrencySelected: (String) -> Unit = {},
+    onPreview: (String) -> Unit = {}
 ) {
     var typeName by rememberSaveable { mutableStateOf(TransactionType.EXPENSE.name) }
     var amount by rememberSaveable { mutableStateOf("") }
@@ -61,7 +64,7 @@ private fun TransactionEditContent(
         state.transaction?.let { transaction ->
             if (loadedId != transaction.id || loadedOwner != transaction.userId) {
                 typeName = transaction.type.name
-                amount = MoneyUtils.formatMinor(transaction.amountMinor)
+                amount = MoneyUtils.formatMinor(transaction.amountMinor, transaction.currency)
                 category = transaction.category
                 note = transaction.note
                 dateEpochMillis = transaction.dateEpochMillis
@@ -70,6 +73,8 @@ private fun TransactionEditContent(
             }
         }
     }
+
+    LaunchedEffect(amount, state.currency, state.targetCurrency, state.transaction?.conversion) { onPreview(amount) }
 
     if (dateDialogVisible) {
         // DatePicker uses UTC-midnight dates. Convert calendar days, not raw UTC instants,
@@ -138,6 +143,14 @@ private fun TransactionEditContent(
                     enabled = !state.isSaving, singleLine = true,
                     modifier = Modifier.fillMaxWidth().focusRequester(amountFocus)
                 )
+                com.example.clarity.presentation.transactions.CurrencyPicker(state.currency, onCurrencySelected,
+                    enabled = !state.isSaving && state.transaction?.isCash != true)
+                if (state.previewLoading) CircularProgressIndicator()
+                com.example.clarity.presentation.transactions.ConversionInfo(state.targetCurrency, state.preview,
+                    pending = false)
+                if (state.previewError) Text(stringResource(R.string.currency_preview_pending))
+                if (state.previewError) TextButton(onClick = { onPreview(amount) }) { Text(stringResource(R.string.currency_retry)) }
+                Text(stringResource(R.string.currency_daily))
                 if (state.transaction?.isCash == true) {
                     Text(stringResource(R.string.wallet_title))
                 } else {

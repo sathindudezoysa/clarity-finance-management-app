@@ -37,6 +37,11 @@ fun SettingsScreen(
     }) { padding ->
         Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.TopCenter) {
             Column(Modifier.widthIn(max = 600.dp).fillMaxWidth().padding(16.dp)) {
+                Text(stringResource(R.string.currency_preference))
+                com.example.clarity.presentation.transactions.CurrencyPicker(state.currency, viewModel::setCurrency, !state.saving)
+                Text(stringResource(R.string.currency_preference_help))
+                if (state.pendingSync) Text(stringResource(R.string.currency_preference_pending))
+                if (state.error) Text(stringResource(R.string.currency_preference_error), color = MaterialTheme.colorScheme.error)
                 OutlinedButton(onClick = viewModel::onBankAccounts, modifier = Modifier.fillMaxWidth()) {
                     Text(stringResource(R.string.accounts_title))
                 }

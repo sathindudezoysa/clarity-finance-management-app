@@ -24,6 +24,7 @@ class UpdateTransactionUseCase @Inject constructor(
             return Result.failure(IllegalArgumentException("Category or note is too long"))
         }
         if (repository.isCashTransaction(normalized.id)) {
+            if (normalized.currency != "LKR") return Result.failure(IllegalArgumentException("Cash wallet entries must remain LKR"))
             return repository.updateTransaction(normalized.copy(accountId = null))
         }
         val accountId = normalized.accountId

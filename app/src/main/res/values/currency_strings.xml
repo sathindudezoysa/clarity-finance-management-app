@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="currency_retry_failed">Could not queue conversion. Try again.</string>
+    <string name="currency_preview_pending">Conversion unavailable. You can save the original amount now; conversion will remain pending until a valid rate is available.</string>
+    <string name="currency_select">Currency: %1$s</string>
+    <string name="currency_preference">Primary reporting currency</string>
+    <string name="currency_preference_help">New entries use this reporting currency. Existing entries keep their recorded currency. The initial default is LKR; cash wallet entries remain LKR.</string>
+    <string name="currency_preference_pending">Saved on this device. Cloud sync pending.</string>
+    <string name="currency_preference_error">Could not save. Select the currency to retry.</string>
+    <string name="currency_pending">Conversion to %1$s pending. The original entry is saved; conversion resumes with connectivity. Unresolved entries are excluded from totals.</string>
+    <string name="currency_equivalent">Reporting equivalent: %1$s %2$s</string>
+    <string name="currency_rate">Source-to-target rate %1$s · Provider time %2$s · Fetched %3$s</string>
+    <string name="currency_cached_rate">Cached source-to-target rate %1$s · Provider time %2$s · Fetched %3$s</string>
+    <string name="currency_attribution">Rates By Exchange Rate API</string>
+    <string name="currency_retry">Retry conversion</string>
+    <string name="currency_daily">Daily reference rates. A missing rate does not prevent saving offline. Amounts that overflow or round to zero require editing the original amount.</string>
+    <string name="currency_incomplete_totals">Incomplete totals: %1$d pending conversion(s) excluded.</string>
+</resources>

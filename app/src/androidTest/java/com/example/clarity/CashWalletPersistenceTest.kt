@@ -46,10 +46,35 @@ class CashWalletPersistenceTest {
     private val auth = TestAuth()
 
     private fun open(): ClarityDatabase = Room.databaseBuilder(context, ClarityDatabase::class.java, name)
-        .addMigrations(*com.example.clarity.data.local.IntegratedMigrations.all).build().also { database = it }
+        .fallbackToDestructiveMigration().build().also { database = it }
     private val clock = Clock.fixed(Instant.ofEpochMilli(123456789), ZoneOffset.UTC)
-    private fun repository(db: ClarityDatabase) = CashWalletRepositoryImpl(db, auth, Dispatchers.IO, clock)
+    private fun repository(db: ClarityDatabase) = CashWalletRepositoryImpl(db, auth, Dispatchers.IO, clock,
+        TestCurrencies.preferences, TestCurrencies.rates)
     @After fun cleanUp() { database?.close(); context.deleteDatabase(name) }
+
+    @Test fun primaryReportingCurrencyDoesNotChangeTheLkrCashLedger() = runBlocking {
+        context.deleteDatabase(name)
+        val db = open()
+        val preferences = object : com.example.clarity.domain.repository.CurrencyPreferenceRepository {
+            override fun observe() = kotlinx.coroutines.flow.flowOf(com.example.clarity.domain.repository.CurrencyPreference("USD"))
+            override suspend fun set(currency: String) = Result.success(Unit)
+            override suspend fun current() = "USD"
+        }
+        val rates = object : com.example.clarity.domain.repository.ExchangeRateRepository {
+            override suspend fun cached(source: String, target: String) = com.example.clarity.domain.model.ExchangeRate(
+                source, target, "0.01", "ExchangeRate-API", clock.millis() - 1, clock.millis(), clock.millis() + 1000, true)
+            override suspend fun latest(source: String, target: String): com.example.clarity.domain.model.ExchangeRate = error("No network")
+        }
+        val wallet = CashWalletRepositoryImpl(db, auth, Dispatchers.IO, clock, preferences, rates)
+        wallet.recordCash(1000, TransactionType.INCOME, "Cash", "").getOrThrow()
+        val entry = db.transactionDao.observeAll("a").first().single()
+        assertEquals("LKR", entry.currency)
+        assertEquals("USD", entry.targetCurrency)
+        assertEquals(10L, entry.conversion!!.amountMinor)
+        assertEquals(BigInteger.valueOf(1000), wallet.observeWallet().first().balanceMinor)
+        assertTrue(runCatching { db.transactionDao.persistLocal(entry.copy(currency = "USD")) }.isFailure)
+        assertEquals("LKR", db.transactionDao.getById(entry.id)!!.currency)
+    }
 
     @Test fun topUpExpenseAndOptionSurviveReopeningAndRemainUserScoped() = runBlocking {
         context.deleteDatabase(name)
@@ -173,7 +198,7 @@ class CashWalletPersistenceTest {
         assertTrue(repository(open()).observeWallet().first().topUpOption!!.automaticExecution)
     }
 
-    @Test fun versionFiveMigrationPreservesReminderWithoutAuthorizingAutomaticWithdrawals() = runBlocking {
+    @Test fun versionFiveRecreationStartsWithoutReminderOrWithdrawalAuthorization() = runBlocking {
         context.deleteDatabase(name)
         val helper = androidx.sqlite.db.framework.FrameworkSQLiteOpenHelperFactory().create(
             androidx.sqlite.db.SupportSQLiteOpenHelper.Configuration.builder(context).name(name)
@@ -194,10 +219,8 @@ class CashWalletPersistenceTest {
         helper.writableDatabase
         helper.close()
         val wallet = repository(open()).observeWallet().first()
-        assertTrue(wallet.topUpOption!!.enabled)
-        assertFalse(wallet.topUpOption!!.automaticExecution)
-        assertEquals("Keep bank", wallet.accounts.single().name)
-        assertEquals(BigInteger.valueOf(50000), wallet.accounts.single().balanceMinor)
+        assertNull(wallet.topUpOption)
+        assertTrue(wallet.accounts.isEmpty())
         assertEquals(BigInteger.ZERO, wallet.balanceMinor)
         assertTrue(wallet.topUpHistory.isEmpty())
     }
@@ -227,7 +250,7 @@ class CashWalletPersistenceTest {
             val transactions = TransactionRepositoryImpl(db.transactionDao, FirestoreDataSource(firestore), auth,
                 Dispatchers.Unconfined, object : com.example.clarity.data.sync.AccountUploader {
                     override suspend fun uploadPending(uid: String, afterAccounts: suspend () -> Unit): Boolean { afterAccounts(); return true }
-                }, this, clock)
+                }, this, TestCurrencies.rates, TestCurrencies.preferences, TestCurrencies.scheduler(), clock)
             val rows = db.transactionDao.observeAll("a").first()
             val income = rows.single { it.type == "INCOME" }.toDomain()
             val expense = rows.single { it.type == "EXPENSE" }.toDomain()
@@ -349,7 +372,7 @@ class CashWalletPersistenceTest {
         assertEquals(BigInteger.valueOf(Long.MAX_VALUE) + BigInteger.valueOf(61725000), db.cashWalletDao.balance("a").value())
     }
 
-    @Test fun migrationPreservesVersionThreeTransactionsAndTags() = runBlocking {
+    @Test fun versionThreeRecreationDiscardsOldTransactionsAndTags() = runBlocking {
         context.deleteDatabase(name)
         val path = context.getDatabasePath(name)
         path.parentFile!!.mkdirs()
@@ -363,12 +386,12 @@ class CashWalletPersistenceTest {
             legacy.version = 3
         }
         val db = open()
-        assertEquals("Keep", db.transactionDao.getById("old")!!.note)
-        assertEquals(listOf("Food"), db.transactionTagDao.observeTags("a").first())
+        assertNull(db.transactionDao.getById("old"))
+        assertTrue(db.transactionTagDao.observeTags("a").first().isEmpty())
         assertTrue(repository(db).observeWallet().first().activity.isEmpty())
     }
 
-    @Test fun versionOneMigrationKeepsExistingSamples() = runBlocking {
+    @Test fun versionOneRecreationStartsWithAnEmptyWallet() = runBlocking {
         context.deleteDatabase(name)
         val path = context.getDatabasePath(name)
         path.parentFile!!.mkdirs()
@@ -379,13 +402,13 @@ class CashWalletPersistenceTest {
         }
         val db = open()
         db.openHelper.readableDatabase.query("SELECT title FROM sample_table").use { cursor ->
-            assertTrue(cursor.moveToFirst()); assertEquals("Keep this", cursor.getString(0))
+            assertFalse(cursor.moveToFirst())
         }
         assertTrue(db.transactionDao.observeAll("a").first().isEmpty())
         assertEquals(BigInteger.ZERO, repository(db).observeWallet().first().balanceMinor)
     }
 
-    @Test fun versionFourMigrationKeepsAccountsTopUpsOptionsAndAllBalances() = runBlocking {
+    @Test fun versionFourRecreationDiscardsOldWalletRowsAndCreatesQueryIndexes() = runBlocking {
         context.deleteDatabase(name)
         val path = context.getDatabasePath(name)
         path.parentFile!!.mkdirs()
@@ -407,17 +430,10 @@ class CashWalletPersistenceTest {
             legacy.version = 4
         }
         val db = open(); val wallet = repository(db).observeWallet().first()
-        val bank = wallet.accounts.single()
-        assertEquals("legacy-bank", bank.id)
-        assertEquals("My ambiguous bank nickname", bank.name)
-        assertEquals("other", bank.bankId)
-        assertTrue(bank.needsBankReview)
-        assertTrue(bank.isActive)
-        assertEquals(BigInteger.valueOf(4500000), bank.balanceMinor)
-        assertEquals(BigInteger.valueOf(700000), wallet.balanceMinor)
-        assertEquals(1, wallet.topUpHistory.size)
-        assertTrue(wallet.topUpOption!!.enabled)
-        assertFalse(wallet.topUpOption!!.automaticExecution)
+        assertTrue(wallet.accounts.isEmpty())
+        assertEquals(BigInteger.ZERO, wallet.balanceMinor)
+        assertTrue(wallet.topUpHistory.isEmpty())
+        assertNull(wallet.topUpOption)
         db.openHelper.readableDatabase.query("EXPLAIN QUERY PLAN SELECT amountMinor FROM wallet_top_ups WHERE userId = 'a' AND bankAccountId = 'legacy-bank'").use { cursor ->
             assertTrue(cursor.moveToFirst())
             assertTrue(cursor.getString(3).contains("index_wallet_top_ups_userId_bankAccountId_dateEpochMillis"))

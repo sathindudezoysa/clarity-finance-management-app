@@ -67,7 +67,7 @@ class TransactionAccountViewModelTest {
         TransactionEditViewModel(handle, GetTransactionUseCase(transactions), AddTransactionUseCase(transactions, accounts),
             UpdateTransactionUseCase(transactions, accounts), GetTransactionTagsUseCase(object : TransactionTagRepository {
                 override fun observeTags() = flowOf(emptyList<String>())
-            }), getAccounts)
+            }), getAccounts, com.example.clarity.domain.usecase.currency.ObserveCurrencyPreferenceUseCase(TestCurrencies.preferences), PreviewConversionUseCase(TestCurrencies.rates))
     }
 
     private suspend fun ready(editor: TransactionEditViewModel) = withTimeout(10_000) {
@@ -193,7 +193,7 @@ class TransactionAccountViewModelTest {
             fail("Typed retrieval must not be used for unchecked arguments: $id")
         } catch (_: ClassCastException) { }
         val detail = model(TransactionDetailViewModel::class.java) {
-            TransactionDetailViewModel(handle, GetTransactionUseCase(transactions), DeleteTransactionUseCase(transactions), getAccounts)
+            TransactionDetailViewModel(handle, GetTransactionUseCase(transactions), DeleteTransactionUseCase(transactions), getAccounts, RetryConversionUseCase(transactions))
         }
         assertEquals(R.string.transactions_not_found, detail.uiState.value.error)
         assertTrue(transactions.observedIds.isEmpty())
@@ -204,7 +204,7 @@ class TransactionAccountViewModelTest {
         for (invalid in listOf(null, "", " \t ", 42, true, listOf("id"), "a/b", "a".repeat(129))) {
             val detail = model(TransactionDetailViewModel::class.java) {
                 TransactionDetailViewModel(SavedStateHandle(mapOf("id" to invalid)), GetTransactionUseCase(transactions),
-                    DeleteTransactionUseCase(transactions), getAccounts)
+                    DeleteTransactionUseCase(transactions), getAccounts, RetryConversionUseCase(transactions))
             }
             assertFalse(detail.uiState.value.isLoading)
             assertEquals(R.string.transactions_not_found, detail.uiState.value.error)
@@ -221,7 +221,7 @@ class TransactionAccountViewModelTest {
     fun invalidDetailScreenKeepsTheBackActionAvailable() = runBlocking {
         val detail = model(TransactionDetailViewModel::class.java) {
             TransactionDetailViewModel(SavedStateHandle(), GetTransactionUseCase(transactions),
-                DeleteTransactionUseCase(transactions), getAccounts)
+                DeleteTransactionUseCase(transactions), getAccounts, RetryConversionUseCase(transactions))
         }
         val back = CompletableDeferred<Unit>()
         ActivityScenario.launch(ComponentActivity::class.java).use { scenario ->
@@ -245,7 +245,7 @@ class TransactionAccountViewModelTest {
         transactions.rows.value = mapOf(transaction.id to transaction)
         val detail = model(TransactionDetailViewModel::class.java) {
             TransactionDetailViewModel(SavedStateHandle(mapOf("id" to transaction.id)), GetTransactionUseCase(transactions),
-                DeleteTransactionUseCase(transactions), getAccounts)
+                DeleteTransactionUseCase(transactions), getAccounts, RetryConversionUseCase(transactions))
         }
         withTimeout(10_000) { detail.uiState.first { it.transaction == transaction && !it.isLoading } }
         instrumentation.runOnMainSync { detail.showDeleteDialog() }
@@ -263,7 +263,7 @@ class TransactionAccountViewModelTest {
         transactions.rows.value = mapOf(transaction.id to transaction)
         val detail = model(TransactionDetailViewModel::class.java) {
             TransactionDetailViewModel(SavedStateHandle(mapOf("id" to transaction.id)), GetTransactionUseCase(transactions),
-                DeleteTransactionUseCase(transactions), getAccounts)
+                DeleteTransactionUseCase(transactions), getAccounts, RetryConversionUseCase(transactions))
         }
         val list = model(TransactionListViewModel::class.java) {
             TransactionListViewModel(GetTransactionsUseCase(transactions), getAccounts)
@@ -304,7 +304,7 @@ class TransactionAccountViewModelTest {
         transactions.rows.value = mapOf(transaction.id to transaction)
         val detail = model(TransactionDetailViewModel::class.java) {
             TransactionDetailViewModel(SavedStateHandle(mapOf("id" to transaction.id)), GetTransactionUseCase(transactions),
-                DeleteTransactionUseCase(transactions), getAccounts)
+                DeleteTransactionUseCase(transactions), getAccounts, RetryConversionUseCase(transactions))
         }
         val list = model(TransactionListViewModel::class.java) {
             TransactionListViewModel(GetTransactionsUseCase(transactions), getAccounts)
@@ -340,7 +340,7 @@ class TransactionAccountViewModelTest {
         assertEquals("savings", ready(reopened).selectedAccountId)
         val detail = model(TransactionDetailViewModel::class.java) {
             TransactionDetailViewModel(SavedStateHandle(mapOf("id" to saved.id)), GetTransactionUseCase(transactions),
-                DeleteTransactionUseCase(transactions), getAccounts)
+                DeleteTransactionUseCase(transactions), getAccounts, RetryConversionUseCase(transactions))
         }
         val list = model(TransactionListViewModel::class.java) {
             TransactionListViewModel(GetTransactionsUseCase(transactions), getAccounts)
@@ -359,7 +359,7 @@ class TransactionAccountViewModelTest {
         transactions.rows.value = mapOf(transaction.id to transaction)
         val detail = model(TransactionDetailViewModel::class.java) {
             TransactionDetailViewModel(SavedStateHandle(mapOf("id" to transaction.id)), GetTransactionUseCase(transactions),
-                DeleteTransactionUseCase(transactions), getAccounts)
+                DeleteTransactionUseCase(transactions), getAccounts, RetryConversionUseCase(transactions))
         }
         val list = model(TransactionListViewModel::class.java) {
             TransactionListViewModel(GetTransactionsUseCase(transactions), getAccounts)
@@ -505,6 +505,7 @@ class TransactionAccountViewModelTest {
     }
 
     private class MemoryTransactions : TransactionRepository {
+        override suspend fun retryConversion(id: String) = Result.success(Unit)
         val rows = MutableStateFlow<Map<String, Transaction>>(emptyMap())
         val status = MutableStateFlow<Resource<Transaction?>?>(null)
         val listStatus = MutableStateFlow<Resource<List<Transaction>>?>(null)

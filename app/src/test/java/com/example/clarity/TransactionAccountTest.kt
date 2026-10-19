@@ -171,7 +171,16 @@ class TransactionAccountTest {
         assertNull(repository.saved)
     }
 
+    @Test fun walletCashCurrencyCannotChangeEvenWhenTheNumericAmountIsUnchanged() = runBlocking {
+        val repository = RecordingRepository().apply { cash = true }
+        val result = UpdateTransactionUseCase(repository, TransactionTestAccounts())(
+            transaction.copy(currency = "USD", accountId = null))
+        assertTrue(result.isFailure)
+        assertNull(repository.saved)
+    }
+
     private class RecordingRepository : TransactionRepository {
+        override suspend fun retryConversion(id: String) = Result.success(Unit)
         var cash = false
         override suspend fun isCashTransaction(id: String) = cash
         var saved: Transaction? = null

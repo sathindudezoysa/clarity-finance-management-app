@@ -123,7 +123,7 @@ class AccountDaoTest {
             }, Dispatchers.IO, object : AccountUploader {
                 override suspend fun uploadPending(uid: String, afterAccounts: suspend () -> Unit): Boolean =
                     error("Signed-out users must not upload")
-            }, applicationScope).also { transactionRepositories.add(it) }
+            }, applicationScope, TestCurrencies.rates, TestCurrencies.preferences, TestCurrencies.scheduler()).also { transactionRepositories.add(it) }
         val list = withTimeout(10_000) {
             repository.observeTransactions().first { it is Resource.Error } as Resource.Error
         }
@@ -175,13 +175,12 @@ class AccountDaoTest {
     }
 
     @Test
-    fun versionThreeMigrationPreservesTransactionsAndAddsPersistentAccounts() = runBlocking {
+    fun versionThreeRecreationDiscardsOldRowsAndNewAccountsSurviveRestart() = runBlocking {
         createLegacyDatabase(3)
         var db = openDatabase()
-        assertEquals("Original description", db.transactionDao.getById("legacy")!!.note)
-        assertTrue(db.transactionDao.getById("legacy")!!.pendingSync)
-        assertEquals(listOf("Hobby"), db.transactionTagDao.observeTags("user-a").first())
-        assertSamplePreserved(db)
+        assertNull(db.transactionDao.getById("legacy"))
+        assertTrue(db.transactionTagDao.observeTags("user-a").first().isEmpty())
+        assertSampleRecreated(db)
         db.accountDao.upsertAll(listOf(row("daily").copy(pendingSync = true),
             row("savings", default = true).copy(pendingSync = true)))
         db.close()
@@ -192,12 +191,12 @@ class AccountDaoTest {
     }
 
     @Test
-    fun versionsOneAndTwoMigrateWithoutDestructiveFallback() = runBlocking {
+    fun versionsOneAndTwoRecreateWithEmptyTables() = runBlocking {
         for (version in listOf(1, 2)) {
             createLegacyDatabase(version)
             val db = openDatabase()
-            assertSamplePreserved(db)
-            if (version == 2) assertEquals("Original description", db.transactionDao.getById("legacy")!!.note)
+            assertSampleRecreated(db)
+            assertNull(db.transactionDao.getById("legacy"))
             db.accountDao.upsertAll(listOf(row("daily", default = true).copy(pendingSync = true)))
             assertEquals("daily", db.accountDao.getDefault("user-a")!!.id)
             db.close()
@@ -242,18 +241,13 @@ class AccountDaoTest {
     }
 
     @Test
-    fun versionFiveMigrationAddsAccountIndexAndPreservesAllStoredData() = runBlocking {
+    fun versionFiveRecreationDiscardsOldRowsAndCreatesTheAccountIndex() = runBlocking {
         createLegacyDatabase(5)
         val db = openDatabase()
-        val transaction = db.transactionDao.getById("legacy")!!
-        assertEquals("Original description", transaction.note)
-        assertEquals("daily", transaction.accountId)
-        assertTrue(transaction.pendingSync)
-        assertTrue(transaction.isDeleted)
-        assertEquals(10L, transaction.updatedAt)
-        assertEquals("daily", db.accountDao.getDefault("user-a")!!.id)
-        assertEquals(listOf("Hobby"), db.transactionTagDao.observeTags("user-a").first())
-        assertSamplePreserved(db)
+        assertNull(db.transactionDao.getById("legacy"))
+        assertNull(db.accountDao.getDefault("user-a"))
+        assertTrue(db.transactionTagDao.observeTags("user-a").first().isEmpty())
+        assertSampleRecreated(db)
         db.openHelper.readableDatabase.query("PRAGMA index_info('index_transactions_accountId')").use {
             assertTrue(it.moveToFirst())
             assertEquals("accountId", it.getString(2))
@@ -263,11 +257,11 @@ class AccountDaoTest {
             assertFalse(it.moveToFirst())
         }
         db.close()
-        assertEquals(transaction, openDatabase().transactionDao.getById("legacy"))
+        assertNull(openDatabase().transactionDao.getById("legacy"))
     }
 
     private fun openDatabase() = Room.databaseBuilder(context, ClarityDatabase::class.java, databaseName)
-        .addMigrations(*com.example.clarity.data.local.IntegratedMigrations.all)
+        .fallbackToDestructiveMigration()
         .build().also { database = it }
 
     private fun repository(db: ClarityDatabase, userId: String = "user-a",
@@ -289,10 +283,9 @@ class AccountDaoTest {
         Dispatchers.IO, applicationScope
     ).also { repositories.add(it) }
 
-    private fun assertSamplePreserved(db: ClarityDatabase) {
+    private fun assertSampleRecreated(db: ClarityDatabase) {
         db.openHelper.readableDatabase.query("SELECT title FROM sample_table WHERE id = 'sample'").use {
-            assertTrue(it.moveToFirst())
-            assertEquals("Keep this", it.getString(0))
+            assertFalse(it.moveToFirst())
         }
     }
 

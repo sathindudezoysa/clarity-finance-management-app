@@ -9,6 +9,12 @@ rules_version = '2';
 // createdAt is immutable. Client timestamps permit delayed offline writes;
 // they are not proof of server time. No parent user document is required.
 // Room-only pendingSync/isDeleted fields are excluded from the remote schema.
+// Currency metadata: original currency, captured targetCurrency, pendingConversion,
+// and nullable conversion {amountMinor, rate (exact decimal string), provider,
+// rateAt/fetchedAt (epoch ms), cached}. Pending records require null conversion.
+// Same currency requires an identity snapshot. Rates are client-supplied reference
+// data; rules enforce shape, not provider authenticity or decimal recomputation.
+// Preferences: users/{uid}/preferences/currency {currency, updatedAt}, owner-private.
 // Accounts: users/{uid}/accounts/{accountId}, owner-private. Immutable id/userId (1..128),
 // name (nonblank, <=100), bankName (<=100), optional nullable accountType (<=100),
 // currency (three uppercase letters), isDefault (bool), immutable createdAt and updatedAt (epoch ints).
@@ -34,7 +40,8 @@ service cloud.firestore {
 
     function isValidTransaction(data, transactionId) {
       let fields = ['id', 'userId', 'type', 'amountMinor', 'category', 'note',
-                    'dateEpochMillis', 'createdAt', 'updatedAt'];
+                    'dateEpochMillis', 'createdAt', 'updatedAt', 'currency',
+                    'targetCurrency', 'pendingConversion', 'conversion'];
       return data.keys().hasAll(fields) && data.keys().hasOnly(fields.concat(['accountId']))
         && data.id is string && data.id.size() > 0 && data.id.size() <= 128
         && data.id == transactionId
@@ -47,10 +54,48 @@ service cloud.firestore {
         && data.dateEpochMillis is int
         && data.createdAt is int && data.createdAt >= 0
         && data.updatedAt is int && data.updatedAt >= data.createdAt
+        && validCurrency(data.currency) && validCurrency(data.targetCurrency)
+        && validConversion(data)
         && (!('accountId' in data) || data.accountId == null
           || (data.accountId is string && data.accountId.size() > 0 && data.accountId.size() <= 128
             && !data.accountId.matches('.*[/].*')
             && getAfter(/databases/$(database)/documents/users/$(data.userId)/accounts/$(data.accountId)).data.userId == data.userId));
+    }
+
+    function validCurrency(code) {
+      return code is string && code.size() == 3
+        && code in ['LKR', 'USD', 'EUR', 'GBP', 'INR', 'AUD', 'CAD', 'SGD', 'JPY', 'KWD'];
+    }
+
+    function validConversion(data) {
+      return data.pendingConversion is bool
+        && ((data.pendingConversion && data.currency != data.targetCurrency && data.conversion == null)
+          || (!data.pendingConversion && validSnapshot(data)));
+    }
+
+    function validSnapshot(data) {
+      let c = data.conversion;
+      let fields = ['amountMinor', 'rate', 'provider', 'rateAt', 'fetchedAt', 'cached'];
+      return c is map && c.keys().hasAll(fields) && c.keys().hasOnly(fields)
+        && c.amountMinor is int && c.amountMinor > 0
+        && c.rate is string && c.rate.size() <= 31
+        && c.rate.matches('[0-9]{1,12}([.][0-9]{1,18})?') && c.rate.matches('.*[1-9].*')
+        && c.provider is string && c.provider.size() <= 16
+        && c.rateAt is int && c.fetchedAt is int && c.cached is bool
+        && ((data.currency == data.targetCurrency && c.rate == '1' && c.provider == 'IDENTITY'
+            && c.amountMinor == data.amountMinor && c.rateAt == 0 && c.fetchedAt == 0 && !c.cached)
+          || (data.currency != data.targetCurrency && c.provider == 'ExchangeRate-API'
+            && c.rateAt > 0 && c.fetchedAt >= c.rateAt && c.fetchedAt <= data.updatedAt));
+    }
+
+    function validCurrencyPreference(data) {
+      return data.keys().hasAll(['currency', 'updatedAt']) && data.keys().hasOnly(['currency', 'updatedAt'])
+        && validCurrency(data.currency) && data.updatedAt is int && data.updatedAt >= 0;
+    }
+
+    match /users/{userId}/preferences/currency {
+      allow read: if isOwner(userId);
+      allow create, update: if isOwner(userId) && validCurrencyPreference(request.resource.data);
     }
 
     match /users/{userId}/transactions/{transactionId} {
