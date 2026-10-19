@@ -99,94 +99,97 @@ fun LoginScreen(
         )
     }
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(16.dp),
-        verticalArrangement = Arrangement.Center,
-        horizontalAlignment = Alignment.CenterHorizontally
-    ) {
-        Text(text = "Login to Clarity", style = MaterialTheme.typography.headlineLarge)
-        Spacer(modifier = Modifier.height(32.dp))
-
-        OutlinedTextField(
-            value = email,
-            onValueChange = { email = it },
-            label = { Text("Email") },
-            modifier = Modifier.fillMaxWidth()
-        )
-        
-        Spacer(modifier = Modifier.height(16.dp))
-        
-        OutlinedTextField(
-            value = password,
-            onValueChange = { password = it },
-            label = { Text("Password") },
-            visualTransformation = PasswordVisualTransformation(),
-            modifier = Modifier.fillMaxWidth()
-        )
-
-        Spacer(modifier = Modifier.height(8.dp))
-        
-        // Forgot Password Link
-        Text(
-            text = "Forgot Password?",
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.primary,
+    Scaffold { padding ->
+        Column(
             modifier = Modifier
-                .align(Alignment.End)
-                .clickable { viewModel.showPasswordResetDialog() }
-                .padding(vertical = 4.dp)
-        )
+                .fillMaxSize()
+                .padding(padding)
+                .padding(16.dp),
+            verticalArrangement = Arrangement.Center,
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Text(text = "Login to Clarity", style = MaterialTheme.typography.headlineLarge)
+            Spacer(modifier = Modifier.height(32.dp))
 
-        if (state.error != null) {
-            Spacer(modifier = Modifier.height(8.dp))
-            Text(text = state.error!!, color = MaterialTheme.colorScheme.error)
-        }
-
-        if (state.passwordResetMessage != null) {
-            Spacer(modifier = Modifier.height(8.dp))
-            Text(text = state.passwordResetMessage!!, color = MaterialTheme.colorScheme.primary)
-        }
-
-        Spacer(modifier = Modifier.height(16.dp))
-
-        if (state.isLoading) {
-            CircularProgressIndicator()
-        } else {
-            Button(
-                onClick = { viewModel.onLoginClick(email, password) },
+            OutlinedTextField(
+                value = email,
+                onValueChange = { email = it },
+                label = { Text("Email") },
                 modifier = Modifier.fillMaxWidth()
-            ) {
-                Text("Login")
+            )
+            
+            Spacer(modifier = Modifier.height(16.dp))
+            
+            OutlinedTextField(
+                value = password,
+                onValueChange = { password = it },
+                label = { Text("Password") },
+                visualTransformation = PasswordVisualTransformation(),
+                modifier = Modifier.fillMaxWidth()
+            )
+
+            Spacer(modifier = Modifier.height(8.dp))
+            
+            // Forgot Password Link
+            Text(
+                text = "Forgot Password?",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier
+                    .align(Alignment.End)
+                    .clickable { viewModel.showPasswordResetDialog() }
+                    .padding(vertical = 4.dp)
+            )
+
+            if (state.error != null) {
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(text = state.error!!, color = MaterialTheme.colorScheme.error)
             }
 
-            Spacer(modifier = Modifier.height(8.dp))
-
-            OutlinedButton(
-                onClick = {
-                    val gso = GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
-                        .requestIdToken(context.getString(R.string.default_web_client_id))
-                        .requestEmail()
-                        .build()
-                    val googleSignInClient = GoogleSignIn.getClient(context, gso)
-                    launcher.launch(googleSignInClient.signInIntent)
-                },
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Text("Continue with Google")
+            if (state.passwordResetMessage != null) {
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(text = state.passwordResetMessage!!, color = MaterialTheme.colorScheme.primary)
             }
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            Text(
-                text = "Don't have an account? Register here",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.primary,
-                modifier = Modifier
-                    .clickable { onNavigateToRegister() }
-                    .padding(8.dp)
-            )
+            if (state.isLoading) {
+                CircularProgressIndicator()
+            } else {
+                Button(
+                    onClick = { viewModel.onLoginClick(email, password) },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Login")
+                }
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                OutlinedButton(
+                    onClick = {
+                        val gso = GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
+                            .requestIdToken(context.getString(R.string.default_web_client_id))
+                            .requestEmail()
+                            .build()
+                        val googleSignInClient = GoogleSignIn.getClient(context, gso)
+                        launcher.launch(googleSignInClient.signInIntent)
+                    },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Continue with Google")
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                Text(
+                    text = "Don't have an account? Register here",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier
+                        .clickable { onNavigateToRegister() }
+                        .padding(8.dp)
+                )
+            }
         }
     }
 }
