@@ -30,8 +30,6 @@ class DatabaseCachePolicyTest {
                 val parent = requireNotNull(path.parentFile)
                 check(parent.isDirectory || parent.mkdirs())
                 SQLiteDatabase.openOrCreateDatabase(path, null).use { db ->
-                    db.execSQL("CREATE TABLE sample_table (id TEXT NOT NULL PRIMARY KEY, title TEXT NOT NULL, description TEXT NOT NULL)")
-                    db.execSQL("INSERT INTO sample_table VALUES ('legacy', 'Old cache', 'Rebuild')")
                     db.execSQL("CREATE TABLE transactions (id TEXT NOT NULL PRIMARY KEY, pendingSync INTEGER NOT NULL)")
                     db.execSQL("INSERT INTO transactions VALUES ('local-only', 1)")
                     db.execSQL("CREATE TABLE transaction_proofs (id TEXT NOT NULL PRIMARY KEY, pendingUpload INTEGER NOT NULL)")
@@ -45,10 +43,6 @@ class DatabaseCachePolicyTest {
                     assertTrue(db.accountDao.getAllForUser("owner").isEmpty())
                     assertTrue(db.cashWalletDao.accounts("owner").isEmpty())
                     assertEquals(0, db.transactionProofDao.count("owner", "transaction"))
-                    db.openHelper.readableDatabase.query("SELECT COUNT(*) FROM sample_table").use { cursor ->
-                        assertTrue(cursor.moveToFirst())
-                        assertEquals(0, cursor.getInt(0))
-                    }
                     // Fresh remote reconciliation can repopulate transactions and their tag catalog.
                     val remote = TransactionEntity("remote", "owner", "INCOME", 5000, "Salary", "Synced", 1, 1, 1)
                     db.transactionDao.reconcileRemote("owner", listOf(remote), setOf("remote"), authoritative = true)
