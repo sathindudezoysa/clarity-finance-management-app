@@ -32,10 +32,7 @@ class TransactionTagsPersistenceTest {
 
     private fun openDatabase(): ClarityDatabase = Room.databaseBuilder(
         context, ClarityDatabase::class.java, databaseName
-    )
-        .fallbackToDestructiveMigration()
-        .fallbackToDestructiveMigrationOnDowngrade()
-        .build().also { database = it }
+    ).addMigrations(*com.example.clarity.data.local.IntegratedMigrations.all).build().also { database = it }
 
     private fun row(id: String, tag: String, description: String = "", user: String = "user-a") =
         TransactionEntity(id, user, "EXPENSE", 1250, tag, description, 100, 1, 10, pendingSync = true)
@@ -71,21 +68,43 @@ class TransactionTagsPersistenceTest {
     }
 
     @Test
-    fun schemaChangeCleansLegacyTablesAndRebuildsTagsFromRemoteReconciliation() = runBlocking {
-        context.deleteDatabase(databaseName)
-        val path = context.getDatabasePath(databaseName)
-        path.parentFile!!.mkdirs()
-        SQLiteDatabase.openOrCreateDatabase(path, null).use { legacy ->
-            legacy.execSQL("CREATE TABLE sample_table (id TEXT NOT NULL PRIMARY KEY, title TEXT NOT NULL, description TEXT NOT NULL)")
-            legacy.execSQL("INSERT INTO sample_table VALUES ('sample', 'Legacy sample', 'Dropped on schema change')")
-            legacy.version = 2
-        }
+    fun remoteReconciliationKeepsTagsReusableAfterTransactionDeletion() = runBlocking {
         val db = openDatabase()
-        assertTrue(db.transactionDao.getIdsForUser("user-a").isEmpty())
         val synced = row("remote-1", "Hobby", "Synced description").copy(pendingSync = false)
         db.transactionDao.reconcileRemote("user-a", listOf(synced), setOf("remote-1"), authoritative = true)
         assertEquals(synced, db.transactionDao.getById("remote-1"))
         db.transactionDao.deleteById("remote-1", "user-a")
         assertEquals(listOf("Hobby"), db.transactionTagDao.observeTags("user-a").first())
+    }
+
+    @Test
+    fun versionTwoMigrationPreservesExistingDataAndBackfillsUserScopedTags() = runBlocking {
+        val path = context.getDatabasePath(databaseName)
+        path.parentFile!!.mkdirs()
+        SQLiteDatabase.openOrCreateDatabase(path, null).use { legacy ->
+            legacy.execSQL("CREATE TABLE sample_table (id TEXT NOT NULL PRIMARY KEY, title TEXT NOT NULL, description TEXT NOT NULL)")
+            legacy.execSQL("""
+                CREATE TABLE transactions (
+                    id TEXT NOT NULL PRIMARY KEY, userId TEXT NOT NULL, type TEXT NOT NULL,
+                    amountMinor INTEGER NOT NULL, category TEXT NOT NULL, note TEXT NOT NULL,
+                    dateEpochMillis INTEGER NOT NULL, createdAt INTEGER NOT NULL, updatedAt INTEGER NOT NULL,
+                    pendingSync INTEGER NOT NULL, isDeleted INTEGER NOT NULL
+                )
+            """.trimIndent())
+            legacy.execSQL("CREATE INDEX index_transactions_userId ON transactions (userId)")
+            legacy.execSQL("INSERT INTO sample_table VALUES ('sample', 'Existing sample', 'Keep this')")
+            legacy.execSQL("INSERT INTO transactions VALUES ('legacy', 'user-a', 'EXPENSE', 1250, 'Hobby', 'Original description', 100, 1, 10, 1, 0)")
+            legacy.execSQL("INSERT INTO transactions VALUES ('other', 'user-b', 'INCOME', 5000, 'Private', '', 100, 1, 10, 0, 0)")
+            legacy.version = 2
+        }
+        val db = openDatabase()
+        assertEquals(row("legacy", "Hobby", "Original description"), db.transactionDao.getById("legacy"))
+        assertEquals(listOf("Hobby"), db.transactionTagDao.observeTags("user-a").first())
+        assertEquals(listOf("Private"), db.transactionTagDao.observeTags("user-b").first())
+        db.openHelper.readableDatabase.query("SELECT title, description FROM sample_table WHERE id = 'sample'").use {
+            assertTrue(it.moveToFirst())
+            assertEquals("Existing sample", it.getString(0))
+            assertEquals("Keep this", it.getString(1))
+        }
     }
 }

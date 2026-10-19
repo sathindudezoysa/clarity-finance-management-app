@@ -36,7 +36,7 @@ import javax.inject.Singleton
  * Server transactions prevent an older queued upload from overwriting a newer server version.
  * Pending edits win remote deletions by recreating the document; pending tombstones stay hidden.
  * Deletes clear only after acknowledgement plus absence in a fresh authoritative snapshot.
- * Retry on startup/sign-in, every successful snapshot/reconnection, and every 30 seconds.
+ * Retry on every committed outbox change, startup/sign-in, snapshots, and every 30 seconds.
  * Serialize writes per document; acknowledged versions suppress resubmission until reconciliation.
  * Never await Firestore tasks in UI writes; failures are logged and Room retains pending records.
  */
@@ -48,7 +48,8 @@ class TransactionRepositoryImpl @Inject internal constructor(
     private val authRepository: AuthRepository,
     private val ioDispatcher: CoroutineDispatcher,
     private val accountUploader: AccountUploader,
-    @ApplicationScope applicationScope: CoroutineScope
+    @ApplicationScope applicationScope: CoroutineScope,
+    private val clock: java.time.Clock = java.time.Clock.systemUTC()
 ) : TransactionRepository {
     private val mutationMutex = Mutex()
     // Application ownership keeps synchronization independent of screen subscriptions.
@@ -77,6 +78,22 @@ class TransactionRepositoryImpl @Inject internal constructor(
                     syncState.value = SyncState(user?.uid)
                 }
                 if (user != null) coroutineScope {
+                    val outbox = launch {
+                        dao.observePendingForUser(user.uid).distinctUntilChanged().conflate()
+                            .retryWhen { error, _ ->
+                                if (error is CancellationException) throw error
+                                Log.w(TAG, "Outbox observation failed; retrying", error)
+                                delay(5_000)
+                                true
+                            }.collect {
+                                try {
+                                    mutationMutex.withLock { retryPending(user.uid) }
+                                } catch (error: Exception) {
+                                    if (error is CancellationException) throw error
+                                    Log.w(TAG, "Outbox sync failed; retaining pending records for retry", error)
+                                }
+                            }
+                    }
                     val retries = launch {
                         while (isActive) {
                             delay(RETRY_INTERVAL_MILLIS)
@@ -93,6 +110,7 @@ class TransactionRepositoryImpl @Inject internal constructor(
                             syncState.value = SyncState(user.uid, warning)
                         }
                     } finally {
+                        outbox.cancel()
                         retries.cancel()
                     }
                 }
@@ -107,7 +125,7 @@ class TransactionRepositoryImpl @Inject internal constructor(
             else combine(
                 dao.observeAll(user.uid), syncState.filter { it.uid == user.uid }
             ) { local, status ->
-                val transactions = local.map { it.toDomain() }
+                val transactions = local.map { it.toDomain().copy(isCash = dao.isWalletCash(user.uid, it.id)) }
                 if (status.warning == null) Resource.Success(transactions)
                 else Resource.Error(status.warning, transactions)
             }.onStart { emit(Resource.Loading()) }
@@ -123,7 +141,7 @@ class TransactionRepositoryImpl @Inject internal constructor(
             else combine(
                 dao.observeById(id, user.uid), syncState.filter { it.uid == user.uid }
             ) { local, status ->
-                val transaction = local?.toDomain()
+                val transaction = local?.toDomain()?.copy(isCash = dao.isWalletCash(user.uid, local.id))
                 if (status.warning == null) Resource.Success<Transaction?>(transaction)
                 else Resource.Error<Transaction?>(status.warning, transaction)
             }.onStart { emit(Resource.Loading()) }
@@ -193,14 +211,18 @@ class TransactionRepositoryImpl @Inject internal constructor(
         }
     }
 
+    override suspend fun isCashTransaction(id: String): Boolean = withContext(ioDispatcher) {
+        val uid = authRepository.currentUser.first()?.uid ?: return@withContext false
+        dao.isWalletCash(uid, id)
+    }
+
     override suspend fun addTransaction(t: Transaction): Result<Unit> = localWrite { uid ->
         require(t.amountMinor > 0) { "Amount must be greater than zero" }
         require(dao.getById(t.id) == null) { "Transaction already exists" }
-        val now = System.currentTimeMillis()
+        val now = clock.millis()
         val entity = t.copy(userId = uid, createdAt = now, updatedAt = now).toEntity()
             .copy(pendingSync = true)
-        dao.upsertWithTag(entity)
-        enqueueRemote(entity)
+        entity
     }
 
     override suspend fun updateTransaction(t: Transaction): Result<Unit> = localWrite { uid ->
@@ -209,29 +231,31 @@ class TransactionRepositoryImpl @Inject internal constructor(
         require(t.userId == existing.userId) { "Cannot change transaction owner" }
         require(t.amountMinor > 0) { "Amount must be greater than zero" }
         require(existing.updatedAt < Long.MAX_VALUE) { "Transaction timestamp is out of range" }
+        require(!dao.isWalletCash(uid, t.id) || t.accountId == null) { "Cash transactions cannot be assigned to a bank account" }
         val entity = t.copy(
             userId = uid, createdAt = existing.createdAt,
-            updatedAt = maxOf(System.currentTimeMillis(), existing.updatedAt + 1)
+            updatedAt = maxOf(clock.millis(), existing.updatedAt + 1)
         ).toEntity().copy(pendingSync = true)
-        dao.upsertWithTag(entity)
-        enqueueRemote(entity)
+        entity
     }
 
     override suspend fun deleteTransaction(id: String): Result<Unit> = localWrite { uid ->
         val existing = dao.getById(id)
         require(existing != null && existing.userId == uid && !existing.isDeleted) { "Transaction not found" }
         val deleted = existing.copy(isDeleted = true, pendingSync = true)
-        dao.upsert(deleted)
-        enqueueRemote(deleted)
+        deleted
     }
 
-    private suspend fun localWrite(block: suspend (String) -> Unit): Result<Unit> = withContext(ioDispatcher) {
+    private suspend fun localWrite(block: suspend (String) -> TransactionEntity): Result<Unit> = withContext(ioDispatcher) {
         try {
             val uid = authRepository.currentUser.first()?.uid
                 ?: return@withContext Result.failure(TransactionException(TransactionError.SIGN_IN_REQUIRED, "Please sign in"))
             mutationMutex.withLock {
                 if (activeUid != uid) throw TransactionException(TransactionError.SIGN_IN_REQUIRED, "Please sign in")
-                block(uid)
+                val entity = block(uid)
+                require(authRepository.currentUser.first()?.uid == uid) { "Your session changed. Please try again." }
+                dao.persistLocal(entity)
+                enqueueRemote(entity)
             }
             Result.success(Unit)
         } catch (error: Exception) {

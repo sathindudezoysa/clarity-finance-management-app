@@ -13,7 +13,13 @@ permissions:
 
 jobs:
   ai_pr_review:
-    if: ${{ github.event.sender.type != 'Bot' }}
+    if: >-
+      github.event.sender.type != 'Bot' &&
+      (github.event_name == 'pull_request' ||
+       (github.event.issue.pull_request && startsWith(github.event.comment.body, '/')))
+    concurrency:
+      group: ai-review-${{ github.event_name }}-${{ github.event.pull_request.number || github.event.issue.number || github.ref }}
+      cancel-in-progress: true
     runs-on: ubuntu-latest
     name: Qodo AI Architecture & Bug Review
     steps:
@@ -30,7 +36,11 @@ jobs:
             echo "You are a strict Senior Android Architect reviewing a Pull Request for the Clarity app."
             echo ""
             echo "CRITICAL OUTPUT REQUIREMENT FOR QODO MERGE:"
-            echo "Do NOT return an empty 'key_issues_to_review' list unless the PR is 100% flawless. You MUST populate 'key_issues_to_review' (and code suggestions) with at least 2 to 5 concrete, file-specific findings covering ANY architectural violations, potential breaking changes, edge cases, or Kotlin/Compose improvements."
+            echo "Report only verified findings in the current diff; an empty findings list is valid when no actionable issue is found. Do not invent issues to meet a minimum count."
+            echo "Return only the tool-requested YAML schema, with no Markdown fences or surrounding commentary."
+            echo "Use consistent two-space indentation. Keys within each finding, including issue_header and issue_content, must align exactly."
+            echo "Before responding, verify that every mapping, sequence, and multiline block is valid YAML."
+            echo "Keep findings concise. Check the registered migration chain and exact money types before alleging missing migrations or precision loss."
             echo ""
             echo "### 1. BREAKING CHANGES & MISTAKES TO REPORT IN 'key_issues_to_review':"
             echo "- Contract & Signature Breaks: Changed method signatures, return types, or deleted functions in Domain UseCases, Repository interfaces, or State classes."
@@ -58,16 +68,17 @@ jobs:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           
-          # Use the smarter Gemini 3.8 Flash first for deep code review, then fall back to 3.6 / 3.5-lite
-          CONFIG.MODEL: "gemini/gemini-3.8-flash"
-          CONFIG.FALLBACK_MODELS: '["gemini/gemini-3.6-flash", "gemini/gemini-3-flash-preview", "gemini/gemini-3.5-flash-lite"]'
-          
-          # Drop deprecated parameters & retry automatically on 503 spikes
+          # This model completed inference in the failed run; the previous primaries hit daily quotas.
+          # Repository variables allow choosing a model with available quota without editing this workflow.
+          CONFIG.MODEL: ${{ vars.PR_REVIEW_MODEL || 'gemini/gemini-3.5-flash-lite' }}
+          # Retry the working model once if its YAML is malformed, then retain provider fallbacks.
+          CONFIG.FALLBACK_MODELS: ${{ vars.PR_REVIEW_FALLBACK_MODELS || '["gemini/gemini-3.5-flash-lite", "gemini/gemini-3.8-flash", "gemini/gemini-3.6-flash", "gemini/gemini-3-flash-preview"]' }}
+
           LITELLM.DROP_PARAMS: "true"
-          LITELLM_NUM_RETRIES: "3"
-          LITELLM_RETRY_AFTER: "12"
-          CONFIG.AI_TIMEOUT: "180"
-          
+          CONFIG.NUM_RETRIES: "0"
+          CONFIG.RETRY_SAME_MODEL_ON_TIMEOUT: "false"
+          CONFIG.AI_TIMEOUT: "120"
+
           # Fit the whole PR into 1 request (up to 200K tokens)
           CONFIG.MAX_MODEL_TOKENS: "200000"
           CONFIG.CUSTOM_MODEL_MAX_TOKENS: "200000"

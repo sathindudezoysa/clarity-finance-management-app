@@ -31,6 +31,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 fun MainScreen(
     viewModel: MainViewModel = hiltViewModel(),
     onNavigateToTransactions: () -> Unit = {},
+    onNavigateToCashWallet: () -> Unit = {},
     onNavigateToSettings: () -> Unit = {}
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
@@ -52,6 +53,9 @@ fun MainScreen(
                 ) {
                     Button(onClick = onNavigateToTransactions) {
                         Text(stringResource(R.string.transactions_title))
+                    }
+                    Button(onClick = onNavigateToCashWallet) {
+                        Text(stringResource(R.string.wallet_title))
                     }
                     Spacer(modifier = Modifier.height(12.dp))
                     Button(onClick = onNavigateToSettings) {

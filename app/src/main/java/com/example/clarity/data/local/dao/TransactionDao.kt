@@ -10,7 +10,7 @@ import com.example.clarity.data.local.entity.TransactionTagEntity
 import kotlinx.coroutines.flow.Flow
 
 @Dao
-abstract class TransactionDao {
+abstract class TransactionDao : WalletBalanceReader {
     @Query("SELECT * FROM transactions WHERE userId = :userId AND isDeleted = 0 ORDER BY dateEpochMillis DESC, createdAt DESC")
     abstract fun observeAll(userId: String): Flow<List<TransactionEntity>>
 
@@ -50,6 +50,21 @@ abstract class TransactionDao {
 
     @Query("SELECT * FROM transactions WHERE userId = :userId AND pendingSync = 1")
     abstract suspend fun getPendingForUser(userId: String): List<TransactionEntity>
+
+    @Query("SELECT * FROM transactions WHERE userId = :userId AND pendingSync = 1 ORDER BY id")
+    abstract fun observePendingForUser(userId: String): Flow<List<TransactionEntity>>
+
+    @Query("SELECT EXISTS(SELECT 1 FROM wallet_cash_links WHERE userId = :uid AND transactionId = :id)")
+    abstract suspend fun isWalletCash(uid: String, id: String): Boolean
+
+    /** Keep local transaction persistence and dependent wallet integrity in one storage transaction. */
+    @Transaction
+    open suspend fun persistLocal(entity: TransactionEntity) {
+        upsertWithTag(entity)
+        if (isWalletCash(entity.userId, entity.id)) {
+            com.example.clarity.data.local.validateWalletBalance(balance(entity.userId).value())
+        }
+    }
 
     @Transaction
     open suspend fun reconcileRemote(

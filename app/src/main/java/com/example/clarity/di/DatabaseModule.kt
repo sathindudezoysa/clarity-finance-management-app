@@ -27,10 +27,7 @@ object DatabaseModule {
             context,
             ClarityDatabase::class.java,
             ClarityDatabase.DATABASE_NAME
-        )
-            .fallbackToDestructiveMigration()
-            .fallbackToDestructiveMigrationOnDowngrade()
-            .build()
+        ).addMigrations(*com.example.clarity.data.local.IntegratedMigrations.all).build()
     }
 
     @Provides

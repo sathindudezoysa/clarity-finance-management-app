@@ -154,7 +154,26 @@ class TransactionAccountTest {
         if (update) UpdateTransactionUseCase(repository, accounts)(transaction)
         else AddTransactionUseCase(repository, accounts)(transaction)
 
+    @Test fun walletCashEditsKeepCashFundingAndDoNotRequireABank() = runBlocking {
+        val repository = RecordingRepository().apply { cash = true }
+        val accounts = TransactionTestAccounts()
+        UpdateTransactionUseCase(repository, accounts)(transaction.copy(accountId = null, category = " Hobby ", note = " Paint ")).getOrThrow()
+        assertNull(repository.saved!!.accountId)
+        assertEquals("Hobby", repository.saved!!.category)
+        assertEquals("Paint", repository.saved!!.note)
+        assertTrue(accounts.lookups.isEmpty())
+    }
+
+    @Test fun callerSuppliedCashFlagCannotBypassBankValidation() = runBlocking {
+        val repository = RecordingRepository()
+        val result = UpdateTransactionUseCase(repository, TransactionTestAccounts())(transaction.copy(accountId = null, isCash = true))
+        assertTrue(result.isFailure)
+        assertNull(repository.saved)
+    }
+
     private class RecordingRepository : TransactionRepository {
+        var cash = false
+        override suspend fun isCashTransaction(id: String) = cash
         var saved: Transaction? = null
         var operation: String? = null
         override fun observeTransactions() = flowOf<Resource<List<Transaction>>>(Resource.Success(emptyList()))

@@ -16,5 +16,7 @@ data class Transaction(
     val dateEpochMillis: Long = System.currentTimeMillis(),
     val createdAt: Long = System.currentTimeMillis(),
     val updatedAt: Long = createdAt,
-    val accountId: String? = null
+    val accountId: String? = null,
+    // Local funding metadata derived from the wallet link, never serialized to Firestore.
+    val isCash: Boolean = false
 )
