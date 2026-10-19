@@ -1,5 +1,8 @@
 package com.example.clarity.presentation.main
 
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import com.example.clarity.presentation.income.IncomeMonthlyPrompt
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -32,7 +35,8 @@ fun MainScreen(
     viewModel: MainViewModel = hiltViewModel(),
     onNavigateToTransactions: () -> Unit = {},
     onNavigateToCashWallet: () -> Unit = {},
-    onNavigateToSettings: () -> Unit = {}
+    onNavigateToSettings: () -> Unit = {},
+    onNavigateToIncome: () -> Unit = {}
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
 
@@ -48,9 +52,12 @@ fun MainScreen(
                 CircularProgressIndicator()
             } else {
                 Column(
+                    modifier = Modifier.verticalScroll(rememberScrollState()),
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.Center
                 ) {
+                    IncomeMonthlyPrompt(onReview = onNavigateToIncome)
+                    Button(onClick = onNavigateToIncome) { Text(stringResource(R.string.income_title)) }
                     Button(onClick = onNavigateToTransactions) {
                         Text(stringResource(R.string.transactions_title))
                     }

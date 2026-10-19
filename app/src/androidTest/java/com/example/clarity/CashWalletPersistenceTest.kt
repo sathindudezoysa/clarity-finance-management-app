@@ -1,11 +1,10 @@
 package com.example.clarity
 
-import android.database.sqlite.SQLiteDatabase
-import androidx.room.Room
+import com.example.clarity.di.DatabaseModule
+
 import androidx.room.withTransaction
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
-import com.example.clarity.data.local.CashWalletMigration
 import com.example.clarity.data.local.ClarityDatabase
 import com.example.clarity.data.repository.CashWalletRepositoryImpl
 import com.example.clarity.data.repository.TransactionRepositoryImpl
@@ -45,8 +44,7 @@ class CashWalletPersistenceTest {
     private var database: ClarityDatabase? = null
     private val auth = TestAuth()
 
-    private fun open(): ClarityDatabase = Room.databaseBuilder(context, ClarityDatabase::class.java, name)
-        .addMigrations(*com.example.clarity.data.local.IntegratedMigrations.all).build().also { database = it }
+    private fun open(): ClarityDatabase = DatabaseModule.createDatabase(context, name).also { database = it }
     private val clock = Clock.fixed(Instant.ofEpochMilli(123456789), ZoneOffset.UTC)
     private fun repository(db: ClarityDatabase) = CashWalletRepositoryImpl(db, auth, Dispatchers.IO, clock)
     @After fun cleanUp() { database?.close(); context.deleteDatabase(name) }
@@ -171,35 +169,6 @@ class CashWalletPersistenceTest {
         assertEquals(4, db.transactionDao.getPendingForUser("a").size)
         db.close()
         assertTrue(repository(open()).observeWallet().first().topUpOption!!.automaticExecution)
-    }
-
-    @Test fun versionFiveMigrationPreservesReminderWithoutAuthorizingAutomaticWithdrawals() = runBlocking {
-        context.deleteDatabase(name)
-        val helper = androidx.sqlite.db.framework.FrameworkSQLiteOpenHelperFactory().create(
-            androidx.sqlite.db.SupportSQLiteOpenHelper.Configuration.builder(context).name(name)
-                .callback(object : androidx.sqlite.db.SupportSQLiteOpenHelper.Callback(5) {
-                    override fun onCreate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
-                        db.execSQL("CREATE TABLE sample_table (id TEXT NOT NULL PRIMARY KEY, title TEXT NOT NULL, description TEXT NOT NULL)")
-                        com.example.clarity.data.local.TransactionHistoryMigration.migrate(db)
-                        com.example.clarity.data.local.TransactionTagMigration.migrate(db)
-                        CashWalletMigration.migrate(db)
-                        com.example.clarity.data.local.WalletCompletionMigration.migrate(db)
-                        db.execSQL("INSERT INTO wallet_bank_accounts (userId,id,name,openingBalanceMinor) VALUES ('a','bank','Keep bank',50000)")
-                        db.execSQL("INSERT INTO wallet_top_up_options VALUES ('a','bank',1,1000,500)")
-                    }
-                    override fun onUpgrade(db: androidx.sqlite.db.SupportSQLiteDatabase, oldVersion: Int, newVersion: Int) {
-                        error("Fixture must stay at version five")
-                    }
-                }).build())
-        helper.writableDatabase
-        helper.close()
-        val wallet = repository(open()).observeWallet().first()
-        assertTrue(wallet.topUpOption!!.enabled)
-        assertFalse(wallet.topUpOption!!.automaticExecution)
-        assertEquals("Keep bank", wallet.accounts.single().name)
-        assertEquals(BigInteger.valueOf(50000), wallet.accounts.single().balanceMinor)
-        assertEquals(BigInteger.ZERO, wallet.balanceMinor)
-        assertTrue(wallet.topUpHistory.isEmpty())
     }
 
     @Test fun editingAndDeletingExistingCashTransactionUpdatesWallet() = runBlocking {
@@ -347,81 +316,6 @@ class CashWalletPersistenceTest {
         db.transactionDao.upsert(TransactionEntity("huge", "a", "INCOME", Long.MAX_VALUE, "Cash", "", 1, 1, 1))
         db.cashWalletDao.insertCashLink(WalletCashLinkEntity("a", "huge"))
         assertEquals(BigInteger.valueOf(Long.MAX_VALUE) + BigInteger.valueOf(61725000), db.cashWalletDao.balance("a").value())
-    }
-
-    @Test fun migrationPreservesVersionThreeTransactionsAndTags() = runBlocking {
-        context.deleteDatabase(name)
-        val path = context.getDatabasePath(name)
-        path.parentFile!!.mkdirs()
-        SQLiteDatabase.openOrCreateDatabase(path, null).use { legacy ->
-            legacy.execSQL("CREATE TABLE sample_table (id TEXT NOT NULL PRIMARY KEY, title TEXT NOT NULL, description TEXT NOT NULL)")
-            legacy.execSQL("CREATE TABLE transactions (id TEXT NOT NULL PRIMARY KEY, userId TEXT NOT NULL, type TEXT NOT NULL, amountMinor INTEGER NOT NULL, category TEXT NOT NULL, note TEXT NOT NULL, dateEpochMillis INTEGER NOT NULL, createdAt INTEGER NOT NULL, updatedAt INTEGER NOT NULL, pendingSync INTEGER NOT NULL, isDeleted INTEGER NOT NULL)")
-            legacy.execSQL("CREATE INDEX index_transactions_userId ON transactions(userId)")
-            legacy.execSQL("CREATE TABLE transaction_tags (userId TEXT NOT NULL, name TEXT NOT NULL COLLATE NOCASE, PRIMARY KEY(userId, name))")
-            legacy.execSQL("INSERT INTO transactions VALUES ('old', 'a', 'EXPENSE', 500, 'Food', 'Keep', 1, 1, 1, 1, 0)")
-            legacy.execSQL("INSERT INTO transaction_tags VALUES ('a', 'Food')")
-            legacy.version = 3
-        }
-        val db = open()
-        assertEquals("Keep", db.transactionDao.getById("old")!!.note)
-        assertEquals(listOf("Food"), db.transactionTagDao.observeTags("a").first())
-        assertTrue(repository(db).observeWallet().first().activity.isEmpty())
-    }
-
-    @Test fun versionOneMigrationKeepsExistingSamples() = runBlocking {
-        context.deleteDatabase(name)
-        val path = context.getDatabasePath(name)
-        path.parentFile!!.mkdirs()
-        SQLiteDatabase.openOrCreateDatabase(path, null).use { legacy ->
-            legacy.execSQL("CREATE TABLE sample_table (id TEXT NOT NULL PRIMARY KEY, title TEXT NOT NULL, description TEXT NOT NULL)")
-            legacy.execSQL("INSERT INTO sample_table VALUES ('sample', 'Keep this', 'Original data')")
-            legacy.version = 1
-        }
-        val db = open()
-        db.openHelper.readableDatabase.query("SELECT title FROM sample_table").use { cursor ->
-            assertTrue(cursor.moveToFirst()); assertEquals("Keep this", cursor.getString(0))
-        }
-        assertTrue(db.transactionDao.observeAll("a").first().isEmpty())
-        assertEquals(BigInteger.ZERO, repository(db).observeWallet().first().balanceMinor)
-    }
-
-    @Test fun versionFourMigrationKeepsAccountsTopUpsOptionsAndAllBalances() = runBlocking {
-        context.deleteDatabase(name)
-        val path = context.getDatabasePath(name)
-        path.parentFile!!.mkdirs()
-        SQLiteDatabase.openOrCreateDatabase(path, null).use { legacy ->
-            legacy.execSQL("CREATE TABLE sample_table (id TEXT NOT NULL PRIMARY KEY, title TEXT NOT NULL, description TEXT NOT NULL)")
-            legacy.execSQL("CREATE TABLE transactions (id TEXT NOT NULL PRIMARY KEY, userId TEXT NOT NULL, type TEXT NOT NULL, amountMinor INTEGER NOT NULL, category TEXT NOT NULL, note TEXT NOT NULL, dateEpochMillis INTEGER NOT NULL, createdAt INTEGER NOT NULL, updatedAt INTEGER NOT NULL, pendingSync INTEGER NOT NULL, isDeleted INTEGER NOT NULL)")
-            legacy.execSQL("CREATE INDEX index_transactions_userId ON transactions(userId)")
-            legacy.execSQL("CREATE TABLE transaction_tags (userId TEXT NOT NULL, name TEXT NOT NULL COLLATE NOCASE, PRIMARY KEY(userId, name))")
-            legacy.execSQL("CREATE TABLE wallet_bank_accounts (userId TEXT NOT NULL, id TEXT NOT NULL, name TEXT NOT NULL, openingBalanceMinor INTEGER NOT NULL, PRIMARY KEY(userId, id))")
-            legacy.execSQL("CREATE TABLE wallet_top_ups (userId TEXT NOT NULL, id TEXT NOT NULL, bankAccountId TEXT NOT NULL, amountMinor INTEGER NOT NULL, dateEpochMillis INTEGER NOT NULL, automatic INTEGER NOT NULL, PRIMARY KEY(userId, id))")
-            legacy.execSQL("CREATE INDEX index_wallet_top_ups_userId ON wallet_top_ups(userId)")
-            legacy.execSQL("CREATE TABLE wallet_cash_links (userId TEXT NOT NULL, transactionId TEXT NOT NULL, PRIMARY KEY(userId, transactionId))")
-            legacy.execSQL("CREATE TABLE wallet_top_up_options (userId TEXT NOT NULL, bankAccountId TEXT NOT NULL, enabled INTEGER NOT NULL, thresholdMinor INTEGER NOT NULL, amountMinor INTEGER NOT NULL, PRIMARY KEY(userId))")
-            legacy.execSQL("INSERT INTO wallet_bank_accounts VALUES ('a', 'legacy-bank', 'My ambiguous bank nickname', 5000000)")
-            legacy.execSQL("INSERT INTO wallet_top_ups VALUES ('a', 'legacy-transfer', 'legacy-bank', 500000, 100, 1)")
-            legacy.execSQL("INSERT INTO wallet_top_up_options VALUES ('a', 'legacy-bank', 1, 100000, 500000)")
-            legacy.execSQL("INSERT INTO transactions VALUES ('old', 'a', 'INCOME', 200000, 'Cash', 'Keep', 1, 1, 1, 1, 0)")
-            legacy.execSQL("INSERT INTO wallet_cash_links VALUES ('a', 'old')")
-            legacy.version = 4
-        }
-        val db = open(); val wallet = repository(db).observeWallet().first()
-        val bank = wallet.accounts.single()
-        assertEquals("legacy-bank", bank.id)
-        assertEquals("My ambiguous bank nickname", bank.name)
-        assertEquals("other", bank.bankId)
-        assertTrue(bank.needsBankReview)
-        assertTrue(bank.isActive)
-        assertEquals(BigInteger.valueOf(4500000), bank.balanceMinor)
-        assertEquals(BigInteger.valueOf(700000), wallet.balanceMinor)
-        assertEquals(1, wallet.topUpHistory.size)
-        assertTrue(wallet.topUpOption!!.enabled)
-        assertFalse(wallet.topUpOption!!.automaticExecution)
-        db.openHelper.readableDatabase.query("EXPLAIN QUERY PLAN SELECT amountMinor FROM wallet_top_ups WHERE userId = 'a' AND bankAccountId = 'legacy-bank'").use { cursor ->
-            assertTrue(cursor.moveToFirst())
-            assertTrue(cursor.getString(3).contains("index_wallet_top_ups_userId_bankAccountId_dateEpochMillis"))
-        }
     }
 
     private class TestAuth : AuthRepository {

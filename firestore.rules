@@ -1,5 +1,9 @@
 rules_version = '2';
 
+// Income sources: users/{uid}/income_sources/{sourceId}, owner-private.
+// Immutable id/userId/createdAt; name 1..100, positive amountMinor, owned LKR accountId,
+// recurring/active bools, updatedAt epoch int, lastConfirmedMonth null or YYYY-MM.
+// Confirmation is the owner's report of receipt, not an external payment attestation.
 // Data model: users/{uid}/transactions/{transactionId} (owner-private).
 // Required fields: id and userId (strings, immutable, 1..128 characters);
 // type (INCOME or EXPENSE); amountMinor (positive int, minor units);
@@ -112,6 +116,37 @@ service cloud.firestore {
       allow update: if isOwner(userId) && isValidDefault(userId, request.resource.data)
         && (resource.data.accountId == request.resource.data.accountId
           || getAfter(/databases/$(database)/documents/users/$(userId)/accounts/$(resource.data.accountId)).data.isDefault == false);
+    }
+
+    function validIncomeSource(data, sourceId, userId) {
+      let fields = ['id', 'userId', 'name', 'amountMinor', 'accountId', 'recurring',
+                    'active', 'createdAt', 'updatedAt', 'lastConfirmedMonth'];
+      return data.keys().hasAll(fields) && data.keys().hasOnly(fields)
+        && data.id is string && data.id == sourceId && sourceId.size() > 0 && sourceId.size() <= 128
+        && sourceId != '.' && sourceId != '..'
+        && data.userId == userId && uidUnchanged(data)
+        && data.name is string && data.name.size() > 0 && data.name.size() <= 100
+        && data.name.matches('(?s).*[^\\s].*')
+        && data.amountMinor is int && data.amountMinor > 0
+        && data.accountId is string && data.accountId.size() > 0 && data.accountId.size() <= 128
+        && !data.accountId.matches('.*[/].*') && data.accountId != '.' && data.accountId != '..'
+        && data.recurring is bool && data.active is bool
+        && data.createdAt is int && data.createdAt >= 0
+        && data.updatedAt is int && data.updatedAt >= data.createdAt
+        && (data.lastConfirmedMonth == null || (data.lastConfirmedMonth is string
+          && data.lastConfirmedMonth.matches('[0-9]{4}-(0[1-9]|1[0-2])')
+          && !data.lastConfirmedMonth.matches('0000-.*')))
+        && (!data.active || (getAfter(/databases/$(database)/documents/users/$(userId)/accounts/$(data.accountId)).data.userId == userId
+          && getAfter(/databases/$(database)/documents/users/$(userId)/accounts/$(data.accountId)).data.currency == 'LKR'));
+    }
+    match /users/{userId}/income_sources/{sourceId} {
+      allow read: if isOwner(userId);
+      allow create: if isOwner(userId) && validIncomeSource(request.resource.data, sourceId, userId);
+      allow update: if isOwner(userId) && validIncomeSource(request.resource.data, sourceId, userId)
+        && uidNotModified(request.resource.data)
+        && request.resource.data.createdAt == resource.data.createdAt;
+      // Archive instead; retain the monthly receipt marker and transaction identity.
+      allow delete: if false;
     }
 
     match /{document=**} {
