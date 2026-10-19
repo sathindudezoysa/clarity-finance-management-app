@@ -18,5 +18,9 @@ data class Transaction(
     val updatedAt: Long = createdAt,
     val accountId: String? = null,
     // Local funding metadata derived from the wallet link, never serialized to Firestore.
-    val isCash: Boolean = false
+    val isCash: Boolean = false,
+    val currency: String = "LKR",
+    val targetCurrency: String = "LKR",
+    val conversion: ConversionSnapshot? = if (currency == targetCurrency) ConversionSnapshot.identity(amountMinor) else null,
+    val pendingConversion: Boolean = conversion == null
 )

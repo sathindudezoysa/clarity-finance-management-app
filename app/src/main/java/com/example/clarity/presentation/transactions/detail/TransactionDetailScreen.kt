@@ -56,7 +56,13 @@ fun TransactionDetailScreen(
                     Field(R.string.transactions_type, stringResource(
                         if (transaction.type == TransactionType.INCOME) R.string.transactions_income else R.string.transactions_expense
                     ))
-                    Field(R.string.transactions_amount, MoneyUtils.formatMinor(transaction.amountMinor))
+                    Field(R.string.transactions_amount, transaction.currency + " " + MoneyUtils.formatMinor(transaction.amountMinor, transaction.currency))
+                    com.example.clarity.presentation.transactions.ConversionInfo(transaction.targetCurrency,
+                        transaction.conversion, transaction.pendingConversion)
+                    if (transaction.pendingConversion) {
+                        Text(stringResource(R.string.currency_daily))
+                        TextButton(onClick = viewModel::retry) { Text(stringResource(R.string.currency_retry)) }
+                    }
                     Field(R.string.transactions_account, if (transaction.isCash) stringResource(R.string.wallet_title) else state.accountName ?: stringResource(
                         if (transaction.accountId == null) R.string.transactions_account_unassigned
                         else R.string.transactions_account_unavailable))

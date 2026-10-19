@@ -46,8 +46,33 @@ class CashWalletPersistenceTest {
 
     private fun open(): ClarityDatabase = DatabaseModule.createDatabase(context, name).also { database = it }
     private val clock = Clock.fixed(Instant.ofEpochMilli(123456789), ZoneOffset.UTC)
-    private fun repository(db: ClarityDatabase) = CashWalletRepositoryImpl(db, auth, Dispatchers.IO, clock)
+    private fun repository(db: ClarityDatabase) = CashWalletRepositoryImpl(db, auth, Dispatchers.IO, clock,
+        TestCurrencies.preferences, TestCurrencies.rates)
     @After fun cleanUp() { database?.close(); context.deleteDatabase(name) }
+
+    @Test fun primaryReportingCurrencyDoesNotChangeTheLkrCashLedger() = runBlocking {
+        context.deleteDatabase(name)
+        val db = open()
+        val preferences = object : com.example.clarity.domain.repository.CurrencyPreferenceRepository {
+            override fun observe() = kotlinx.coroutines.flow.flowOf(com.example.clarity.domain.repository.CurrencyPreference("USD"))
+            override suspend fun set(currency: String) = Result.success(Unit)
+            override suspend fun current() = "USD"
+        }
+        val rates = object : com.example.clarity.domain.repository.ExchangeRateRepository {
+            override suspend fun cached(source: String, target: String) = com.example.clarity.domain.model.ExchangeRate(
+                source, target, "0.01", "ExchangeRate-API", clock.millis() - 1, clock.millis(), clock.millis() + 1000, true)
+            override suspend fun latest(source: String, target: String): com.example.clarity.domain.model.ExchangeRate = error("No network")
+        }
+        val wallet = CashWalletRepositoryImpl(db, auth, Dispatchers.IO, clock, preferences, rates)
+        wallet.recordCash(1000, TransactionType.INCOME, "Cash", "").getOrThrow()
+        val entry = db.transactionDao.observeAll("a").first().single()
+        assertEquals("LKR", entry.currency)
+        assertEquals("USD", entry.targetCurrency)
+        assertEquals(10L, entry.conversion!!.amountMinor)
+        assertEquals(BigInteger.valueOf(1000), wallet.observeWallet().first().balanceMinor)
+        assertTrue(runCatching { db.transactionDao.persistLocal(entry.copy(currency = "USD")) }.isFailure)
+        assertEquals("LKR", db.transactionDao.getById(entry.id)!!.currency)
+    }
 
     @Test fun topUpExpenseAndOptionSurviveReopeningAndRemainUserScoped() = runBlocking {
         context.deleteDatabase(name)
@@ -196,7 +221,7 @@ class CashWalletPersistenceTest {
             val transactions = TransactionRepositoryImpl(db.transactionDao, FirestoreDataSource(firestore), auth,
                 Dispatchers.Unconfined, object : com.example.clarity.data.sync.AccountUploader {
                     override suspend fun uploadPending(uid: String, afterAccounts: suspend () -> Unit): Boolean { afterAccounts(); return true }
-                }, this, clock)
+                }, this, TestCurrencies.rates, TestCurrencies.preferences, TestCurrencies.scheduler(), clock)
             val rows = db.transactionDao.observeAll("a").first()
             val income = rows.single { it.type == "INCOME" }.toDomain()
             val expense = rows.single { it.type == "EXPENSE" }.toDomain()

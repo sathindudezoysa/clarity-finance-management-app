@@ -24,7 +24,8 @@ class TransactionDetailViewModel @Inject constructor(
     savedStateHandle: SavedStateHandle,
     private val getTransaction: GetTransactionUseCase,
     private val deleteTransaction: DeleteTransactionUseCase,
-    private val getAccounts: GetAccountsUseCase
+    private val getAccounts: GetAccountsUseCase,
+    private val retryConversion: com.example.clarity.domain.usecase.transaction.RetryConversionUseCase
 ) : ViewModel() {
     // get<String> inserts a throwing cast for malformed saved/navigation state; check the runtime type first.
     private val id = savedStateHandle.transactionIdArgument()
@@ -60,6 +61,13 @@ class TransactionDetailViewModel @Inject constructor(
     fun showDeleteDialog() {
         if (id == null || _uiState.value.transaction == null || _uiState.value.isDeleting) return
         _uiState.update { it.copy(isDeleteDialogVisible = true) }
+    }
+    fun retry() {
+        val transactionId = id ?: return
+        viewModelScope.launch {
+            val result = retryConversion(transactionId)
+            _uiState.update { it.copy(error = if (result.isFailure) R.string.currency_retry_failed else null) }
+        }
     }
     fun hideDeleteDialog() { _uiState.update { it.copy(isDeleteDialogVisible = false) } }
 

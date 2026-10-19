@@ -19,5 +19,11 @@ data class TransactionEntity(
     // Local-only outbox metadata. Never serialized to Firestore.
     val pendingSync: Boolean = false,
     val isDeleted: Boolean = false,
-    @ColumnInfo(defaultValue = "NULL") val accountId: String? = null
+    @ColumnInfo(defaultValue = "NULL") val accountId: String? = null,
+    val currency: String = "LKR",
+    val targetCurrency: String = "LKR",
+    @androidx.room.Embedded(prefix = "conversion_")
+    val conversion: com.example.clarity.domain.model.ConversionSnapshot? =
+        if (currency == targetCurrency) com.example.clarity.domain.model.ConversionSnapshot.identity(amountMinor) else null,
+    val pendingConversion: Boolean = conversion == null
 )

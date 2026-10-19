@@ -12,4 +12,5 @@ interface TransactionRepository {
     suspend fun addTransaction(t: Transaction): Result<Unit>
     suspend fun updateTransaction(t: Transaction): Result<Unit>
     suspend fun deleteTransaction(id: String): Result<Unit>
+    suspend fun retryConversion(id: String): Result<Unit>
 }

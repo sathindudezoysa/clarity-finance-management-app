@@ -39,6 +39,14 @@ annotation class ApplicationScope
 @Module
 @InstallIn(SingletonComponent::class)
 abstract class RepositoryModule {
+    @Binds
+    abstract fun bindRates(impl: com.example.clarity.data.repository.ExchangeRateRepositoryImpl): com.example.clarity.domain.repository.ExchangeRateRepository
+
+    @Binds
+    abstract fun bindRateSource(impl: com.example.clarity.data.remote.HttpsExchangeRateRemoteDataSource): com.example.clarity.data.remote.ExchangeRateRemoteDataSource
+
+    @Binds
+    abstract fun bindCurrencyPreferences(impl: com.example.clarity.data.repository.CurrencyPreferenceRepositoryImpl): com.example.clarity.domain.repository.CurrencyPreferenceRepository
     companion object {
         @Provides
         @Singleton

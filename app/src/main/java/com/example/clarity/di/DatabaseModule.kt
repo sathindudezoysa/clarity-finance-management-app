@@ -52,4 +52,7 @@ object DatabaseModule {
     @Provides
     @Singleton
     fun provideAccountDao(database: ClarityDatabase): AccountDao = database.accountDao
+
+    @Provides
+    fun provideCurrencyDao(database: ClarityDatabase): com.example.clarity.data.local.dao.CurrencyDao = database.currencyDao
 }

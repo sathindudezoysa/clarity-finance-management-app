@@ -85,6 +85,7 @@ class TransactionTagsTest {
     }
 
     private class RecordingRepository : TransactionRepository {
+        override suspend fun retryConversion(id: String) = Result.success(Unit)
         var saved: Transaction? = null
         override fun observeTransactions(): Flow<Resource<List<Transaction>>> = flowOf(Resource.Success(emptyList()))
         override fun observeTransaction(id: String): Flow<Resource<Transaction?>> = flowOf(Resource.Success(saved))

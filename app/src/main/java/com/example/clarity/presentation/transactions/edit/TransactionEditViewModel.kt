@@ -33,7 +33,9 @@ class TransactionEditViewModel @Inject constructor(
     private val addTransaction: AddTransactionUseCase,
     private val updateTransaction: UpdateTransactionUseCase,
     private val getTransactionTags: GetTransactionTagsUseCase,
-    private val getAccounts: GetAccountsUseCase
+    private val getAccounts: GetAccountsUseCase,
+    private val currencyPreference: com.example.clarity.domain.usecase.currency.ObserveCurrencyPreferenceUseCase,
+    private val previewConversion: com.example.clarity.domain.usecase.transaction.PreviewConversionUseCase
 ) : ViewModel() {
     private val isEditMode = savedStateHandle.get<Any?>(TRANSACTION_ID_ARGUMENT) != null
     private val id = savedStateHandle.transactionIdArgument()
@@ -45,8 +47,15 @@ class TransactionEditViewModel @Inject constructor(
         selectedAccountId = restoredAccountId,
         error = if (isEditMode && id == null) R.string.transactions_not_found else null))
     val uiState = _uiState.asStateFlow()
+    private var previewJob: kotlinx.coroutines.Job? = null
 
     init {
+        viewModelScope.launch {
+            currencyPreference().collect { preference ->
+                updateState { if (it.isEditMode) it else it.copy(targetCurrency = preference.currency,
+                    currency = savedStateHandle.get<String>("currency") ?: preference.currency) }
+            }
+        }
         if (selectionInitialized) persistSelection(restoredAccountId)
         viewModelScope.launch {
             getAccounts().collect { result ->
@@ -88,7 +97,9 @@ class TransactionEditViewModel @Inject constructor(
                             else R.string.transactions_load_error
                         )
                     }
-                    _uiState.value = initializeAccountSelection(next)
+                    _uiState.value = initializeAccountSelection(next.copy(
+                        currency = savedStateHandle.get<String>("currency") ?: next.transaction?.currency ?: next.currency,
+                        targetCurrency = next.transaction?.targetCurrency ?: next.targetCurrency))
                 }
             }
         }
@@ -148,7 +159,7 @@ class TransactionEditViewModel @Inject constructor(
                 }) }
                 return
             }
-            val amount = MoneyUtils.parseMinor(amountText).getOrNull()
+            val amount = MoneyUtils.parseMinor(amountText, state.currency).getOrNull()
             val amountError = when {
                 amount == null -> R.string.transactions_amount_invalid
                 amount <= 0 -> R.string.transactions_amount_positive
@@ -160,6 +171,7 @@ class TransactionEditViewModel @Inject constructor(
             if (amountError != null || categoryError != null || noteError != null) return
             val saved = (state.transaction ?: Transaction(amountMinor = checkNotNull(amount))).copy(
                 type = type, amountMinor = checkNotNull(amount), category = category, note = note,
+                currency = state.currency, targetCurrency = state.targetCurrency,
                 dateEpochMillis = dateEpochMillis, accountId = if (state.transaction?.isCash == true) null else state.selectedAccountId
             )
             updateState { it.copy(isSaving = true) }
@@ -180,6 +192,37 @@ class TransactionEditViewModel @Inject constructor(
                         else -> R.string.transactions_save_error
                     }
                 ) } }
+        }
+    }
+
+    fun onCurrencySelected(currency: String) {
+        if (currency !in com.example.clarity.domain.model.Currencies.supported || uiState.value.isSaving || uiState.value.transaction?.isCash == true) return
+        savedStateHandle["currency"] = currency
+        previewJob?.cancel()
+        updateState { it.copy(currency = currency, preview = null) }
+    }
+
+    fun preview(amountText: String) {
+        previewJob?.cancel()
+        val state = uiState.value
+        val amount = MoneyUtils.parseMinor(amountText, state.currency).getOrNull()
+        updateState { it.copy(preview = null, previewError = false, previewLoading = false) }
+        if (amount == null || amount <= 0) return
+        val historical = state.transaction?.takeIf { it.amountMinor == amount && it.currency == state.currency }
+        if (historical?.conversion != null) {
+            updateState { it.copy(preview = historical.conversion, previewError = historical.pendingConversion) }
+            return
+        }
+        previewJob = viewModelScope.launch {
+            kotlinx.coroutines.delay(400)
+            updateState { it.copy(previewLoading = true) }
+            try {
+                val snapshot = previewConversion(amount, state.currency, state.targetCurrency)
+                updateState { it.copy(preview = snapshot, previewLoading = false) }
+            } catch (error: Exception) {
+                if (error is kotlinx.coroutines.CancellationException) throw error
+                updateState { it.copy(previewLoading = false, previewError = true) }
+            }
         }
     }
 }

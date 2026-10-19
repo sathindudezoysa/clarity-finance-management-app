@@ -119,7 +119,7 @@ class AccountDaoTest {
             }, Dispatchers.IO, object : AccountUploader {
                 override suspend fun uploadPending(uid: String, afterAccounts: suspend () -> Unit): Boolean =
                     error("Signed-out users must not upload")
-            }, applicationScope).also { transactionRepositories.add(it) }
+            }, applicationScope, TestCurrencies.rates, TestCurrencies.preferences, TestCurrencies.scheduler()).also { transactionRepositories.add(it) }
         val list = withTimeout(10_000) {
             repository.observeTransactions().first { it is Resource.Error } as Resource.Error
         }

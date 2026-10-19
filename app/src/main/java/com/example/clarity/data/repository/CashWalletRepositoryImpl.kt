@@ -24,7 +24,9 @@ class CashWalletRepositoryImpl @Inject constructor(
     private val database: ClarityDatabase,
     private val auth: AuthRepository,
     private val ioDispatcher: CoroutineDispatcher,
-    private val clock: Clock = Clock.systemUTC()
+    private val clock: Clock = Clock.systemUTC(),
+    private val preferences: com.example.clarity.domain.repository.CurrencyPreferenceRepository,
+    private val rates: com.example.clarity.domain.repository.ExchangeRateRepository
 ) : CashWalletRepository {
     private val dao get() = database.cashWalletDao
 
@@ -107,8 +109,13 @@ class CashWalletRepositoryImpl @Inject constructor(
         val normalizedCategory = category.trim().ifBlank { "General" }
         walletRequire(normalizedCategory.length <= 100 && note.trim().length <= 2000, "The category or note is too long.")
         val now = clock.millis()
+        val target = preferences.current()
+        val conversion = if (target == "LKR") ConversionSnapshot.identity(amountMinor)
+            else rates.cached("LKR", target)?.let { CurrencyConversion.snapshot(amountMinor, it) }
         val transaction = Transaction(userId = uid, amountMinor = amountMinor, type = type, category = normalizedCategory,
-            note = note.trim(), dateEpochMillis = now, createdAt = now, updatedAt = now)
+            note = note.trim(), dateEpochMillis = now, createdAt = now, updatedAt = maxOf(now, conversion?.fetchedAt ?: 0),
+            currency = "LKR", targetCurrency = target, conversion = conversion)
+        CurrencyConversion.validate(transaction)
         database.transactionDao.upsertWithTag(transaction.toEntity().copy(pendingSync = true))
         dao.insertCashLink(WalletCashLinkEntity(uid, transaction.id))
         // The saved automatic-execution opt-in authorizes one recorded withdrawal per cash expense.

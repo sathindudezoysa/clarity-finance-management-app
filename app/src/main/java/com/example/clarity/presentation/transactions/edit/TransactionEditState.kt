@@ -19,7 +19,12 @@ data class TransactionEditState(
     val selectedAccountId: String? = null,
     val isAccountsLoading: Boolean = true,
     val accountsError: Int? = null,
-    val accountError: Int? = null
+    val accountError: Int? = null,
+    val currency: String = "LKR",
+    val targetCurrency: String = "LKR",
+    val preview: com.example.clarity.domain.model.ConversionSnapshot? = null,
+    val previewLoading: Boolean = false,
+    val previewError: Boolean = false
 ) {
     val canSaveWithAccount: Boolean get() = transaction?.isCash == true || (!isAccountsLoading && accounts.any { it.id == selectedAccountId })
 }
