@@ -35,3 +35,34 @@ object BudgetMessages {
     const val LOAD_ERROR = "Could not load budgets. Reopen this screen to retry."
     const val CONVERSION_ERROR = "Some currency conversions are unavailable. Counted spending is unchanged; reconnect and retry."
 }
+
+fun budgetLimitLabel(currency: String): String = "Limit ($currency)"
+
+/** Screen-only labels for the budgets UI; wording of pre-existing labels is unchanged. */
+object BudgetUiText {
+    const val TITLE = "Budgets"
+    const val BACK = "Back"
+    const val CREATE = "Create monthly budget"
+    const val EDIT_TITLE = "Edit budget"
+    const val MONTH_POLICY = "Calendar months use your device’s current timezone, matching transaction dates. Changing timezone can move spending between months. Existing budgets keep their currency."
+    const val SIGN_IN = "Sign in to manage your budgets."
+    const val SYNC_ERROR = "Cloud sync is unavailable. Local changes are saved and will retry automatically."
+    const val EMPTY_TITLE = "No budgets yet"
+    const val EMPTY = "Create a category budget to follow your monthly spending."
+    const val LOADING = "Loading budgets"
+    const val NOTIFICATION_TITLE = "Budget notifications"
+    const val NOTIFICATION_HELP = "Optional local notifications tell you when a current monthly budget crosses a threshold. Budget warnings remain available here if notifications are off."
+    const val NOTIFICATION_ACTION = "Enable or manage budget notifications"
+    const val RATIONALE_TITLE = "Budget update"
+    const val CONTINUE = "Continue"
+    const val CANCEL = "Cancel"
+    const val SAVE = "Save"
+    const val MONTH_LABEL = "Month (YYYY-MM)"
+    const val RETRY = "Resolve uncounted currencies"
+    const val PENDING_SYNC = "Saved on this device · Waiting to sync"
+    const val EDIT = "Edit budget"
+    const val DISABLE = "Disable"
+    const val DISABLED_SECTION = "Disabled budgets"
+    const val DISABLED_HINT = "Disabled — tap to enable"
+    const val DASHBOARD_OPEN = "View all"
+}
