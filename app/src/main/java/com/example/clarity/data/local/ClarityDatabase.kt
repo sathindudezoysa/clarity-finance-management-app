@@ -21,12 +21,16 @@ import com.example.clarity.data.local.entity.TransactionTagEntity
         com.example.clarity.data.local.entity.ExchangeRateEntity::class,
         com.example.clarity.data.local.entity.CurrencyPreferenceEntity::class,
         TransactionProofEntity::class,
-        IncomeSourceEntity::class
+        IncomeSourceEntity::class,
+        com.example.clarity.data.local.entity.BudgetEntity::class,
+        com.example.clarity.data.local.entity.BudgetAlertEntity::class,
+        com.example.clarity.data.local.entity.BudgetResolutionEntity::class
     ],
     version = ClarityDatabase.SCHEMA_VERSION,
     exportSchema = false
 )
 abstract class ClarityDatabase : RoomDatabase() {
+    abstract val budgetDao: com.example.clarity.data.local.dao.BudgetDao
     abstract val transactionDao: TransactionDao
     abstract val transactionTagDao: TransactionTagDao
     abstract val incomeSourceDao: IncomeSourceDao
@@ -36,6 +40,6 @@ abstract class ClarityDatabase : RoomDatabase() {
 
     companion object {
         const val DATABASE_NAME = "clarity_db"
-        const val SCHEMA_VERSION = 14
+        const val SCHEMA_VERSION = 15
     }
 }

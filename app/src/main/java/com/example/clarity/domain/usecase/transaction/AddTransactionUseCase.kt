@@ -17,7 +17,7 @@ class AddTransactionUseCase @Inject constructor(
             return Result.failure(IllegalArgumentException("Amount must be greater than zero"))
         }
         val normalized = transaction.copy(
-            category = transaction.category.trim().ifBlank { "General" },
+            category = com.example.clarity.domain.model.TransactionTags.normalize(transaction.category),
             note = transaction.note.trim()
         )
         if (normalized.category.length > 100 || normalized.note.length > 2000) {

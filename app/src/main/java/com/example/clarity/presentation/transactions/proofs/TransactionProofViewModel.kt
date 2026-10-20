@@ -5,7 +5,6 @@ import com.example.clarity.domain.model.ProofPolicy
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.example.clarity.R
 import com.example.clarity.domain.model.ProofOpenFile
 import com.example.clarity.domain.usecase.transaction.*
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -32,29 +31,29 @@ class TransactionProofViewModel @Inject constructor(
     val openFiles = opens.receiveAsFlow()
 
     init {
-        if (id == null) state.value = TransactionProofState(isLoading = false, error = R.string.proofs_load_error)
+        if (id == null) state.value = TransactionProofState(isLoading = false, error = ProofMessages.LOAD_ERROR)
         else {
             viewModelScope.launch {
                 observe(id).catch { error ->
                     if (error is CancellationException) throw error
-                    state.update { it.copy(isLoading = false, error = R.string.proofs_load_error) }
+                    state.update { it.copy(isLoading = false, error = ProofMessages.LOAD_ERROR) }
                 }.collect { rows -> state.update { it.copy(proofs = rows, isLoading = false) } }
             }
             // Network failure never hides locally saved proofs; retry is available below the list.
-            viewModelScope.launch { refresh(id).onFailure { state.update { it.copy(error = R.string.proofs_sync_error) } } }
+            viewModelScope.launch { refresh(id).onFailure { state.update { it.copy(error = ProofMessages.SYNC_ERROR) } } }
         }
     }
 
-    fun attachFile(uri: String) = action(R.string.proofs_attach_error) { attach(checkNotNull(id), uri).getOrThrow() }
-    fun openFile(proofId: String) = action(R.string.proofs_open_error) { opens.send(open(checkNotNull(id), proofId).getOrThrow()) }
-    fun verifyAmount(proofId: String, amount: Long, verified: Boolean) = action(R.string.proofs_verify_error) {
+    fun attachFile(uri: String) = action(ProofMessages.ATTACH_ERROR) { attach(checkNotNull(id), uri).getOrThrow() }
+    fun openFile(proofId: String) = action(ProofMessages.OPEN_ERROR) { opens.send(open(checkNotNull(id), proofId).getOrThrow()) }
+    fun verifyAmount(proofId: String, amount: Long, verified: Boolean) = action(ProofMessages.VERIFY_ERROR) {
         verify(checkNotNull(id), proofId, amount, verified).getOrThrow()
     }
-    fun removeMissing(proofId: String) = action(R.string.proofs_remove_error) { removeUnavailable(checkNotNull(id), proofId).getOrThrow() }
-    fun retry() = action(R.string.proofs_sync_error) { refresh(checkNotNull(id)).getOrThrow() }
-    fun viewerUnavailable() { state.update { it.copy(error = R.string.proofs_viewer_error) } }
+    fun removeMissing(proofId: String) = action(ProofMessages.REMOVE_ERROR) { removeUnavailable(checkNotNull(id), proofId).getOrThrow() }
+    fun retry() = action(ProofMessages.SYNC_ERROR) { refresh(checkNotNull(id)).getOrThrow() }
+    fun viewerUnavailable() { state.update { it.copy(error = ProofMessages.VIEWER_ERROR) } }
 
-    private fun action(errorMessage: Int, block: suspend () -> Unit) {
+    private fun action(errorMessage: String, block: suspend () -> Unit) {
         if (id == null || state.value.isBusy) return
         state.update { it.copy(isBusy = true, error = null) }
         viewModelScope.launch {

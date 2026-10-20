@@ -3,6 +3,9 @@ package com.example.clarity.presentation.navigation
 import android.net.Uri
 
 sealed class Screen(val route: String) {
+    object Budgets : Screen("budgets?budgetId={budgetId}") {
+        fun createRoute(id: String? = null) = "budgets" + (id?.let { "?budgetId=${Uri.encode(it)}" } ?: "")
+    }
     object IncomeSources : Screen("income_sources")
     object Main : Screen("main_screen")
     object CashWallet : Screen("cash_wallet")

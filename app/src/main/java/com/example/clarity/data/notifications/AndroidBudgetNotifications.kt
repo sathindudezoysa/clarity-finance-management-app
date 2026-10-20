@@ -1,0 +1,78 @@
+package com.example.clarity.data.notifications
+
+import android.Manifest
+import android.app.*
+import android.content.Context
+import android.content.Intent
+import android.content.pm.PackageManager
+import android.net.Uri
+import android.os.Build
+import androidx.core.app.NotificationCompat
+import androidx.core.app.NotificationManagerCompat
+import androidx.core.content.ContextCompat
+import com.example.clarity.MainActivity
+import com.example.clarity.R
+import com.example.clarity.domain.model.*
+import com.example.clarity.domain.repository.BudgetNotificationDelivery
+import dagger.hilt.android.qualifiers.ApplicationContext
+import java.math.BigDecimal
+import java.math.BigInteger
+import javax.inject.Inject
+import javax.inject.Singleton
+
+@Singleton
+class AndroidBudgetNotifications @Inject constructor(@ApplicationContext private val context: Context) : BudgetNotificationDelivery {
+    private val manager get() = context.getSystemService(NotificationManager::class.java)
+    private fun channel() { manager.createNotificationChannel(NotificationChannel(CHANNEL, "Budget threshold alerts", NotificationManager.IMPORTANCE_DEFAULT)) }
+    override fun available(): Boolean {
+        channel()
+        return (Build.VERSION.SDK_INT < 33 || ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED) &&
+            NotificationManagerCompat.from(context).areNotificationsEnabled() && manager.getNotificationChannel(CHANNEL).importance != NotificationManager.IMPORTANCE_NONE
+    }
+    override fun deliver(status: BudgetStatus) {
+        if (!available()) return
+        publish(status, silent = false)
+    }
+    override fun refreshVisible(status: BudgetStatus) {
+        if (!available()) return
+        val budget = status.budget
+        val visible = manager.activeNotifications.firstOrNull { it.tag == tag(budget.userId, budget.id) && it.id == 1 } ?: return
+        publish(status, silent = true, whenMillis = visible.notification.`when`)
+    }
+    private fun publish(status: BudgetStatus, silent: Boolean, whenMillis: Long? = null) {
+        val budget = status.budget
+        val intent = Intent(context, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
+            data = Uri.parse("clarity-budget://open/${Uri.encode(budget.userId)}/${budget.id}")
+            putExtra("budgetOwner", budget.userId); putExtra("budgetId", budget.id)
+        }
+        val pending = PendingIntent.getActivity(context, 0, intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+        fun money(value: BigInteger) = "${budget.currency} ${BigDecimal(value, Currencies.digits(budget.currency)).toPlainString()}"
+        val statusText = when (status.threshold) {
+            BudgetThreshold.NEARING -> "Nearing budget limit"
+            BudgetThreshold.REACHED -> "Budget reached"
+            else -> "Budget exceeded"
+        }
+        val feedbackText = when (status.threshold) {
+            BudgetThreshold.NEARING -> "You’re close to your ${budget.category} budget. A small adjustment now can help you stay on track."
+            BudgetThreshold.REACHED -> "You’ve reached your ${budget.category} budget. Review your next expenses and make a fresh plan."
+            else -> "You’ve passed this month’s ${budget.category} budget. Review your next expenses and make a fresh plan."
+        }
+        val details = "${budget.category} · ${budget.month}: ${money(status.spent)} of ${money(budget.limitMinor.toBigInteger())}. $statusText. $feedbackText" +
+            (if (status.remaining.signum() < 0) " Exceeded by ${money(-status.remaining)}" else "") +
+            (if (status.uncounted > 0) " " + String.format("%d expense(s) are uncounted because their currency is not yet comparable. This total is incomplete.", status.uncounted) else "")
+        val builder = NotificationCompat.Builder(context, CHANNEL).setSmallIcon(R.drawable.ic_budget_notification)
+            .setContentTitle("Budget update").setContentText(details)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(details)).setContentIntent(pending)
+            .setAutoCancel(true).setOnlyAlertOnce(silent).setSilent(silent).setVisibility(NotificationCompat.VISIBILITY_SECRET)
+        if (whenMillis != null) builder.setWhen(whenMillis)
+        val notification = builder.build()
+        try { manager.notify(tag(budget.userId, budget.id), 1, notification) } catch (_: SecurityException) { /* In-app status remains available. */ }
+    }
+    override fun cancel(owner: String, budgetId: String) { manager.cancel(tag(owner, budgetId), 1) }
+    override fun cancelOwner(owner: String) {
+        manager.activeNotifications.filter { it.tag?.startsWith("budget:${Uri.encode(owner)}:") == true }.forEach { manager.cancel(it.tag, it.id) }
+    }
+    private fun tag(owner: String, id: String) = "budget:${Uri.encode(owner)}:$id"
+    companion object { const val CHANNEL = "budget_thresholds" }
+}

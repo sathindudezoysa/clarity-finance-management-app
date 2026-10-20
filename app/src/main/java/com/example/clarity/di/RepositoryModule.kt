@@ -37,6 +37,12 @@ annotation class ApplicationScope
 @Module
 @InstallIn(SingletonComponent::class)
 abstract class RepositoryModule {
+    @Binds @Singleton
+    abstract fun bindBudgetRepository(impl: com.example.clarity.data.repository.BudgetRepositoryImpl): com.example.clarity.domain.repository.BudgetRepository
+    @Binds @Singleton
+    abstract fun bindBudgetRemote(impl: com.example.clarity.data.remote.FirestoreBudgetDataSource): com.example.clarity.data.remote.BudgetRemoteDataSource
+    @Binds @Singleton
+    abstract fun bindBudgetNotifications(impl: com.example.clarity.data.notifications.AndroidBudgetNotifications): com.example.clarity.domain.repository.BudgetNotificationDelivery
     @Binds
     abstract fun bindRates(impl: com.example.clarity.data.repository.ExchangeRateRepositoryImpl): com.example.clarity.domain.repository.ExchangeRateRepository
 

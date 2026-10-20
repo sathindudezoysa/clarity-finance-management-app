@@ -48,4 +48,7 @@ object DatabaseModule {
 
     @Provides
     fun provideCurrencyDao(database: ClarityDatabase): com.example.clarity.data.local.dao.CurrencyDao = database.currencyDao
+
+    @Provides
+    fun provideBudgetDao(database: ClarityDatabase): com.example.clarity.data.local.dao.BudgetDao = database.budgetDao
 }

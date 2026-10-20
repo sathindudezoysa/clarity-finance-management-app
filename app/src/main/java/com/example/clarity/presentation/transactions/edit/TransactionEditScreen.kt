@@ -11,20 +11,16 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.LocalFocusManager
-import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.example.clarity.R
 import com.example.clarity.domain.model.TransactionType
 import com.example.clarity.domain.util.MoneyUtils
 import com.example.clarity.presentation.theme.ClarityTheme
 import com.example.clarity.presentation.transactions.formatTransactionDate
-import java.time.Instant
-import java.time.ZoneId
-import java.time.ZoneOffset
+import com.example.clarity.domain.util.TransactionCalendar
 
 @Composable
 fun TransactionEditScreen(
@@ -79,13 +75,11 @@ internal fun TransactionEditContent(
     if (dateDialogVisible) {
         // DatePicker uses UTC-midnight dates. Convert calendar days, not raw UTC instants,
         // so selecting a day keeps that same date in the device's local timezone.
-        val initialDate = Instant.ofEpochMilli(dateEpochMillis).atZone(ZoneId.systemDefault())
-            .toLocalDate().atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli()
+        val initialDate = TransactionCalendar.pickerDate(dateEpochMillis)
         val pickerState = rememberDatePickerState(initialSelectedDateMillis = initialDate)
         LaunchedEffect(pickerState.selectedDateMillis) {
             pickerState.selectedDateMillis?.takeIf { it != initialDate }?.let { selected ->
-                dateEpochMillis = Instant.ofEpochMilli(selected).atZone(ZoneOffset.UTC)
-                    .toLocalDate().atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli()
+                dateEpochMillis = TransactionCalendar.fromPickerDate(selected)
                 dateDialogVisible = false
             }
         }
@@ -94,52 +88,51 @@ internal fun TransactionEditContent(
             confirmButton = {
                 TextButton(onClick = {
                     pickerState.selectedDateMillis?.let { selected ->
-                        dateEpochMillis = Instant.ofEpochMilli(selected).atZone(ZoneOffset.UTC)
-                            .toLocalDate().atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli()
+                        dateEpochMillis = TransactionCalendar.fromPickerDate(selected)
                     }
                     dateDialogVisible = false
                 }, enabled = pickerState.selectedDateMillis != null) {
-                    Text(stringResource(R.string.transactions_date_confirm))
+                    Text("Choose date")
                 }
             },
-            dismissButton = { TextButton(onClick = { dateDialogVisible = false }) { Text(stringResource(R.string.transactions_cancel)) } }
+            dismissButton = { TextButton(onClick = { dateDialogVisible = false }) { Text("Cancel") } }
         ) { DatePicker(state = pickerState) }
     }
 
     Scaffold(topBar = {
         TopAppBar(
-            title = { Text(stringResource(if (state.isEditMode) R.string.transactions_edit_title else R.string.transactions_add_title)) },
-            navigationIcon = { TextButton(onClick = onBack, enabled = !state.isSaving) { Text(stringResource(R.string.transactions_back)) } }
+            title = { Text(if (state.isEditMode) "Edit transaction" else "Add transaction") },
+            navigationIcon = { TextButton(onClick = onBack, enabled = !state.isSaving) { Text("Back") } }
         )
     }) { padding ->
         Column(
             Modifier.fillMaxSize().padding(padding).imePadding().verticalScroll(rememberScrollState()).padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            state.error?.let { Text(stringResource(it), color = MaterialTheme.colorScheme.error) }
+            state.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
             if (state.isLoading) CircularProgressIndicator()
             else if (state.isEditMode && state.transaction == null) {
-                if (state.error == null) Text(stringResource(R.string.transactions_not_found))
+                if (state.error == null) Text("Transaction not found.")
             } else {
                 LaunchedEffect(Unit) { if (!state.isEditMode) amountFocus.requestFocus() }
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     FilterChip(
                         selected = typeName == TransactionType.EXPENSE.name,
                         onClick = { typeName = TransactionType.EXPENSE.name },
-                        label = { Text(stringResource(R.string.transactions_expense)) }, enabled = !state.isSaving
+                        label = { Text("Expense") }, enabled = !state.isSaving
                     )
                     FilterChip(
                         selected = typeName == TransactionType.INCOME.name,
                         onClick = { typeName = TransactionType.INCOME.name },
-                        label = { Text(stringResource(R.string.transactions_income)) }, enabled = !state.isSaving
+                        label = { Text("Income") }, enabled = !state.isSaving
                     )
                 }
                 OutlinedTextField(
                     value = amount, onValueChange = { amount = it },
-                    label = { Text(stringResource(R.string.transactions_amount)) },
+                    label = { Text("Amount") },
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                     isError = state.amountError != null,
-                    supportingText = { state.amountError?.let { Text(stringResource(it)) } },
+                    supportingText = { state.amountError?.let { Text(it) } },
                     enabled = !state.isSaving, singleLine = true,
                     modifier = Modifier.fillMaxWidth().focusRequester(amountFocus)
                 )
@@ -148,15 +141,15 @@ internal fun TransactionEditContent(
                 if (state.previewLoading) CircularProgressIndicator()
                 com.example.clarity.presentation.transactions.ConversionInfo(state.targetCurrency, state.preview,
                     pending = false)
-                if (state.previewError) Text(stringResource(R.string.currency_preview_pending))
-                if (state.previewError) TextButton(onClick = { onPreview(amount) }) { Text(stringResource(R.string.currency_retry)) }
-                Text(stringResource(R.string.currency_daily))
-                state.accountsError?.let { Text(stringResource(it), color = MaterialTheme.colorScheme.error) }
+                if (state.previewError) Text("Conversion unavailable. You can save the original amount now; conversion will remain pending until a valid rate is available.")
+                if (state.previewError) TextButton(onClick = { onPreview(amount) }) { Text("Retry conversion") }
+                Text("Daily reference rates. A missing rate does not prevent saving offline. Amounts that overflow or round to zero require editing the original amount.")
+                state.accountsError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
                 if (state.isAccountsLoading) CircularProgressIndicator()
                 else if (state.accounts.isEmpty()) {
-                    Text(stringResource(R.string.transactions_account_required), color = MaterialTheme.colorScheme.error)
+                    Text("Create a bank account before saving a transaction.", color = MaterialTheme.colorScheme.error)
                     OutlinedButton(onClick = onCreateAccount, enabled = !state.isSaving) {
-                        Text(stringResource(R.string.transactions_create_account))
+                        Text("Create bank account")
                     }
                 }
                 if (!state.isAccountsLoading) {
@@ -170,13 +163,13 @@ internal fun TransactionEditContent(
                 )
                 OutlinedTextField(
                     value = note, onValueChange = { note = it },
-                    label = { Text(stringResource(R.string.transactions_description)) },
+                    label = { Text("Description (optional)") },
                     isError = state.noteError != null,
-                    supportingText = { state.noteError?.let { Text(stringResource(it)) } },
+                    supportingText = { state.noteError?.let { Text(it) } },
                     enabled = !state.isSaving, modifier = Modifier.fillMaxWidth()
                 )
                 OutlinedButton(onClick = { dateDialogVisible = true }, enabled = !state.isSaving) {
-                    Text(stringResource(R.string.transactions_date_value, formatTransactionDate(dateEpochMillis)))
+                    Text("Date: ${formatTransactionDate(dateEpochMillis)}")
                 }
                 Button(
                     onClick = {
@@ -184,7 +177,7 @@ internal fun TransactionEditContent(
                         onSave(TransactionType.valueOf(typeName), amount, category, note, dateEpochMillis)
                     },
                     enabled = !state.isSaving, modifier = Modifier.fillMaxWidth()
-                ) { Text(stringResource(R.string.transactions_save)) }
+                ) { Text("Save") }
                 if (state.isSaving) CircularProgressIndicator()
             }
         }

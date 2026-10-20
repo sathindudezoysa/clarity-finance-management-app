@@ -20,6 +20,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.example.clarity.presentation.budgets.BudgetDashboardSummary
 import com.example.clarity.presentation.income.IncomeMonthlyPrompt
 
 @Composable
@@ -28,6 +29,7 @@ fun MainScreen(
     onNavigateToCashWallet: () -> Unit = {},
     onNavigateToSettings: () -> Unit = {},
     onNavigateToIncome: () -> Unit = {},
+    onNavigateToBudgets: (String?) -> Unit = {},
     viewModel: MainViewModel = hiltViewModel()
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
@@ -68,6 +70,7 @@ fun MainScreen(
             }
 
             IncomeMonthlyPrompt(onReview = onNavigateToIncome)
+            BudgetDashboardSummary(onOpen = onNavigateToBudgets)
 
             // Hero Net Worth Card
             Surface(

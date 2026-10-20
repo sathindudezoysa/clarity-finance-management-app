@@ -58,11 +58,18 @@ fun SetupNavGraph(
         }
         composable(route = Screen.Main.route) {
             MainScreen(
+                onNavigateToBudgets = { navController.navigate(Screen.Budgets.createRoute(it)) },
                 onNavigateToTransactions = { navController.navigate(Screen.TransactionList.route) },
                 onNavigateToIncome = { navController.navigate(Screen.IncomeSources.route) },
                 onNavigateToCashWallet = { navController.navigate(Screen.CashWallet.route) },
                 onNavigateToSettings = { navController.navigate(Screen.Settings.route) }
             )
+        }
+        composable(Screen.Budgets.route, arguments = listOf(navArgument("budgetId") {
+            type = NavType.StringType; nullable = true; defaultValue = null
+        })) { entry ->
+            com.example.clarity.presentation.budgets.BudgetsScreen(
+                onBack = { navController.popBackStack() }, selectedId = entry.arguments?.getString("budgetId"))
         }
         composable(Screen.IncomeSources.route) {
             IncomeScreen(onBack = { navController.popBackStack() },

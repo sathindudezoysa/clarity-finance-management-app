@@ -5,7 +5,7 @@ import com.example.clarity.presentation.navigation.TRANSACTION_ID_ARGUMENT
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.example.clarity.R
+import com.example.clarity.presentation.transactions.TransactionMessages
 import com.example.clarity.domain.model.Transaction
 import com.example.clarity.domain.model.AccountError
 import com.example.clarity.domain.model.AccountException
@@ -45,7 +45,7 @@ class TransactionEditViewModel @Inject constructor(
     private var selectionInitialized = savedStateHandle.get<Any?>("account_selection_initialized") == true || restoredAccountId != null
     private val _uiState = MutableStateFlow(TransactionEditState(isEditMode = isEditMode, isLoading = id != null,
         selectedAccountId = restoredAccountId,
-        error = if (isEditMode && id == null) R.string.transactions_not_found else null))
+        error = if (isEditMode && id == null) TransactionMessages.NOT_FOUND else null))
     val uiState = _uiState.asStateFlow()
     private var previewJob: kotlinx.coroutines.Job? = null
 
@@ -72,7 +72,7 @@ class TransactionEditViewModel @Inject constructor(
                     _uiState.value = initializeAccountSelection(state.copy(
                         accounts = accounts, isAccountsLoading = result is Resource.Loading,
                         accountsError = if (result is Resource.Error) {
-                            if (signedOut) R.string.transactions_sign_in else R.string.transactions_accounts_load_error
+                            if (signedOut) TransactionMessages.SIGN_IN else TransactionMessages.ACCOUNTS_LOAD_ERROR
                         } else null
                     ))
                 }
@@ -89,12 +89,12 @@ class TransactionEditViewModel @Inject constructor(
                         is Resource.Loading -> state.copy(isLoading = true, error = null)
                         is Resource.Success -> state.copy(
                             isLoading = false, transaction = result.data,
-                            error = if (result.data == null) R.string.transactions_not_found else null
+                            error = if (result.data == null) TransactionMessages.NOT_FOUND else null
                         )
                         is Resource.Error -> state.copy(
                             isLoading = false, transaction = if (result.cause.isSignInRequired()) result.data else result.data ?: state.transaction,
-                            error = if (result.cause.isSignInRequired()) R.string.transactions_sign_in
-                            else R.string.transactions_load_error
+                            error = if (result.cause.isSignInRequired()) TransactionMessages.SIGN_IN
+                            else TransactionMessages.LOAD_ERROR
                         )
                     }
                     _uiState.value = initializeAccountSelection(next.copy(
@@ -118,7 +118,7 @@ class TransactionEditViewModel @Inject constructor(
         }
         return when {
             next.selectedAccountId == null || next.isAccountsLoading || !hasAccountData -> next
-            next.accounts.none { it.id == next.selectedAccountId } -> next.copy(accountError = R.string.transactions_account_unavailable)
+            next.accounts.none { it.id == next.selectedAccountId } -> next.copy(accountError = TransactionMessages.ACCOUNT_UNAVAILABLE)
             else -> next.copy(accountError = null)
         }
     }
@@ -147,25 +147,25 @@ class TransactionEditViewModel @Inject constructor(
             val state = _uiState.value
             if (state.isSaving || state.isSuccess || state.isLoading || state.isAccountsLoading) return
             if (state.isEditMode && state.transaction == null) {
-                updateState { it.copy(error = R.string.transactions_not_found) }
+                updateState { it.copy(error = TransactionMessages.NOT_FOUND) }
                 return
             }
             if (!state.canSaveWithAccount) {
                 updateState { it.copy(accountError = when {
-                    state.selectedAccountId != null -> R.string.transactions_account_unavailable
-                    state.accounts.isEmpty() -> R.string.transactions_account_required
-                    else -> R.string.transactions_account_select
+                    state.selectedAccountId != null -> TransactionMessages.ACCOUNT_UNAVAILABLE
+                    state.accounts.isEmpty() -> TransactionMessages.ACCOUNT_REQUIRED
+                    else -> TransactionMessages.ACCOUNT_SELECT
                 }) }
                 return
             }
             val amount = MoneyUtils.parseMinor(amountText, state.currency).getOrNull()
             val amountError = when {
-                amount == null -> R.string.transactions_amount_invalid
-                amount <= 0 -> R.string.transactions_amount_positive
+                amount == null -> TransactionMessages.AMOUNT_INVALID
+                amount <= 0 -> TransactionMessages.AMOUNT_POSITIVE
                 else -> null
             }
-            val categoryError = if (category.trim().length > 100) R.string.transactions_tag_long else null
-            val noteError = if (note.trim().length > 2000) R.string.transactions_description_long else null
+            val categoryError = if (category.trim().length > 100) TransactionMessages.TAG_LONG else null
+            val noteError = if (note.trim().length > 2000) TransactionMessages.DESCRIPTION_LONG else null
             updateState { it.copy(amountError = amountError, categoryError = categoryError, noteError = noteError, error = null) }
             if (amountError != null || categoryError != null || noteError != null) return
             val saved = (state.transaction ?: Transaction(amountMinor = checkNotNull(amount))).copy(
@@ -182,13 +182,13 @@ class TransactionEditViewModel @Inject constructor(
                 .onFailure { error -> updateState { it.copy(
                     isSaving = false,
                     error = when {
-                        error is AccountException && error.error == AccountError.SIGN_IN_REQUIRED -> R.string.transactions_sign_in
+                        error is AccountException && error.error == AccountError.SIGN_IN_REQUIRED -> TransactionMessages.SIGN_IN
                         error is TransactionException -> when (error.error) {
-                            TransactionError.SIGN_IN_REQUIRED -> R.string.transactions_sign_in
-                            TransactionError.ACCOUNT_REQUIRED -> R.string.transactions_account_select
-                            TransactionError.ACCOUNT_NOT_FOUND -> R.string.transactions_account_unavailable
+                            TransactionError.SIGN_IN_REQUIRED -> TransactionMessages.SIGN_IN
+                            TransactionError.ACCOUNT_REQUIRED -> TransactionMessages.ACCOUNT_SELECT
+                            TransactionError.ACCOUNT_NOT_FOUND -> TransactionMessages.ACCOUNT_UNAVAILABLE
                         }
-                        else -> R.string.transactions_save_error
+                        else -> TransactionMessages.SAVE_ERROR
                     }
                 ) } }
         }

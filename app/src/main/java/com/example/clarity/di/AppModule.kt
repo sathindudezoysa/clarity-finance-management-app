@@ -27,4 +27,3 @@ object AppModule {
     @Provides
     fun provideClock(): java.time.Clock = java.time.Clock.systemUTC()
 }
-

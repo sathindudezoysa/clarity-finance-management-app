@@ -1,5 +1,11 @@
 rules_version = '2';
 
+// Budgets: users/{uid}/budgets/{YYYY-MM_sha256(normalized category)}, device-local calendar months.
+// Required id/userId/month/category/categoryKey/limitMinor/currency/active/createdAt/updatedAt.
+// Owner-only, category trimmed, SHA-256 of lowercase UTF-8 category; positive integer minor units.
+// Identity, category, recorded currency and creation time immutable. Disable instead of deleting.
+// Local outbox, currency resolutions and alert delivery marks are never uploaded.
+
 // Income sources: users/{uid}/income_sources/{sourceId}, owner-private.
 // Immutable id/userId/createdAt; name 1..100, positive amountMinor, owned LKR accountId,
 // recurring/active bools, updatedAt epoch int, lastConfirmedMonth null or YYYY-MM.
@@ -191,6 +197,39 @@ service cloud.firestore {
         && uidNotModified(request.resource.data)
         && request.resource.data.createdAt == resource.data.createdAt;
       // Archive instead; retain the monthly receipt marker and transaction identity.
+      allow delete: if false;
+    }
+
+    function validBudget(data, budgetId, userId) {
+      let fields = ['id', 'userId', 'month', 'category', 'categoryKey', 'limitMinor',
+                    'currency', 'active', 'createdAt', 'updatedAt'];
+      return data.keys().hasAll(fields) && data.keys().hasOnly(fields)
+        && data.id is string && data.id.size() == 72 && data.id == budgetId
+        && data.userId is string && data.userId.size() > 0 && data.userId.size() <= 128
+        && data.userId == userId && uidUnchanged(data)
+        && data.month is string && data.month.size() == 7
+        && data.month.matches('[0-9]{4}-(0[1-9]|1[0-2])') && !data.month.matches('0000-.*')
+        && data.category is string && data.category.size() > 0 && data.category.size() <= 100
+        && data.category == data.category.trim()
+        && data.categoryKey is string && data.categoryKey.size() == 64
+        && data.categoryKey == hashing.sha256(data.category.lower().toUtf8()).toHexString().lower()
+        && budgetId == data.month + '_' + data.categoryKey
+        && data.limitMinor is int && data.limitMinor > 0
+        && validCurrency(data.currency) && data.active is bool
+        && data.createdAt is int && data.createdAt >= 0
+        && data.updatedAt is int && data.updatedAt >= data.createdAt;
+    }
+    match /users/{userId}/budgets/{budgetId} {
+      allow read: if isOwner(userId);
+      allow create: if isOwner(userId) && validBudget(request.resource.data, budgetId, userId);
+      allow update: if isOwner(userId) && validBudget(request.resource.data, budgetId, userId)
+        && uidNotModified(request.resource.data)
+        && request.resource.data.id == resource.data.id
+        && request.resource.data.month == resource.data.month
+        && request.resource.data.categoryKey == resource.data.categoryKey
+        && request.resource.data.currency == resource.data.currency
+        && request.resource.data.createdAt == resource.data.createdAt
+        && request.resource.data.updatedAt >= resource.data.updatedAt;
       allow delete: if false;
     }
 

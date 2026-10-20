@@ -13,9 +13,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalFocusManager
-import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
-import com.example.clarity.R
 
 @OptIn(ExperimentalLayoutApi::class, ExperimentalMaterial3Api::class)
 @Composable
@@ -24,12 +22,12 @@ fun TransactionTagField(
     tags: List<String>,
     onValueChange: (String) -> Unit,
     enabled: Boolean,
-    error: Int?,
+    error: String?,
     modifier: Modifier = Modifier
 ) {
     val focusManager = LocalFocusManager.current
     Column(modifier) {
-        Text(stringResource(R.string.transactions_tag), style = MaterialTheme.typography.labelLarge)
+        Text("Tag", style = MaterialTheme.typography.labelLarge)
         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             tags.forEach { tag ->
                 FilterChip(
@@ -46,10 +44,10 @@ fun TransactionTagField(
         OutlinedTextField(
             value = value,
             onValueChange = onValueChange,
-            label = { Text(stringResource(R.string.transactions_tag_input)) },
-            placeholder = { Text(stringResource(R.string.transactions_general)) },
+            label = { Text("Tag or custom tag (optional)") },
+            placeholder = { Text("General") },
             supportingText = {
-                Text(stringResource(error ?: R.string.transactions_tag_hint))
+                Text(error ?: "Tap a tag or type a new one. New tags are saved with this transaction.")
             },
             isError = error != null,
             enabled = enabled,

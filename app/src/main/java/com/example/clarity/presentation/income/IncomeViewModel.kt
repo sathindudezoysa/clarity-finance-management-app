@@ -2,7 +2,6 @@ package com.example.clarity.presentation.income
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.example.clarity.R
 import com.example.clarity.domain.model.IncomeError
 import com.example.clarity.domain.model.IncomeException
 import com.example.clarity.domain.model.IncomeSource
@@ -40,24 +39,24 @@ class IncomeViewModel @Inject constructor(
         viewModelScope.launch {
             observe().catch { error ->
                 if (error is CancellationException) throw error
-                state.update { it.copy(loading = false, error = R.string.income_load_error) }
+                state.update { it.copy(loading = false, error = IncomeMessages.LOAD_ERROR) }
             }.collect { data -> state.update { old ->
                 val sources = data.sources.filter { it.active }
                 if (old.ownerId != data.ownerId) IncomeState(ownerId = data.ownerId, sources = sources,
                     accounts = old.accounts.filter { it.userId == data.ownerId }, period = old.period, loading = false,
-                    error = if (data.ownerId == null) R.string.income_sign_in else null)
+                    error = if (data.ownerId == null) IncomeMessages.SIGN_IN else null)
                 else old.copy(sources = sources, loading = false)
             } }
         }
         viewModelScope.launch {
             accounts().catch { error ->
                 if (error is CancellationException) throw error
-                state.update { it.copy(error = R.string.income_account_error) }
+                state.update { it.copy(error = IncomeMessages.ACCOUNT_ERROR) }
             }.collect { result ->
                 state.update { old ->
                     val rows = result.data?.filter { it.currency == "LKR" } ?: if (result is Resource.Loading) old.accounts else emptyList()
                     val draft = old.draft?.let { if (it.accountId.isBlank()) it.copy(accountId = rows.firstOrNull { a -> a.isDefault }?.id ?: rows.firstOrNull()?.id.orEmpty()) else it }
-                    old.copy(accounts = rows, draft = draft, error = if (result is Resource.Error && result.cause.isSignInRequired()) R.string.income_sign_in else old.error)
+                    old.copy(accounts = rows, draft = draft, error = if (result is Resource.Error && result.cause.isSignInRequired()) IncomeMessages.SIGN_IN else old.error)
                 }
             }
         }
@@ -107,11 +106,11 @@ class IncomeViewModel @Inject constructor(
             try { block() } catch (error: Exception) {
                 if (error is CancellationException) throw error
                 val message = when ((error as? IncomeException)?.error) {
-                    IncomeError.SIGN_IN -> R.string.income_sign_in
-                    IncomeError.ACCOUNT -> R.string.income_account_error
-                    IncomeError.ALREADY_CONFIRMED -> R.string.income_already_confirmed
-                    IncomeError.PERIOD_CHANGED, IncomeError.SOURCE_CHANGED -> R.string.income_changed
-                    else -> R.string.income_save_error
+                    IncomeError.SIGN_IN -> IncomeMessages.SIGN_IN
+                    IncomeError.ACCOUNT -> IncomeMessages.ACCOUNT_ERROR
+                    IncomeError.ALREADY_CONFIRMED -> IncomeMessages.ALREADY_CONFIRMED
+                    IncomeError.PERIOD_CHANGED, IncomeError.SOURCE_CHANGED -> IncomeMessages.CHANGED
+                    else -> IncomeMessages.SAVE_ERROR
                 }
                 state.update { it.copy(error = message, confirmation = null, confirmationMonth = null) }
             } finally { state.update { it.copy(busy = false) } }

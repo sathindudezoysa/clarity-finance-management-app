@@ -21,10 +21,14 @@ class ClarityApp : Application() {
     lateinit var proofSyncManager: ProofSyncManager
 
     @Inject lateinit var incomeSyncManager: IncomeSyncManager
+    @Inject lateinit var budgetSyncManager: com.example.clarity.data.sync.BudgetSyncManager
+    @Inject lateinit var budgetAlertManager: com.example.clarity.data.sync.BudgetAlertManager
 
     override fun onCreate() {
         super.onCreate()
         proofSyncManager.start()
         incomeSyncManager.start()
+        budgetSyncManager.start()
+        budgetAlertManager.start()
     }
 }
