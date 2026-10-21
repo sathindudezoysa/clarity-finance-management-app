@@ -22,6 +22,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.example.clarity.domain.model.BudgetStatus
 import com.example.clarity.domain.model.BudgetThreshold
@@ -212,24 +213,59 @@ internal fun BudgetDashboardAlert(status: BudgetStatus, onClick: () -> Unit) {
     val budget = status.budget
     val tone = budgetTone(status.threshold, live = true)
     val colors = MaterialTheme.colorScheme
+    val periodText = budgetCategoryMonthText(budget.category, budget.month).substringAfter(" · ")
+    val pillLabel = if (status.remaining.signum() < 0) {
+        budgetExceededByText(budgetMoney(-status.remaining, budget.currency))
+    } else {
+        budgetStatusText(status.threshold, status.uncounted > 0)
+    }
     Row(
-        Modifier.fillMaxWidth().clip(MaterialTheme.shapes.small).clickable(role = Role.Button, onClick = onClick)
-            .heightIn(min = 48.dp).padding(vertical = 12.dp, horizontal = 4.dp),
-        horizontalArrangement = Arrangement.spacedBy(12.dp)
+        Modifier.fillMaxWidth().clickable(role = Role.Button, onClick = onClick)
+            .heightIn(min = 48.dp).padding(horizontal = 16.dp, vertical = 12.dp),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        verticalAlignment = Alignment.CenterVertically
     ) {
-        Icon(if (status.threshold.level > 0) Icons.Default.Warning else Icons.Default.Info, contentDescription = null,
-            tint = tone.accent, modifier = Modifier.size(20.dp))
-        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            Text(budgetCategoryMonthText(budget.category, budget.month), style = MaterialTheme.typography.titleSmall)
-            Text(budgetStatusText(status.threshold, status.uncounted > 0), style = MaterialTheme.typography.labelMedium, color = tone.accent)
-            Text(budgetSpendingText(budgetMoney(status.spent, budget.currency), budgetMoney(budget.limitMinor.toBigInteger(), budget.currency)),
-                style = MaterialTheme.typography.bodySmall)
-            if (status.remaining.signum() < 0) Text(budgetExceededByText(budgetMoney(-status.remaining, budget.currency)),
-                style = MaterialTheme.typography.bodySmall, color = colors.error)
-            if (status.threshold.level > 0) Text(budgetFeedbackText(status.threshold, budget.category, budget.period),
-                style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant)
-            if (status.uncounted > 0) Text(budgetIncompleteText(status.uncounted),
-                style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant)
+        Surface(
+            modifier = Modifier.size(36.dp),
+            shape = CircleShape,
+            color = tone.container,
+            contentColor = tone.accent
+        ) {
+            Box(contentAlignment = Alignment.Center) {
+                Icon(
+                    imageVector = if (status.threshold.level > 0) Icons.Default.Warning else Icons.Default.Info,
+                    contentDescription = null,
+                    tint = tone.accent,
+                    modifier = Modifier.size(18.dp)
+                )
+            }
+        }
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text(budget.category, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                    Text(periodText, style = MaterialTheme.typography.labelSmall, color = colors.onSurfaceVariant)
+                }
+                BudgetStatusPill(pillLabel, tone, Modifier.weight(1f, fill = false))
+            }
+            Text(
+                budgetSpendingText(budgetMoney(status.spent, budget.currency), budgetMoney(budget.limitMinor.toBigInteger(), budget.currency)),
+                style = MaterialTheme.typography.bodySmall,
+                color = colors.onSurfaceVariant
+            )
+            if (status.uncounted > 0) {
+                Text(
+                    budgetIncompleteText(status.uncounted),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = colors.onSurfaceVariant,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
         }
     }
 }

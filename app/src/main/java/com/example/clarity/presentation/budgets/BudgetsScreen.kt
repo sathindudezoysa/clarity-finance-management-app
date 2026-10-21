@@ -18,6 +18,7 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.relocation.BringIntoViewRequester
 import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -34,6 +35,7 @@ import androidx.compose.ui.focus.onFocusEvent
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.tooling.preview.Preview
@@ -197,15 +199,34 @@ fun BudgetDashboardSummary(onOpen: (String?) -> Unit, viewModel: BudgetsViewMode
 private fun BudgetDashboardCard(state: BudgetsState, onOpen: (String?) -> Unit) {
     val alerts = state.overview.statuses.filter { it.budget.active && isLivePeriod(it.budget, state) &&
         (it.threshold.level > 0 || it.uncounted > 0) }.take(3)
-    OutlinedCard(Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(start = 16.dp, end = 8.dp, top = 4.dp, bottom = 8.dp)) {
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Text(BudgetUiText.TITLE, style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
-                TextButton(onClick = { onOpen(null) }) { Text(BudgetUiText.DASHBOARD_OPEN) }
-            }
-            alerts.forEachIndexed { index, status ->
-                if (index > 0) Divider(color = MaterialTheme.colorScheme.outlineVariant)
-                BudgetDashboardAlert(status) { onOpen(status.budget.id) }
+    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                BudgetUiText.TITLE,
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.weight(1f)
+            )
+            TextButton(onClick = { onOpen(null) }) { Text(BudgetUiText.DASHBOARD_OPEN) }
+        }
+        OutlinedCard(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(16.dp)
+        ) {
+            if (alerts.isEmpty()) {
+                Text(
+                    BudgetUiText.DASHBOARD_EMPTY,
+                    modifier = Modifier.padding(16.dp),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            } else {
+                Column {
+                    alerts.forEachIndexed { index, status ->
+                        if (index > 0) Divider(color = MaterialTheme.colorScheme.outlineVariant)
+                        BudgetDashboardAlert(status) { onOpen(status.budget.id) }
+                    }
+                }
             }
         }
     }

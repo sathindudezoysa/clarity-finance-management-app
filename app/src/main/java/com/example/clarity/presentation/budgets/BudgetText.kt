@@ -76,4 +76,5 @@ object BudgetUiText {
     const val DISABLED_SECTION = "Disabled budgets"
     const val DISABLED_HINT = "Disabled — tap to enable"
     const val DASHBOARD_OPEN = "View all"
+    const val DASHBOARD_EMPTY = "No budget alerts right now."
 }
