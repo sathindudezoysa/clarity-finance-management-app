@@ -9,7 +9,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.NavigationBarItemDefaults
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.navigation.NavGraph.Companion.findStartDestination
@@ -86,15 +85,10 @@ fun ClarityBottomNavBar(
                         contentDescription = item.label
                     )
                 },
-                label = {
-                    Text(text = item.label)
-                },
                 colors = NavigationBarItemDefaults.colors(
                     selectedIconColor = colors.onSecondaryContainer,
-                    selectedTextColor = colors.onSurface,
                     indicatorColor = colors.secondaryContainer,
-                    unselectedIconColor = colors.onSurfaceVariant,
-                    unselectedTextColor = colors.onSurfaceVariant
+                    unselectedIconColor = colors.onSurfaceVariant
                 )
             )
         }
