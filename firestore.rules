@@ -1,6 +1,6 @@
 rules_version = '2';
 
-// Budgets: users/{uid}/budgets/{YYYY-MM_sha256(normalized category)}, device-local calendar months.
+// Budgets: users/{uid}/budgets/{(YYYY-MM|YYYY)_sha256(normalized category)}, device-local calendar months or years.
 // Required id/userId/month/category/categoryKey/limitMinor/currency/active/createdAt/updatedAt.
 // Owner-only, category trimmed, SHA-256 of lowercase UTF-8 category; positive integer minor units.
 // Identity, category, recorded currency and creation time immutable. Disable instead of deleting.
@@ -204,11 +204,14 @@ service cloud.firestore {
       let fields = ['id', 'userId', 'month', 'category', 'categoryKey', 'limitMinor',
                     'currency', 'active', 'createdAt', 'updatedAt'];
       return data.keys().hasAll(fields) && data.keys().hasOnly(fields)
-        && data.id is string && data.id.size() == 72 && data.id == budgetId
+        && data.id is string && data.id == budgetId
         && data.userId is string && data.userId.size() > 0 && data.userId.size() <= 128
         && data.userId == userId && uidUnchanged(data)
-        && data.month is string && data.month.size() == 7
-        && data.month.matches('[0-9]{4}-(0[1-9]|1[0-2])') && !data.month.matches('0000-.*')
+        && data.month is string
+        && ((data.month.size() == 7 && data.id.size() == 72
+            && data.month.matches('[0-9]{4}-(0[1-9]|1[0-2])') && !data.month.matches('0000-.*'))
+          || (data.month.size() == 4 && data.id.size() == 69
+            && data.month.matches('[0-9]{4}') && data.month != '0000'))
         && data.category is string && data.category.size() > 0 && data.category.size() <= 100
         && data.category == data.category.trim()
         && data.categoryKey is string && data.categoryKey.size() == 64

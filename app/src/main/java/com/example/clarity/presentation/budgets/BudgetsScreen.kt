@@ -43,11 +43,17 @@ import androidx.core.content.ContextCompat
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.clarity.domain.model.Budget
+import com.example.clarity.domain.model.BudgetPeriod
 import com.example.clarity.domain.model.BudgetStatus
 import com.example.clarity.domain.repository.BudgetOverview
 import com.example.clarity.presentation.theme.ClarityTheme
 import com.example.clarity.presentation.transactions.edit.TransactionTagField
 import kotlinx.coroutines.launch
+
+private fun isLivePeriod(budget: Budget, state: BudgetsState): Boolean = when (budget.period) {
+    BudgetPeriod.MONTHLY -> budget.month == state.currentMonth
+    BudgetPeriod.YEARLY -> budget.month == state.currentYear
+}
 
 @Composable
 fun BudgetsScreen(onBack: () -> Unit, selectedId: String? = null, viewModel: BudgetsViewModel = hiltViewModel()) {
@@ -57,7 +63,8 @@ fun BudgetsScreen(onBack: () -> Unit, selectedId: String? = null, viewModel: Bud
         onCreate = { viewModel.edit() }, onEdit = { viewModel.edit(it) },
         onDisable = viewModel::disable, onRetry = viewModel::retryCurrency,
         onCategoryChange = viewModel::changeCategory, onMonthChange = viewModel::changeMonth,
-        onAmountChange = viewModel::changeAmount, onSave = viewModel::save, onCloseEditor = viewModel::closeEditor,
+        onAmountChange = viewModel::changeAmount, onPeriodChange = viewModel::changePeriod,
+        onSave = viewModel::save, onCloseEditor = viewModel::closeEditor,
         notificationPermission = { BudgetNotificationPermission() }
     )
 }
@@ -68,7 +75,8 @@ fun BudgetsContent(
     state: BudgetsState, selectedId: String?, onBack: () -> Unit, onCreate: () -> Unit,
     onEdit: (Budget) -> Unit, onDisable: (String) -> Unit, onRetry: (String) -> Unit,
     onCategoryChange: (String) -> Unit, onMonthChange: (String) -> Unit, onAmountChange: (String) -> Unit,
-    onSave: () -> Unit, onCloseEditor: () -> Unit, notificationPermission: @Composable () -> Unit = {}
+    onSave: () -> Unit, onCloseEditor: () -> Unit, notificationPermission: @Composable () -> Unit = {},
+    onPeriodChange: (BudgetPeriod) -> Unit = {}
 ) {
     val listState = rememberLazyListState()
     // Highlighting/navigation only selects a budget already loaded from the authenticated owner's stream.
@@ -87,7 +95,7 @@ fun BudgetsContent(
             item { BudgetsHeader(state, rows.isEmpty(), onCreate, notificationPermission) }
             items(rows, key = { it.budget.id }) { status ->
                 BudgetCard(status, selected = status.budget.id == selectedId,
-                    live = status.budget.month == state.currentMonth,
+                    live = isLivePeriod(status.budget, state),
                     onEdit = { onEdit(status.budget) }, onDisable = { onDisable(status.budget.id) },
                     onRetry = { onRetry(status.budget.id) }, enabled = !state.busy)
             }
@@ -101,7 +109,7 @@ fun BudgetsContent(
     }
     state.editor?.let { editor ->
         BudgetEditorDialog(editor, state.tags, state.busy, state.error, onCategoryChange, onMonthChange,
-            onAmountChange, onSave, onCloseEditor)
+            onAmountChange, onPeriodChange, onSave, onCloseEditor)
     }
 }
 
@@ -127,15 +135,16 @@ private fun BudgetsHeader(state: BudgetsState, empty: Boolean, onCreate: () -> U
     }
 }
 
-@OptIn(ExperimentalFoundationApi::class)
+@OptIn(ExperimentalFoundationApi::class, ExperimentalMaterial3Api::class)
 @Composable
 private fun BudgetEditorDialog(editor: BudgetEditor, tags: List<String>, busy: Boolean, error: String?,
     onCategoryChange: (String) -> Unit, onMonthChange: (String) -> Unit, onAmountChange: (String) -> Unit,
-    onSave: () -> Unit, onClose: () -> Unit) {
+    onPeriodChange: (BudgetPeriod) -> Unit, onSave: () -> Unit, onClose: () -> Unit) {
     val scrollState = rememberScrollState()
     val scope = rememberCoroutineScope()
     val limitRequester = remember { BringIntoViewRequester() }
     val monthRequester = remember { BringIntoViewRequester() }
+    val canEditIdentity = editor.budget == null && !busy
     AlertDialog(onDismissRequest = { if (!busy) onClose() },
         title = { Text(if (editor.budget == null) BudgetUiText.CREATE else BudgetUiText.EDIT_TITLE) },
         text = {
@@ -146,12 +155,28 @@ private fun BudgetEditorDialog(editor: BudgetEditor, tags: List<String>, busy: B
                         .onFocusEvent { if (it.isFocused) scope.launch { limitRequester.bringIntoView() } },
                     label = { Text(budgetLimitLabel(editor.currency)) }, singleLine = true, enabled = !busy,
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal, imeAction = ImeAction.Done))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    FilterChip(
+                        selected = editor.period == BudgetPeriod.MONTHLY,
+                        onClick = { onPeriodChange(BudgetPeriod.MONTHLY) },
+                        label = { Text(BudgetUiText.PERIOD_MONTHLY) },
+                        enabled = canEditIdentity
+                    )
+                    FilterChip(
+                        selected = editor.period == BudgetPeriod.YEARLY,
+                        onClick = { onPeriodChange(BudgetPeriod.YEARLY) },
+                        label = { Text(BudgetUiText.PERIOD_YEARLY) },
+                        enabled = canEditIdentity
+                    )
+                }
                 OutlinedTextField(editor.month, onMonthChange,
                     modifier = Modifier.fillMaxWidth().bringIntoViewRequester(monthRequester)
                         .onFocusEvent { if (it.isFocused) scope.launch { monthRequester.bringIntoView() } },
-                    label = { Text(BudgetUiText.MONTH_LABEL) }, singleLine = true, enabled = editor.budget == null && !busy)
+                    label = { Text(if (editor.period == BudgetPeriod.YEARLY) BudgetUiText.YEAR_LABEL else BudgetUiText.MONTH_LABEL) },
+                    singleLine = true, enabled = canEditIdentity,
+                    keyboardOptions = if (editor.period == BudgetPeriod.YEARLY) KeyboardOptions(keyboardType = KeyboardType.Number) else KeyboardOptions.Default)
                 Box(Modifier.fillMaxWidth()) {
-                    TransactionTagField(editor.category, tags, onCategoryChange, editor.budget == null && !busy, null,
+                    TransactionTagField(editor.category, tags, onCategoryChange, canEditIdentity, null,
                         hint = "Tap a category or type a new one.")
                 }
                 error?.let { BudgetMessageBanner(Icons.Default.Warning, it, isError = true) }
@@ -170,7 +195,7 @@ fun BudgetDashboardSummary(onOpen: (String?) -> Unit, viewModel: BudgetsViewMode
 // Rendered inside the dashboard's vertically scrolling Column: no lazy lists or nested scrolling.
 @Composable
 private fun BudgetDashboardCard(state: BudgetsState, onOpen: (String?) -> Unit) {
-    val alerts = state.overview.statuses.filter { it.budget.active && it.budget.month == state.currentMonth &&
+    val alerts = state.overview.statuses.filter { it.budget.active && isLivePeriod(it.budget, state) &&
         (it.threshold.level > 0 || it.uncounted > 0) }.take(3)
     OutlinedCard(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(start = 16.dp, end = 8.dp, top = 4.dp, bottom = 8.dp)) {
@@ -226,7 +251,7 @@ private fun previewStatus(category: String, spent: Long, limit: Long, month: Str
     Budget("${month}_$category", "preview", month, category, limit, "LKR", active = active, pendingSync = pendingSync),
     spent.toBigInteger(), uncounted)
 
-private val previewState = BudgetsState(loading = false, currentMonth = "2026-10", overview = BudgetOverview(
+private val previewState = BudgetsState(loading = false, currentMonth = "2026-10", currentYear = "2026", overview = BudgetOverview(
     ownerId = "preview", statuses = listOf(
         previewStatus("Food", 450_000, 1_000_000, pendingSync = true),
         previewStatus("Transport", 850_000, 1_000_000),
@@ -254,12 +279,12 @@ private fun BudgetsContentDarkPreview() = BudgetsPreviewContent(previewState)
 
 @Preview(showBackground = true, fontScale = 1.5f)
 @Composable
-private fun BudgetsEmptyPreview() = BudgetsPreviewContent(BudgetsState(loading = false, currentMonth = "2026-10",
+private fun BudgetsEmptyPreview() = BudgetsPreviewContent(BudgetsState(loading = false, currentMonth = "2026-10", currentYear = "2026",
     overview = BudgetOverview(ownerId = "preview", syncError = true)))
 
 @Preview(showBackground = true)
 @Composable
-private fun BudgetsSignedOutPreview() = BudgetsPreviewContent(BudgetsState(loading = false, currentMonth = "2026-10"))
+private fun BudgetsSignedOutPreview() = BudgetsPreviewContent(BudgetsState(loading = false, currentMonth = "2026-10", currentYear = "2026"))
 
 @Preview(showBackground = true)
 @Composable

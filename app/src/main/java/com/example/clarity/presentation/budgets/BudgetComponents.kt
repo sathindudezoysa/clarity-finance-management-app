@@ -101,9 +101,10 @@ internal fun BudgetCard(status: BudgetStatus, selected: Boolean, live: Boolean, 
         border = if (selected) BorderStroke(2.dp, colors.primary) else BorderStroke(1.dp, colors.outlineVariant)
     ) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            BudgetCardHeader(budget.category, budget.month, budgetStatusText(status.threshold, status.uncounted > 0), tone)
+            BudgetCardHeader(budget.category, budgetPeriodSubtitleText(budget.month, budget.period),
+                budgetStatusText(status.threshold, status.uncounted > 0), tone)
             BudgetSpending(status, progress, tone, live)
-            if (warning) BudgetFeedback(budgetFeedbackText(status.threshold, budget.category), tone)
+            if (warning) BudgetFeedback(budgetFeedbackText(status.threshold, budget.category, budget.period), tone)
             if (status.uncounted > 0) BudgetUncounted(status.uncounted, onRetry, enabled)
             if (budget.pendingSync) Text(BudgetUiText.PENDING_SYNC, style = MaterialTheme.typography.labelSmall,
                 color = colors.onSurfaceVariant)
@@ -205,7 +206,7 @@ internal fun DisabledBudgetRow(status: BudgetStatus, onClick: () -> Unit, enable
     }
 }
 
-/** A compact dashboard row; every shown status belongs to the current month. */
+/** A compact dashboard row; every shown status belongs to the current month or year. */
 @Composable
 internal fun BudgetDashboardAlert(status: BudgetStatus, onClick: () -> Unit) {
     val budget = status.budget
@@ -225,11 +226,10 @@ internal fun BudgetDashboardAlert(status: BudgetStatus, onClick: () -> Unit) {
                 style = MaterialTheme.typography.bodySmall)
             if (status.remaining.signum() < 0) Text(budgetExceededByText(budgetMoney(-status.remaining, budget.currency)),
                 style = MaterialTheme.typography.bodySmall, color = colors.error)
-            if (status.threshold.level > 0) Text(budgetFeedbackText(status.threshold, budget.category),
+            if (status.threshold.level > 0) Text(budgetFeedbackText(status.threshold, budget.category, budget.period),
                 style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant)
             if (status.uncounted > 0) Text(budgetIncompleteText(status.uncounted),
                 style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant)
         }
     }
 }
-

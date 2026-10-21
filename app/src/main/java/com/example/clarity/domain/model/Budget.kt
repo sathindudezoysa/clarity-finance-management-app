@@ -3,15 +3,22 @@ package com.example.clarity.domain.model
 import java.math.BigInteger
 import java.security.MessageDigest
 import java.time.Clock
+import java.time.Year
 import java.time.YearMonth
 import java.time.ZoneId
 import com.example.clarity.domain.util.TransactionCalendar
 
+enum class BudgetPeriod { MONTHLY, YEARLY }
+
 data class Budget(
-    val id: String, val userId: String, val month: String, val category: String,
+    val id: String, val userId: String,
+    /** Period key: "YYYY-MM" for a monthly budget or "YYYY" for a yearly budget. */
+    val month: String, val category: String,
     val limitMinor: Long, val currency: String, val active: Boolean = true,
     val createdAt: Long = 0, val updatedAt: Long = 0, val pendingSync: Boolean = false
-)
+) {
+    val period: BudgetPeriod get() = BudgetPolicy.periodOf(month)
+}
 
 enum class BudgetThreshold(val level: Int) { NORMAL(0), NEARING(1), REACHED(2), EXCEEDED(3) }
 
@@ -27,12 +34,23 @@ object BudgetPolicy {
     const val NEARING_PERCENT = 80
     const val REACHED_PERCENT = 100
     fun currentMonth(clock: Clock, zone: ZoneId = ZoneId.systemDefault()): String = TransactionCalendar.currentMonth(clock, zone)
+    fun periodOf(key: String): BudgetPeriod = when {
+        key.matches(Regex("[0-9]{4}-(0[1-9]|1[0-2])")) && YearMonth.parse(key).year > 0 -> BudgetPeriod.MONTHLY
+        key.matches(Regex("[0-9]{4}")) && Year.parse(key).value > 0 -> BudgetPeriod.YEARLY
+        else -> throw IllegalArgumentException("Invalid budget period key: $key")
+    }
+    fun currentPeriodKey(clock: Clock, period: BudgetPeriod, zone: ZoneId = ZoneId.systemDefault()): String = when (period) {
+        BudgetPeriod.MONTHLY -> TransactionCalendar.currentMonth(clock, zone)
+        BudgetPeriod.YEARLY -> TransactionCalendar.currentYear(clock, zone)
+    }
+    fun isCurrentPeriod(budget: Budget, clock: Clock, zone: ZoneId = ZoneId.systemDefault()): Boolean =
+        budget.month == currentPeriodKey(clock, budget.period, zone)
     fun categoryKey(category: String): String = MessageDigest.getInstance("SHA-256")
         .digest(TransactionTags.key(category).toByteArray(Charsets.UTF_8)).joinToString("") { "%02x".format(it) }
     fun id(month: String, category: String) = "${month}_${categoryKey(category)}"
     fun validate(budget: Budget) {
         require(budget.userId.length in 1..128)
-        require(budget.month.matches(Regex("[0-9]{4}-(0[1-9]|1[0-2])")) && YearMonth.parse(budget.month).year > 0)
+        periodOf(budget.month)
         require(budget.category == TransactionTags.normalize(budget.category) && budget.category.length <= 100)
         require(budget.id == id(budget.month, budget.category))
         require(budget.limitMinor > 0 && budget.currency in Currencies.supported)
@@ -62,8 +80,10 @@ object BudgetPolicy {
     }
 
     fun eligible(budget: Budget, transaction: Transaction, zone: ZoneId = ZoneId.systemDefault()): Boolean {
-        val month = YearMonth.parse(budget.month)
-        val (start, end) = TransactionCalendar.monthBounds(month, zone)
+        val (start, end) = when (budget.period) {
+            BudgetPeriod.MONTHLY -> TransactionCalendar.monthBounds(YearMonth.parse(budget.month), zone)
+            BudgetPeriod.YEARLY -> TransactionCalendar.yearBounds(Year.parse(budget.month), zone)
+        }
         return transaction.userId == budget.userId && transaction.type == TransactionType.EXPENSE &&
             TransactionTags.key(transaction.category) == TransactionTags.key(budget.category) &&
             transaction.dateEpochMillis >= start && transaction.dateEpochMillis < end

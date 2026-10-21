@@ -15,12 +15,11 @@ class BudgetAlertEvaluator @Inject constructor(
     suspend fun evaluate(overview: BudgetOverview) {
         val owner = overview.ownerId ?: return
         if (auth.currentUser.first()?.uid != owner) return
-        val month = BudgetPolicy.currentMonth(clock)
         overview.statuses.forEach { status ->
             val budget = status.budget
             if (budget.userId != owner || auth.currentUser.first()?.uid != owner) return
             if (!isCurrent(budget)) return@forEach
-            if (!budget.active || budget.month != month || status.threshold.level == 0) {
+            if (!budget.active || !BudgetPolicy.isCurrentPeriod(budget, clock) || status.threshold.level == 0) {
                 notifications.cancel(owner, budget.id)
             } else {
                 val history = dao.alert(owner, budget.id)
@@ -31,7 +30,7 @@ class BudgetAlertEvaluator @Inject constructor(
                 // The claim checks the version and limit inside its Room transaction. Recheck after
                 // suspension so a stale evaluation neither publishes nor refreshes newer content.
                 if (auth.currentUser.first()?.uid != owner) return
-                if (!isCurrent(budget) || BudgetPolicy.currentMonth(clock) != budget.month) return@forEach
+                if (!isCurrent(budget) || !BudgetPolicy.isCurrentPeriod(budget, clock)) return@forEach
                 if (claimed) notifications.deliver(status) else notifications.refreshVisible(status)
             }
         }

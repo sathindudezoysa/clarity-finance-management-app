@@ -93,6 +93,22 @@ class BudgetAlertEvaluatorTest {
         assertEquals(0, dao.alert("owner", budget.id)!!.level)
     }
 
+    @Test fun yearlyBudgetsAlertInCurrentYearAndCancelInPastYears() = runBlocking {
+        val currentYearly = Budget(BudgetPolicy.id("2026", "Food"), "owner", "2026", "Food", 10_000_000, "LKR", updatedAt = 1)
+        val pastYearly = Budget(BudgetPolicy.id("2025", "Food"), "owner", "2025", "Food", 10_000_000, "LKR", updatedAt = 1)
+        dao.upsert(currentYearly.toEntity())
+        dao.upsert(pastYearly.toEntity())
+
+        evaluator().evaluate(BudgetOverview("owner", listOf(
+            BudgetStatus(currentYearly, 8_000_000.toBigInteger(), 0),
+            BudgetStatus(pastYearly, 12_000_000.toBigInteger(), 0)
+        )))
+
+        assertEquals(listOf(currentYearly.id), notifications.delivered.map { it.budget.id })
+        assertEquals(listOf(1), notifications.delivered.map { it.threshold.level })
+        assertNull(dao.alert("owner", pastYearly.id))
+    }
+
     // Use the production DAO's upsert/claim bodies with an in-memory backing store. Room's
     // transaction/restart behavior is separately exercised by BudgetPersistenceTest.
     private class FakeDao : BudgetDao() {

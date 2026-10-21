@@ -100,4 +100,41 @@ class BudgetPolicyTest {
         assertEquals(100.toBigInteger(), BudgetPolicy.evaluate(budget,
             listOf(expense(100).copy(dateEpochMillis = stored)), zone = colombo).spent)
     }
+
+    @Test fun yearlyBudgetPeriodValidationAndCalendarYearBoundariesWorkIndependentlyOfMonthlyBudgets() {
+        assertEquals(BudgetPeriod.MONTHLY, BudgetPolicy.periodOf("2026-10"))
+        assertEquals(BudgetPeriod.YEARLY, BudgetPolicy.periodOf("2026"))
+        for (invalid in listOf("0000", "0000-01", "2026-13", "20261", "26", "2026-1", "")) {
+            assertThrows(IllegalArgumentException::class.java) { BudgetPolicy.periodOf(invalid) }
+            val badBudget = budget.copy(id = BudgetPolicy.id(invalid, "Food"), month = invalid)
+            assertThrows(IllegalArgumentException::class.java) { BudgetPolicy.validate(badBudget) }
+        }
+        val yearly = Budget(BudgetPolicy.id("2026", "Food"), "owner", "2026", "Food", 12_000_000, "LKR")
+        assertEquals(69, yearly.id.length)
+        assertEquals(72, budget.id.length)
+        assertNotEquals(yearly.id, budget.id)
+        assertEquals(BudgetPeriod.YEARLY, yearly.period)
+        assertEquals(BudgetPeriod.MONTHLY, budget.period)
+        BudgetPolicy.validate(yearly)
+
+        for (zone in listOf(ZoneOffset.UTC, ZoneId.of("Asia/Colombo"))) {
+            val (start, end) = TransactionCalendar.yearBounds(Year.parse("2026"), zone)
+            val base = expense(1)
+            for ((timestamp, eligible) in listOf(start - 1 to false, start to true, end - 1 to true, end to false)) {
+                assertEquals(eligible, BudgetPolicy.eligible(yearly, base.copy(dateEpochMillis = timestamp), zone))
+            }
+        }
+        val txs = listOf(
+            expense(100_000, "2026-01-15T10:00:00Z"),
+            expense(250_000, "2026-10-19T10:00:00Z"),
+            expense(400_000, "2027-01-01T00:00:00Z")
+        )
+        assertEquals(350_000.toBigInteger(), evaluate(yearly, txs).spent)
+        assertEquals(250_000.toBigInteger(), evaluate(budget, txs).spent)
+
+        assertTrue(BudgetPolicy.isCurrentPeriod(yearly, clock, ZoneOffset.UTC))
+        assertFalse(BudgetPolicy.isCurrentPeriod(yearly.copy(id = BudgetPolicy.id("2025", "Food"), month = "2025"), clock, ZoneOffset.UTC))
+        assertTrue(BudgetPolicy.isCurrentPeriod(budget, clock, ZoneOffset.UTC))
+        assertFalse(BudgetPolicy.isCurrentPeriod(budget.copy(id = BudgetPolicy.id("2026-09", "Food"), month = "2026-09"), clock, ZoneOffset.UTC))
+    }
 }
