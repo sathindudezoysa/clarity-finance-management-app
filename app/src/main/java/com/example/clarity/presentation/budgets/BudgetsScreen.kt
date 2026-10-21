@@ -56,6 +56,7 @@ fun BudgetsScreen(
     onBack: () -> Unit,
     selectedId: String? = null,
     onOpenEditor: (String?) -> Unit = {},
+    bottomBar: @Composable () -> Unit = {},
     viewModel: BudgetsViewModel = hiltViewModel()
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -70,7 +71,8 @@ fun BudgetsScreen(
             onOpenEditor(budget.id)
         },
         onDisable = viewModel::disable, onRetry = viewModel::retryCurrency,
-        notificationPermission = { BudgetNotificationPermission() }
+        notificationPermission = { BudgetNotificationPermission() },
+        bottomBar = bottomBar
     )
 }
 
@@ -79,7 +81,8 @@ fun BudgetsScreen(
 fun BudgetsContent(
     state: BudgetsState, selectedId: String?, onBack: () -> Unit, onCreate: () -> Unit,
     onEdit: (Budget) -> Unit, onDisable: (String) -> Unit, onRetry: (String) -> Unit,
-    notificationPermission: @Composable () -> Unit = {}
+    notificationPermission: @Composable () -> Unit = {},
+    bottomBar: @Composable () -> Unit = {}
 ) {
     val listState = rememberLazyListState()
     // Highlighting/navigation only selects a budget already loaded from the authenticated owner's stream.
@@ -89,10 +92,17 @@ fun BudgetsContent(
         // Exactly one header item precedes the budget rows.
         if (index >= 0) listState.animateScrollToItem(index + 1)
     }
-    Scaffold(topBar = { TopAppBar(title = { Text(BudgetUiText.TITLE) },
-        navigationIcon = {
-            IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, contentDescription = BudgetUiText.BACK) }
-        }) }) { padding ->
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text(BudgetUiText.TITLE) },
+                navigationIcon = {
+                    IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, contentDescription = BudgetUiText.BACK) }
+                }
+            )
+        },
+        bottomBar = bottomBar
+    ) { padding ->
         LazyColumn(state = listState, modifier = Modifier.fillMaxSize().padding(padding).padding(horizontal = 16.dp),
             contentPadding = PaddingValues(top = 8.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             item { BudgetsHeader(state, rows.isEmpty(), onCreate, notificationPermission) }

@@ -35,12 +35,14 @@ fun MainScreen(
     onNavigateToSettings: () -> Unit = {},
     onNavigateToIncome: () -> Unit = {},
     onNavigateToBudgets: (String?) -> Unit = {},
+    bottomBar: @Composable () -> Unit = {},
     viewModel: MainViewModel = hiltViewModel()
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     val colors = MaterialTheme.colorScheme
 
     Scaffold(
+        bottomBar = bottomBar,
         floatingActionButton = {
             ExtendedFloatingActionButton(
                 onClick = onNavigateToTransactions,
