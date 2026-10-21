@@ -20,6 +20,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -44,14 +46,12 @@ fun MainScreen(
     Scaffold(
         bottomBar = bottomBar,
         floatingActionButton = {
-            ExtendedFloatingActionButton(
+            FloatingActionButton(
                 onClick = onNavigateToTransactions,
-                containerColor = colors.primary,
-                contentColor = colors.onPrimary,
-                shape = CircleShape,
-                icon = { Icon(Icons.Default.Add, contentDescription = null) },
-                text = { Text("Add", fontWeight = FontWeight.SemiBold) }
-            )
+                modifier = Modifier.semantics { contentDescription = "Add transaction" }
+            ) {
+                Text("+", style = MaterialTheme.typography.headlineMedium)
+            }
         }
     ) { padding ->
         Column(

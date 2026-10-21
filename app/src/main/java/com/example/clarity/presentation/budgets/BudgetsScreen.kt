@@ -17,7 +17,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Notifications
@@ -101,11 +100,21 @@ fun BudgetsContent(
                 }
             )
         },
-        bottomBar = bottomBar
+        bottomBar = bottomBar,
+        floatingActionButton = {
+            if (state.overview.ownerId != null) {
+                FloatingActionButton(
+                    onClick = { if (!state.busy) onCreate() },
+                    modifier = Modifier.semantics { contentDescription = BudgetUiText.CREATE }
+                ) {
+                    Text("+", style = MaterialTheme.typography.headlineMedium)
+                }
+            }
+        }
     ) { padding ->
         LazyColumn(state = listState, modifier = Modifier.fillMaxSize().padding(padding).padding(horizontal = 16.dp),
             contentPadding = PaddingValues(top = 8.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            item { BudgetsHeader(state, rows.isEmpty(), onCreate, notificationPermission) }
+            item { BudgetsHeader(state, rows.isEmpty(), notificationPermission) }
             items(rows, key = { it.budget.id }) { status ->
                 BudgetCard(status, selected = status.budget.id == selectedId,
                     live = isLivePeriod(status, state),
@@ -117,22 +126,14 @@ fun BudgetsContent(
             items(disabled, key = { "disabled-${it.budget.id}" }) { status ->
                 DisabledBudgetRow(status, onClick = { onEdit(status.budget) }, enabled = !state.busy)
             }
-            item { Spacer(Modifier.height(20.dp)) }
+            item { Spacer(Modifier.height(88.dp)) }
         }
     }
 }
 
 @Composable
-private fun BudgetsHeader(state: BudgetsState, empty: Boolean, onCreate: () -> Unit, notificationPermission: @Composable () -> Unit) {
+private fun BudgetsHeader(state: BudgetsState, empty: Boolean, notificationPermission: @Composable () -> Unit) {
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Button(onClick = onCreate, enabled = state.overview.ownerId != null && !state.busy,
-            modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
-            Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(ButtonDefaults.IconSize))
-            Spacer(Modifier.width(ButtonDefaults.IconSpacing))
-            Text(BudgetUiText.CREATE)
-        }
-        Text(BudgetUiText.MONTH_POLICY, style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant)
         notificationPermission()
         if (state.loading) Box(Modifier.fillMaxWidth().padding(vertical = 16.dp), contentAlignment = Alignment.Center) {
             CircularProgressIndicator(Modifier.semantics { contentDescription = BudgetUiText.LOADING })
