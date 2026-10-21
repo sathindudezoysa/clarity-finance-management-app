@@ -24,10 +24,11 @@ fun AccountListScreen(
     onBack: () -> Unit,
     onAdd: () -> Unit,
     onEdit: (String) -> Unit,
+    bottomBar: @Composable () -> Unit = {},
     viewModel: AccountListViewModel = hiltViewModel()
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
-    AccountListContent(state, onBack, onAdd, onEdit, viewModel::makeDefault)
+    AccountListContent(state, onBack, onAdd, onEdit, viewModel::makeDefault, bottomBar)
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -37,7 +38,8 @@ internal fun AccountListContent(
     onBack: () -> Unit,
     onAdd: () -> Unit,
     onEdit: (String) -> Unit,
-    onMakeDefault: (String) -> Unit
+    onMakeDefault: (String) -> Unit,
+    bottomBar: @Composable () -> Unit = {}
 ) {
     val addDescription = "Add account"
     Scaffold(
@@ -47,6 +49,7 @@ internal fun AccountListContent(
                 navigationIcon = { TextButton(onClick = onBack) { Text("Back") } }
             )
         },
+        bottomBar = bottomBar,
         floatingActionButton = {
             if (state.error != AccountMessages.SIGN_IN) {
                 FloatingActionButton(onClick = onAdd, modifier = Modifier.semantics { contentDescription = addDescription }) {

@@ -17,6 +17,7 @@ import com.example.clarity.presentation.auth.register.RegisterScreen
 import com.example.clarity.presentation.main.MainScreen
 import com.example.clarity.presentation.accounts.list.AccountListScreen
 import com.example.clarity.presentation.accounts.edit.AccountEditScreen
+import com.example.clarity.presentation.goals.GoalsScreen
 import com.example.clarity.presentation.settings.SettingsScreen
 
 import com.example.clarity.presentation.auth.login.LoginScreen
@@ -62,14 +63,43 @@ fun SetupNavGraph(
                 onNavigateToTransactions = { navController.navigate(Screen.TransactionList.route) },
                 onNavigateToIncome = { navController.navigate(Screen.IncomeSources.route) },
                 onNavigateToCashWallet = { navController.navigate(Screen.CashWallet.route) },
-                onNavigateToSettings = { navController.navigate(Screen.Settings.route) }
+                onNavigateToSettings = { navController.navigate(Screen.Settings.route) },
+                bottomBar = {
+                    ClarityBottomNavBar(
+                        navController = navController,
+                        currentDestination = BottomNavDestination.HOME
+                    )
+                }
             )
         }
         composable(Screen.Budgets.route, arguments = listOf(navArgument("budgetId") {
             type = NavType.StringType; nullable = true; defaultValue = null
         })) { entry ->
             com.example.clarity.presentation.budgets.BudgetsScreen(
-                onBack = { navController.popBackStack() }, selectedId = entry.arguments?.getString("budgetId"))
+                onBack = {
+                    if (!navController.popBackStack()) {
+                        navController.navigate(Screen.Main.route) { launchSingleTop = true }
+                    }
+                },
+                selectedId = entry.arguments?.getString("budgetId"),
+                bottomBar = {
+                    ClarityBottomNavBar(
+                        navController = navController,
+                        currentDestination = BottomNavDestination.BUDGETS
+                    )
+                }
+            )
+        }
+        composable(route = Screen.Goals.route) {
+            GoalsScreen(
+                bottomBar = {
+                    ClarityBottomNavBar(
+                        navController = navController,
+                        currentDestination = BottomNavDestination.GOALS
+                    )
+                },
+                viewModel = hiltViewModel()
+            )
         }
         composable(Screen.IncomeSources.route) {
             IncomeScreen(onBack = { navController.popBackStack() },
@@ -91,9 +121,19 @@ fun SetupNavGraph(
         }
         composable(route = Screen.AccountList.route) {
             AccountListScreen(
-                onBack = { navController.popBackStack() },
+                onBack = {
+                    if (!navController.popBackStack()) {
+                        navController.navigate(Screen.Main.route) { launchSingleTop = true }
+                    }
+                },
                 onAdd = { navController.navigate(Screen.AccountEdit.createRoute()) },
                 onEdit = { id -> navController.navigate(Screen.AccountEdit.createRoute(id)) },
+                bottomBar = {
+                    ClarityBottomNavBar(
+                        navController = navController,
+                        currentDestination = BottomNavDestination.ACCOUNTS
+                    )
+                },
                 viewModel = hiltViewModel()
             )
         }

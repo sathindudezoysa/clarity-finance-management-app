@@ -32,7 +32,12 @@ import java.math.RoundingMode
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun BudgetsScreen(onBack: () -> Unit, selectedId: String? = null, viewModel: BudgetsViewModel = hiltViewModel()) {
+fun BudgetsScreen(
+    onBack: () -> Unit,
+    selectedId: String? = null,
+    bottomBar: @Composable () -> Unit = {},
+    viewModel: BudgetsViewModel = hiltViewModel()
+) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val listState = rememberLazyListState()
     // Highlighting/navigation only selects a budget already loaded from the authenticated owner's stream.
@@ -41,8 +46,15 @@ fun BudgetsScreen(onBack: () -> Unit, selectedId: String? = null, viewModel: Bud
         val index = rows.indexOfFirst { it.budget.id == selectedId }
         if (index >= 0) listState.animateScrollToItem(index + 1)
     }
-    Scaffold(topBar = { TopAppBar(title = { Text("Budgets") },
-        navigationIcon = { TextButton(onClick = onBack) { Text("Back") } }) }) { padding ->
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text("Budgets") },
+                navigationIcon = { TextButton(onClick = onBack) { Text("Back") } }
+            )
+        },
+        bottomBar = bottomBar
+    ) { padding ->
         LazyColumn(state = listState, modifier = Modifier.fillMaxSize().padding(padding).padding(horizontal = 16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)) {
             item {
