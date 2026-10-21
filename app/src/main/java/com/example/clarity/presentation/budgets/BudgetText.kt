@@ -69,6 +69,8 @@ object BudgetUiText {
     const val YEAR_LABEL = "Year (YYYY)"
     const val PERIOD_MONTHLY = "Monthly"
     const val PERIOD_YEARLY = "Yearly"
+    const val RESET_MONTHLY_HINT = "Resets automatically on the 1st of every month."
+    const val RESET_YEARLY_HINT = "Resets automatically on 1 January every year."
     const val RETRY = "Resolve uncounted currencies"
     const val PENDING_SYNC = "Saved on this device · Waiting to sync"
     const val EDIT = "Edit budget"

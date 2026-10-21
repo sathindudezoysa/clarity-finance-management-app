@@ -58,7 +58,7 @@ class AndroidBudgetNotifications @Inject constructor(@ApplicationContext private
             BudgetThreshold.REACHED -> "You’ve reached your ${budget.category} budget. Review your next expenses and make a fresh plan."
             else -> "You’ve passed ${if (budget.period == BudgetPeriod.YEARLY) "this year’s" else "this month’s"} ${budget.category} budget. Review your next expenses and make a fresh plan."
         }
-        val details = "${budget.category} · ${budget.month}: ${money(status.spent)} of ${money(budget.limitMinor.toBigInteger())}. $statusText. $feedbackText" +
+        val details = "${budget.category} · ${status.activePeriod}: ${money(status.spent)} of ${money(budget.limitMinor.toBigInteger())}. $statusText. $feedbackText" +
             (if (status.remaining.signum() < 0) " Exceeded by ${money(-status.remaining)}" else "") +
             (if (status.uncounted > 0) " " + String.format("%d expense(s) are uncounted because their currency is not yet comparable. This total is incomplete.", status.uncounted) else "")
         val builder = NotificationCompat.Builder(context, CHANNEL).setSmallIcon(R.drawable.ic_budget_notification)

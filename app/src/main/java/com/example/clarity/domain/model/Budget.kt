@@ -22,7 +22,12 @@ data class Budget(
 
 enum class BudgetThreshold(val level: Int) { NORMAL(0), NEARING(1), REACHED(2), EXCEEDED(3) }
 
-data class BudgetStatus(val budget: Budget, val spent: BigInteger, val uncounted: Int) {
+data class BudgetStatus(
+    val budget: Budget,
+    val spent: BigInteger,
+    val uncounted: Int,
+    val activePeriod: String = budget.month
+) {
     val remaining: BigInteger get() = budget.limitMinor.toBigInteger() - spent
     val threshold: BudgetThreshold get() = BudgetPolicy.threshold(spent, budget.limitMinor)
 }
@@ -43,6 +48,15 @@ object BudgetPolicy {
         BudgetPeriod.MONTHLY -> TransactionCalendar.currentMonth(clock, zone)
         BudgetPeriod.YEARLY -> TransactionCalendar.currentYear(clock, zone)
     }
+    /** Pure helper returning the active period key ("YYYY-MM" or "YYYY") for a recurring [budget] at [clock] in [zone]. */
+    fun activePeriodKey(budget: Budget, clock: Clock, zone: ZoneId = ZoneId.systemDefault()): String =
+        currentPeriodKey(clock, budget.period, zone)
+    /** Returns the [start, end) epoch-millisecond bounds for the active period of [budget] at [clock] in [zone]. */
+    fun activePeriodBounds(budget: Budget, clock: Clock, zone: ZoneId = ZoneId.systemDefault()): Pair<Long, Long> =
+        periodBounds(activePeriodKey(budget, clock, zone), budget.period, zone)
+    /** Returns the notification dedupe key for [budget] in [activePeriod] so thresholds can notify again after renewal. */
+    fun alertKey(budget: Budget, activePeriod: String = budget.month): String =
+        if (activePeriod == budget.month) budget.id else "${budget.id}@$activePeriod"
     fun isCurrentPeriod(budget: Budget, clock: Clock, zone: ZoneId = ZoneId.systemDefault()): Boolean =
         budget.month == currentPeriodKey(clock, budget.period, zone)
     fun categoryKey(category: String): String = MessageDigest.getInstance("SHA-256")
@@ -79,22 +93,36 @@ object BudgetPolicy {
         return selected.copy(createdAt = existing.createdAt, currency = existing.currency, pendingSync = false)
     }
 
-    fun eligible(budget: Budget, transaction: Transaction, zone: ZoneId = ZoneId.systemDefault()): Boolean {
-        val (start, end) = when (budget.period) {
-            BudgetPeriod.MONTHLY -> TransactionCalendar.monthBounds(YearMonth.parse(budget.month), zone)
-            BudgetPeriod.YEARLY -> TransactionCalendar.yearBounds(Year.parse(budget.month), zone)
-        }
+    private fun periodBounds(periodKey: String, period: BudgetPeriod, zone: ZoneId): Pair<Long, Long> = when (period) {
+        BudgetPeriod.MONTHLY -> TransactionCalendar.monthBounds(YearMonth.parse(periodKey), zone)
+        BudgetPeriod.YEARLY -> TransactionCalendar.yearBounds(Year.parse(periodKey), zone)
+    }
+
+    fun eligible(
+        budget: Budget,
+        transaction: Transaction,
+        zone: ZoneId = ZoneId.systemDefault(),
+        clock: Clock? = null
+    ): Boolean {
+        val periodKey = if (clock != null) activePeriodKey(budget, clock, zone) else budget.month
+        val (start, end) = periodBounds(periodKey, budget.period, zone)
         return transaction.userId == budget.userId && transaction.type == TransactionType.EXPENSE &&
             TransactionTags.key(transaction.category) == TransactionTags.key(budget.category) &&
             transaction.dateEpochMillis >= start && transaction.dateEpochMillis < end
     }
     /** Input is the repository's non-deleted transaction stream, including unsynced cash expenses. */
-    fun evaluate(budget: Budget, transactions: List<Transaction>, resolutions: List<BudgetResolution> = emptyList(),
-        zone: ZoneId = ZoneId.systemDefault()): BudgetStatus {
+    fun evaluate(
+        budget: Budget,
+        transactions: List<Transaction>,
+        resolutions: List<BudgetResolution> = emptyList(),
+        zone: ZoneId = ZoneId.systemDefault(),
+        clock: Clock? = null
+    ): BudgetStatus {
         var total = BigInteger.ZERO
         var uncounted = 0
+        val activePeriod = if (clock != null) activePeriodKey(budget, clock, zone) else budget.month
         val resolved = resolutions.associateBy { Triple(it.transactionId, it.transactionVersion, it.currency) }
-        transactions.filter { eligible(budget, it, zone) }.forEach { transaction ->
+        transactions.filter { eligible(budget, it, zone, clock) }.forEach { transaction ->
             val amount = when {
                 transaction.currency == budget.currency -> transaction.amountMinor
                 !transaction.pendingConversion && transaction.targetCurrency == budget.currency -> transaction.conversion?.amountMinor
@@ -102,6 +130,6 @@ object BudgetPolicy {
             }
             if (amount == null) uncounted++ else total += amount.toBigInteger()
         }
-        return BudgetStatus(budget, total, uncounted)
+        return BudgetStatus(budget, total, uncounted, activePeriod)
     }
 }

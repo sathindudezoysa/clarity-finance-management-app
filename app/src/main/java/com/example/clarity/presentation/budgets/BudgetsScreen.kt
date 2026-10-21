@@ -2,6 +2,7 @@ package com.example.clarity.presentation.budgets
 
 import android.Manifest
 import android.app.Activity
+import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.content.res.Configuration
@@ -10,17 +11,11 @@ import android.os.Build
 import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.relocation.BringIntoViewRequester
-import androidx.compose.foundation.relocation.bringIntoViewRequester
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowBack
@@ -31,42 +26,50 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.focus.onFocusEvent
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.ImeAction
-import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.core.app.ActivityCompat
+import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.clarity.domain.model.Budget
 import com.example.clarity.domain.model.BudgetPeriod
 import com.example.clarity.domain.model.BudgetStatus
 import com.example.clarity.domain.repository.BudgetOverview
 import com.example.clarity.presentation.theme.ClarityTheme
-import com.example.clarity.presentation.transactions.edit.TransactionTagField
-import kotlinx.coroutines.launch
 
-private fun isLivePeriod(budget: Budget, state: BudgetsState): Boolean = when (budget.period) {
-    BudgetPeriod.MONTHLY -> budget.month == state.currentMonth
-    BudgetPeriod.YEARLY -> budget.month == state.currentYear
+private fun isLivePeriod(status: BudgetStatus, state: BudgetsState): Boolean = when (status.budget.period) {
+    BudgetPeriod.MONTHLY -> status.activePeriod == state.currentMonth
+    BudgetPeriod.YEARLY -> status.activePeriod == state.currentYear
 }
 
 @Composable
-fun BudgetsScreen(onBack: () -> Unit, selectedId: String? = null, viewModel: BudgetsViewModel = hiltViewModel()) {
+fun BudgetsScreen(
+    onBack: () -> Unit,
+    selectedId: String? = null,
+    onOpenEditor: (String?) -> Unit = {},
+    viewModel: BudgetsViewModel = hiltViewModel()
+) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     BudgetsContent(
         state = state, selectedId = selectedId, onBack = onBack,
-        onCreate = { viewModel.edit() }, onEdit = { viewModel.edit(it) },
+        onCreate = {
+            viewModel.edit()
+            onOpenEditor(null)
+        },
+        onEdit = { budget ->
+            viewModel.edit(budget)
+            onOpenEditor(budget.id)
+        },
         onDisable = viewModel::disable, onRetry = viewModel::retryCurrency,
-        onCategoryChange = viewModel::changeCategory, onMonthChange = viewModel::changeMonth,
-        onAmountChange = viewModel::changeAmount, onPeriodChange = viewModel::changePeriod,
-        onSave = viewModel::save, onCloseEditor = viewModel::closeEditor,
         notificationPermission = { BudgetNotificationPermission() }
     )
 }
@@ -76,9 +79,7 @@ fun BudgetsScreen(onBack: () -> Unit, selectedId: String? = null, viewModel: Bud
 fun BudgetsContent(
     state: BudgetsState, selectedId: String?, onBack: () -> Unit, onCreate: () -> Unit,
     onEdit: (Budget) -> Unit, onDisable: (String) -> Unit, onRetry: (String) -> Unit,
-    onCategoryChange: (String) -> Unit, onMonthChange: (String) -> Unit, onAmountChange: (String) -> Unit,
-    onSave: () -> Unit, onCloseEditor: () -> Unit, notificationPermission: @Composable () -> Unit = {},
-    onPeriodChange: (BudgetPeriod) -> Unit = {}
+    notificationPermission: @Composable () -> Unit = {}
 ) {
     val listState = rememberLazyListState()
     // Highlighting/navigation only selects a budget already loaded from the authenticated owner's stream.
@@ -97,7 +98,7 @@ fun BudgetsContent(
             item { BudgetsHeader(state, rows.isEmpty(), onCreate, notificationPermission) }
             items(rows, key = { it.budget.id }) { status ->
                 BudgetCard(status, selected = status.budget.id == selectedId,
-                    live = isLivePeriod(status.budget, state),
+                    live = isLivePeriod(status, state),
                     onEdit = { onEdit(status.budget) }, onDisable = { onDisable(status.budget.id) },
                     onRetry = { onRetry(status.budget.id) }, enabled = !state.busy)
             }
@@ -108,10 +109,6 @@ fun BudgetsContent(
             }
             item { Spacer(Modifier.height(20.dp)) }
         }
-    }
-    state.editor?.let { editor ->
-        BudgetEditorDialog(editor, state.tags, state.busy, state.error, onCategoryChange, onMonthChange,
-            onAmountChange, onPeriodChange, onSave, onCloseEditor)
     }
 }
 
@@ -137,57 +134,6 @@ private fun BudgetsHeader(state: BudgetsState, empty: Boolean, onCreate: () -> U
     }
 }
 
-@OptIn(ExperimentalFoundationApi::class, ExperimentalMaterial3Api::class)
-@Composable
-private fun BudgetEditorDialog(editor: BudgetEditor, tags: List<String>, busy: Boolean, error: String?,
-    onCategoryChange: (String) -> Unit, onMonthChange: (String) -> Unit, onAmountChange: (String) -> Unit,
-    onPeriodChange: (BudgetPeriod) -> Unit, onSave: () -> Unit, onClose: () -> Unit) {
-    val scrollState = rememberScrollState()
-    val scope = rememberCoroutineScope()
-    val limitRequester = remember { BringIntoViewRequester() }
-    val monthRequester = remember { BringIntoViewRequester() }
-    val canEditIdentity = editor.budget == null && !busy
-    AlertDialog(onDismissRequest = { if (!busy) onClose() },
-        title = { Text(if (editor.budget == null) BudgetUiText.CREATE else BudgetUiText.EDIT_TITLE) },
-        text = {
-            Column(Modifier.verticalScroll(scrollState), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                if (busy) LinearProgressIndicator(Modifier.fillMaxWidth())
-                OutlinedTextField(editor.amount, onAmountChange,
-                    modifier = Modifier.fillMaxWidth().bringIntoViewRequester(limitRequester)
-                        .onFocusEvent { if (it.isFocused) scope.launch { limitRequester.bringIntoView() } },
-                    label = { Text(budgetLimitLabel(editor.currency)) }, singleLine = true, enabled = !busy,
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal, imeAction = ImeAction.Done))
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    FilterChip(
-                        selected = editor.period == BudgetPeriod.MONTHLY,
-                        onClick = { onPeriodChange(BudgetPeriod.MONTHLY) },
-                        label = { Text(BudgetUiText.PERIOD_MONTHLY) },
-                        enabled = canEditIdentity
-                    )
-                    FilterChip(
-                        selected = editor.period == BudgetPeriod.YEARLY,
-                        onClick = { onPeriodChange(BudgetPeriod.YEARLY) },
-                        label = { Text(BudgetUiText.PERIOD_YEARLY) },
-                        enabled = canEditIdentity
-                    )
-                }
-                OutlinedTextField(editor.month, onMonthChange,
-                    modifier = Modifier.fillMaxWidth().bringIntoViewRequester(monthRequester)
-                        .onFocusEvent { if (it.isFocused) scope.launch { monthRequester.bringIntoView() } },
-                    label = { Text(if (editor.period == BudgetPeriod.YEARLY) BudgetUiText.YEAR_LABEL else BudgetUiText.MONTH_LABEL) },
-                    singleLine = true, enabled = canEditIdentity,
-                    keyboardOptions = if (editor.period == BudgetPeriod.YEARLY) KeyboardOptions(keyboardType = KeyboardType.Number) else KeyboardOptions.Default)
-                Box(Modifier.fillMaxWidth()) {
-                    TransactionTagField(editor.category, tags, onCategoryChange, canEditIdentity, null,
-                        hint = "Tap a category or type a new one.")
-                }
-                error?.let { BudgetMessageBanner(Icons.Default.Warning, it, isError = true) }
-            }
-        },
-        confirmButton = { Button(onClick = onSave, enabled = !busy) { Text(BudgetUiText.SAVE) } },
-        dismissButton = { TextButton(onClick = onClose, enabled = !busy) { Text(BudgetUiText.CANCEL) } })
-}
-
 @Composable
 fun BudgetDashboardSummary(onOpen: (String?) -> Unit, viewModel: BudgetsViewModel = hiltViewModel()) {
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -197,7 +143,7 @@ fun BudgetDashboardSummary(onOpen: (String?) -> Unit, viewModel: BudgetsViewMode
 // Rendered inside the dashboard's vertically scrolling Column: no lazy lists or nested scrolling.
 @Composable
 private fun BudgetDashboardCard(state: BudgetsState, onOpen: (String?) -> Unit) {
-    val alerts = state.overview.statuses.filter { it.budget.active && isLivePeriod(it.budget, state) &&
+    val alerts = state.overview.statuses.filter { it.budget.active && isLivePeriod(it, state) &&
         (it.threshold.level > 0 || it.uncounted > 0) }.take(3)
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -232,13 +178,36 @@ private fun BudgetDashboardCard(state: BudgetsState, onOpen: (String?) -> Unit) 
     }
 }
 
+private fun areAppNotificationsEnabled(context: Context): Boolean {
+    val permissionGranted = Build.VERSION.SDK_INT < 33 ||
+        ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
+    return permissionGranted && NotificationManagerCompat.from(context).areNotificationsEnabled()
+}
+
 @Composable
 private fun BudgetNotificationPermission() {
     val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
+    var notificationsEnabled by remember { mutableStateOf(areAppNotificationsEnabled(context)) }
+    DisposableEffect(lifecycleOwner, context) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                notificationsEnabled = areAppNotificationsEnabled(context)
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        notificationsEnabled = areAppNotificationsEnabled(context)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+    if (notificationsEnabled) return
+
     var rationale by remember { mutableStateOf(false) }
     val prefs = remember { context.getSharedPreferences("budget_permission", 0) }
     var asked by remember { mutableStateOf(prefs.getBoolean("asked", false)) }
-    val launcher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { asked = true }
+    val launcher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {
+        asked = true
+        notificationsEnabled = areAppNotificationsEnabled(context)
+    }
     fun request() {
         prefs.edit().putBoolean("asked", true).apply()
         if (Build.VERSION.SDK_INT >= 33) launcher.launch(Manifest.permission.POST_NOTIFICATIONS)
@@ -285,8 +254,7 @@ private val previewState = BudgetsState(loading = false, currentMonth = "2026-10
 @Composable
 private fun BudgetsPreviewContent(state: BudgetsState, selectedId: String? = null) {
     ClarityTheme {
-        BudgetsContent(state, selectedId, onBack = {}, onCreate = {}, onEdit = {}, onDisable = {}, onRetry = {},
-            onCategoryChange = {}, onMonthChange = {}, onAmountChange = {}, onSave = {}, onCloseEditor = {})
+        BudgetsContent(state, selectedId, onBack = {}, onCreate = {}, onEdit = {}, onDisable = {}, onRetry = {})
     }
 }
 

@@ -102,7 +102,7 @@ internal fun BudgetCard(status: BudgetStatus, selected: Boolean, live: Boolean, 
         border = if (selected) BorderStroke(2.dp, colors.primary) else BorderStroke(1.dp, colors.outlineVariant)
     ) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            BudgetCardHeader(budget.category, budgetPeriodSubtitleText(budget.month, budget.period),
+            BudgetCardHeader(budget.category, budgetPeriodSubtitleText(status.activePeriod, budget.period),
                 budgetStatusText(status.threshold, status.uncounted > 0), tone)
             BudgetSpending(status, progress, tone, live)
             if (warning) BudgetFeedback(budgetFeedbackText(status.threshold, budget.category, budget.period), tone)
@@ -199,7 +199,7 @@ internal fun DisabledBudgetRow(status: BudgetStatus, onClick: () -> Unit, enable
         Row(Modifier.heightIn(min = 56.dp).padding(horizontal = 16.dp, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             Column(Modifier.weight(1f)) {
-                Text(budgetCategoryMonthText(status.budget.category, status.budget.month), style = MaterialTheme.typography.bodyLarge)
+                Text(budgetCategoryMonthText(status.budget.category, status.activePeriod), style = MaterialTheme.typography.bodyLarge)
                 Text(BudgetUiText.DISABLED_HINT, style = MaterialTheme.typography.bodySmall)
             }
             Icon(Icons.Default.Edit, contentDescription = null, modifier = Modifier.size(20.dp))
@@ -213,7 +213,7 @@ internal fun BudgetDashboardAlert(status: BudgetStatus, onClick: () -> Unit) {
     val budget = status.budget
     val tone = budgetTone(status.threshold, live = true)
     val colors = MaterialTheme.colorScheme
-    val periodText = budgetCategoryMonthText(budget.category, budget.month).substringAfter(" · ")
+    val periodText = budgetCategoryMonthText(budget.category, status.activePeriod).substringAfter(" · ")
     val pillLabel = if (status.remaining.signum() < 0) {
         budgetExceededByText(budgetMoney(-status.remaining, budget.currency))
     } else {

@@ -73,13 +73,19 @@ class BudgetsViewModel @Inject constructor(
         val editor = state.value.editor ?: return
         val budget = runCatching {
             val category = TransactionTags.normalize(editor.category)
-            require(BudgetPolicy.periodOf(editor.month) == editor.period)
+            val month = editor.budget?.month ?: BudgetPolicy.currentPeriodKey(clock, editor.period)
             val amount = BigDecimal(editor.amount).movePointRight(Currencies.digits(editor.currency)).longValueExact()
             require(amount > 0)
-            val id = BudgetPolicy.id(editor.month, category)
+            val id = editor.budget?.id ?: BudgetPolicy.id(month, category)
+            val categoryKey = BudgetPolicy.categoryKey(category)
             // Existing budgets, including disabled ones, are edited with their recorded currency.
-            require(editor.budget != null || state.value.overview.statuses.none { it.budget.id == id })
-            Budget(id, editor.owner, editor.month, category, amount, editor.currency).also { BudgetPolicy.validate(it) }
+            require(
+                editor.budget != null || state.value.overview.statuses.none {
+                    it.budget.id == id ||
+                        (it.budget.period == editor.period && BudgetPolicy.categoryKey(it.budget.category) == categoryKey)
+                }
+            )
+            Budget(id, editor.owner, month, category, amount, editor.currency).also { BudgetPolicy.validate(it) }
         }.getOrElse { mutable.update { it.copy(error = BudgetMessages.VALIDATION) }; return }
         action(BudgetMessages.SAVE_ERROR) {
             saveBudget(budget).getOrThrow()
