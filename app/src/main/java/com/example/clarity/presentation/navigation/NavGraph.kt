@@ -116,6 +116,11 @@ fun SetupNavGraph(
             SettingsScreen(
                 onBack = { navController.popBackStack() },
                 onBankAccounts = { navController.navigate(Screen.AccountList.route) },
+                onSignOut = {
+                    navController.navigate(Screen.Login.route) {
+                        popUpTo(0) { inclusive = true }
+                    }
+                },
                 viewModel = hiltViewModel()
             )
         }
