@@ -23,7 +23,8 @@ fun TransactionTagField(
     onValueChange: (String) -> Unit,
     enabled: Boolean,
     error: String?,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    hint: String = "Tap a tag or type a new one. New tags are saved with this transaction."
 ) {
     val focusManager = LocalFocusManager.current
     Column(modifier) {
@@ -47,7 +48,7 @@ fun TransactionTagField(
             label = { Text("Tag or custom tag (optional)") },
             placeholder = { Text("General") },
             supportingText = {
-                Text(error ?: "Tap a tag or type a new one. New tags are saved with this transaction.")
+                Text(error ?: hint)
             },
             isError = error != null,
             enabled = enabled,

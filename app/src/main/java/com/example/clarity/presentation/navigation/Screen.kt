@@ -6,6 +6,10 @@ sealed class Screen(val route: String) {
     object Budgets : Screen("budgets?budgetId={budgetId}") {
         fun createRoute(id: String? = null) = "budgets" + (id?.let { "?budgetId=${Uri.encode(it)}" } ?: "")
     }
+    object BudgetEdit : Screen("budgets/edit?budgetId={budgetId}") {
+        fun createRoute(id: String? = null) = if (id == null) "budgets/edit"
+            else "budgets/edit?budgetId=${Uri.encode(id)}"
+    }
     object IncomeSources : Screen("income_sources")
     object Main : Screen("main_screen")
     object CashWallet : Screen("cash_wallet")

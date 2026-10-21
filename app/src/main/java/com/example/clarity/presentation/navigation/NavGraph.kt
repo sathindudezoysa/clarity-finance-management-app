@@ -1,26 +1,24 @@
 package com.example.clarity.presentation.navigation
 
-import com.example.clarity.presentation.income.IncomeScreen
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.compose.runtime.remember
+import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavHostController
 import androidx.navigation.NavType
-import androidx.navigation.navArgument
-import androidx.hilt.navigation.compose.hiltViewModel
-import com.example.clarity.presentation.transactions.list.TransactionListScreen
-import com.example.clarity.presentation.transactions.detail.TransactionDetailScreen
-import com.example.clarity.presentation.transactions.edit.TransactionEditScreen
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
-import com.example.clarity.presentation.auth.register.RegisterScreen
-import com.example.clarity.presentation.main.MainScreen
-import com.example.clarity.presentation.accounts.list.AccountListScreen
+import androidx.navigation.navArgument
 import com.example.clarity.presentation.accounts.edit.AccountEditScreen
-import com.example.clarity.presentation.goals.GoalsScreen
-import com.example.clarity.presentation.settings.SettingsScreen
-
+import com.example.clarity.presentation.accounts.list.AccountListScreen
 import com.example.clarity.presentation.auth.login.LoginScreen
+import com.example.clarity.presentation.auth.register.RegisterScreen
+import com.example.clarity.presentation.goals.GoalsScreen
+import com.example.clarity.presentation.income.IncomeScreen
+import com.example.clarity.presentation.main.MainScreen
+import com.example.clarity.presentation.settings.SettingsScreen
+import com.example.clarity.presentation.transactions.detail.TransactionDetailScreen
+import com.example.clarity.presentation.transactions.edit.TransactionEditScreen
+import com.example.clarity.presentation.transactions.list.TransactionListScreen
 
 @Composable
 fun SetupNavGraph(
@@ -59,8 +57,26 @@ fun SetupNavGraph(
         }
         composable(route = Screen.Main.route) {
             MainScreen(
-                onNavigateToBudgets = { navController.navigate(Screen.Budgets.createRoute(it)) },
-                onNavigateToTransactions = { navController.navigate(Screen.TransactionList.route) },
+                onNavigateToBudgets = { id ->
+                    navController.navigate(Screen.Budgets.createRoute(id)) {
+                        popUpTo(Screen.Main.route) {
+                            saveState = true
+                        }
+                        launchSingleTop = true
+                        if (id == null) {
+                            restoreState = true
+                        }
+                    }
+                },
+                onNavigateToTransactions = {
+                    navController.navigate(Screen.TransactionList.route) {
+                        popUpTo(Screen.Main.route) {
+                            saveState = true
+                        }
+                        launchSingleTop = true
+                        restoreState = true
+                    }
+                },
                 onNavigateToIncome = { navController.navigate(Screen.IncomeSources.route) },
                 onNavigateToCashWallet = { navController.navigate(Screen.CashWallet.route) },
                 onNavigateToSettings = { navController.navigate(Screen.Settings.route) },
@@ -82,12 +98,35 @@ fun SetupNavGraph(
                     }
                 },
                 selectedId = entry.arguments?.getString("budgetId"),
+                onOpenEditor = { id ->
+                    navController.navigate(Screen.BudgetEdit.createRoute(id)) {
+                        launchSingleTop = true
+                    }
+                },
                 bottomBar = {
                     ClarityBottomNavBar(
                         navController = navController,
                         currentDestination = BottomNavDestination.BUDGETS
                     )
                 }
+            )
+        }
+        composable(Screen.BudgetEdit.route, arguments = listOf(navArgument("budgetId") {
+            type = NavType.StringType; nullable = true; defaultValue = null
+        })) { entry ->
+            val parentEntry = remember(entry) {
+                runCatching { navController.getBackStackEntry(Screen.Budgets.route) }.getOrNull()
+            }
+            val budgetsViewModel: com.example.clarity.presentation.budgets.BudgetsViewModel =
+                if (parentEntry != null) hiltViewModel(parentEntry) else hiltViewModel()
+            com.example.clarity.presentation.budgets.BudgetEditScreen(
+                budgetId = entry.arguments?.getString("budgetId"),
+                onBack = {
+                    if (!navController.popBackStack(Screen.Budgets.route, inclusive = false)) {
+                        navController.popBackStack()
+                    }
+                },
+                viewModel = budgetsViewModel
             )
         }
         composable(route = Screen.Goals.route) {
@@ -153,6 +192,12 @@ fun SetupNavGraph(
                 onBack = { navController.popBackStack() },
                 onAdd = { navController.navigate(Screen.TransactionEdit.createRoute()) },
                 onOpen = { id -> navController.navigate(Screen.TransactionDetail.createRoute(id)) },
+                bottomBar = {
+                    ClarityBottomNavBar(
+                        navController = navController,
+                        currentDestination = BottomNavDestination.TRANSACTIONS
+                    )
+                },
                 viewModel = hiltViewModel()
             )
         }

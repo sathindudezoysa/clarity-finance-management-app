@@ -1,5 +1,6 @@
 package com.example.clarity.presentation.main
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -16,11 +17,17 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.clarity.presentation.budgets.BudgetDashboardSummary
+import com.example.clarity.presentation.common.AppIcons
 import com.example.clarity.presentation.income.IncomeMonthlyPrompt
 
 @Composable
@@ -39,14 +46,12 @@ fun MainScreen(
     Scaffold(
         bottomBar = bottomBar,
         floatingActionButton = {
-            ExtendedFloatingActionButton(
+            FloatingActionButton(
                 onClick = onNavigateToTransactions,
-                containerColor = colors.primary,
-                contentColor = colors.onPrimary,
-                shape = CircleShape,
-                icon = { Icon(Icons.Default.Add, contentDescription = null) },
-                text = { Text("Add", fontWeight = FontWeight.SemiBold) }
-            )
+                modifier = Modifier.semantics { contentDescription = "Add transaction" }
+            ) {
+                Text("+", style = MaterialTheme.typography.headlineMedium)
+            }
         }
     ) { padding ->
         Column(
@@ -62,110 +67,174 @@ fun MainScreen(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text("Home", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
+                Text("Home", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
                 IconButton(
                     onClick = onNavigateToSettings,
-                    modifier = Modifier.size(36.dp).clip(CircleShape).background(colors.surfaceVariant)
+                    modifier = Modifier.size(48.dp).clip(CircleShape).background(colors.surfaceVariant)
                 ) {
-                    Icon(Icons.Outlined.Person, contentDescription = "Settings", tint = colors.onSurfaceVariant)
+                    Icon(Icons.Outlined.Person, contentDescription = "Settings", tint = colors.primary)
                 }
             }
 
-            IncomeMonthlyPrompt(onReview = onNavigateToIncome)
-            BudgetDashboardSummary(onOpen = onNavigateToBudgets)
-
             // Hero Net Worth Card
             Surface(
-                shape = RoundedCornerShape(16.dp),
+                shape = RoundedCornerShape(24.dp),
                 color = colors.primary,
                 contentColor = colors.onPrimary,
                 shadowElevation = 2.dp,
                 modifier = Modifier.fillMaxWidth()
             ) {
-                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        modifier = Modifier.clickable(onClick = viewModel::togglePrivacy)
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(
+                            Brush.verticalGradient(
+                                listOf(colors.primary, lerp(colors.primary, colors.onBackground, 0.25f))
+                            )
+                        )
+                ) {
+                    Column(
+                        modifier = Modifier.padding(20.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
-                        Text("TOTAL NET WORTH", style = MaterialTheme.typography.labelMedium, color = colors.secondary)
-                        Text(if (state.isHidden) "🙈" else "👁", style = MaterialTheme.typography.labelMedium)
-                    }
-                    Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Text(
-                            text = if (state.isHidden) "••••••••" else state.netWorth,
-                            style = MaterialTheme.typography.headlineLarge,
-                            fontWeight = FontWeight.Bold
-                        )
-                        Text(state.currency, style = MaterialTheme.typography.labelSmall, color = colors.secondary, modifier = Modifier.padding(bottom = 6.dp))
-                    }
-                    Divider(color = colors.onPrimary.copy(alpha = 0.15f))
-                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        FlowStatBox(
-                            modifier = Modifier.weight(1f),
-                            label = "↓ Income",
-                            amount = if (state.isHidden) "••••••" else "${state.currency} ${state.income}",
-                            subtitle = state.incomeSubtitle,
-                            onClick = onNavigateToIncome
-                        )
-                        FlowStatBox(
-                            modifier = Modifier.weight(1f),
-                            label = "↑ Expenses",
-                            amount = if (state.isHidden) "••••••" else "${state.currency} ${state.expenses}",
-                            subtitle = state.expenseSubtitle,
-                            onClick = onNavigateToTransactions
-                        )
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            modifier = Modifier
+                                .heightIn(min = 48.dp)
+                                .clickable(onClick = viewModel::togglePrivacy)
+                        ) {
+                            Text(
+                                "TOTAL NET WORTH",
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.SemiBold,
+                                color = colors.secondary
+                            )
+                            Icon(
+                                imageVector = if (state.isHidden) AppIcons.VisibilityOff else AppIcons.Visibility,
+                                contentDescription = if (state.isHidden) "Show balances" else "Hide balances",
+                                tint = colors.secondary,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+                        Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Text(
+                                text = if (state.isHidden) "••••••••" else state.netWorth,
+                                style = MaterialTheme.typography.displaySmall,
+                                fontWeight = FontWeight.ExtraBold
+                            )
+                            Text(
+                                state.currency,
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.SemiBold,
+                                color = colors.secondary,
+                                modifier = Modifier.padding(bottom = 6.dp)
+                            )
+                        }
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            FlowStatBox(
+                                modifier = Modifier.weight(1f),
+                                icon = AppIcons.ArrowDownward,
+                                label = "Income",
+                                amount = if (state.isHidden) "••••••" else "${state.currency} ${state.income}",
+                                subtitle = state.incomeSubtitle,
+                                onClick = onNavigateToIncome
+                            )
+                            FlowStatBox(
+                                modifier = Modifier.weight(1f),
+                                icon = AppIcons.ArrowUpward,
+                                label = "Expenses",
+                                amount = if (state.isHidden) "••••••" else "${state.currency} ${state.expenses}",
+                                subtitle = state.expenseSubtitle,
+                                onClick = onNavigateToTransactions
+                            )
+                        }
                     }
                 }
             }
 
+            IncomeMonthlyPrompt(onReview = onNavigateToIncome)
+
             // Cash Wallet Card
             Surface(
-                shape = RoundedCornerShape(16.dp),
+                shape = RoundedCornerShape(20.dp),
                 color = colors.surface,
+                border = BorderStroke(1.dp, colors.outlineVariant),
                 shadowElevation = 1.dp,
-                modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).clickable(onClick = onNavigateToCashWallet)
+                modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).clickable(onClick = onNavigateToCashWallet)
             ) {
                 Row(
                     modifier = Modifier.padding(16.dp),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Row(
+                        modifier = Modifier.weight(1f).padding(end = 12.dp),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
                         Box(
-                            modifier = Modifier.size(44.dp).clip(RoundedCornerShape(12.dp)).background(colors.secondary),
+                            modifier = Modifier.size(44.dp).clip(RoundedCornerShape(12.dp)).background(colors.surfaceVariant),
                             contentAlignment = Alignment.Center
                         ) {
-                            Text("💳", style = MaterialTheme.typography.titleMedium)
+                            Icon(
+                                imageVector = AppIcons.Wallet,
+                                contentDescription = "Cash Wallet",
+                                tint = colors.primary,
+                                modifier = Modifier.size(22.dp)
+                            )
                         }
-                        Column {
+                        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                Text("CASH WALLET", style = MaterialTheme.typography.labelMedium, color = colors.onSurfaceVariant)
+                                Text(
+                                    "CASH WALLET",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = colors.onSurfaceVariant
+                                )
                                 Box(Modifier.size(6.dp).clip(CircleShape).background(colors.tertiary))
                             }
                             Text(
                                 text = if (state.isHidden) "••••" else "${state.currency} ${state.cashBalance}",
                                 style = MaterialTheme.typography.titleLarge,
-                                fontWeight = FontWeight.SemiBold
+                                fontWeight = FontWeight.Bold
                             )
                             Text("Physical cash balance", style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant)
                         }
                     }
                     Surface(
-                        shape = RoundedCornerShape(12.dp),
+                        shape = RoundedCornerShape(50),
                         color = colors.surfaceVariant,
-                        modifier = Modifier.clip(RoundedCornerShape(12.dp)).clickable(onClick = onNavigateToCashWallet)
+                        modifier = Modifier
+                            .heightIn(min = 48.dp)
+                            .clip(RoundedCornerShape(50))
+                            .clickable(onClick = onNavigateToCashWallet)
                     ) {
-                        Text(
-                            text = "⊕ Top Up",
-                            style = MaterialTheme.typography.labelMedium,
-                            fontWeight = FontWeight.SemiBold,
-                            color = colors.primary,
-                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
-                        )
+                        Row(
+                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Add,
+                                contentDescription = null,
+                                tint = colors.primary,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Text(
+                                text = "Top Up",
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.SemiBold,
+                                color = colors.primary
+                            )
+                        }
                     }
                 }
             }
+
+            BudgetDashboardSummary(onOpen = onNavigateToBudgets)
+
+            Spacer(Modifier.height(88.dp))
         }
     }
 }
@@ -173,6 +242,7 @@ fun MainScreen(
 @Composable
 private fun FlowStatBox(
     modifier: Modifier = Modifier,
+    icon: ImageVector,
     label: String,
     amount: String,
     subtitle: String,
@@ -181,14 +251,26 @@ private fun FlowStatBox(
     val colors = MaterialTheme.colorScheme
     Column(
         modifier = modifier
-            .clip(RoundedCornerShape(12.dp))
+            .heightIn(min = 48.dp)
+            .clip(RoundedCornerShape(14.dp))
             .background(colors.onPrimary.copy(alpha = 0.12f))
             .clickable(onClick = onClick)
-            .padding(10.dp),
-        verticalArrangement = Arrangement.spacedBy(2.dp)
+            .padding(12.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp)
     ) {
-        Text(label, style = MaterialTheme.typography.labelSmall, color = colors.secondary)
-        Text(amount, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, color = colors.onPrimary)
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                tint = colors.secondary,
+                modifier = Modifier.size(14.dp)
+            )
+            Text(label, style = MaterialTheme.typography.labelSmall, color = colors.secondary)
+        }
+        Text(amount, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = colors.onPrimary)
         Text(subtitle, style = MaterialTheme.typography.labelSmall, color = colors.secondary.copy(alpha = 0.8f))
     }
 }

@@ -26,10 +26,11 @@ fun TransactionListScreen(
     onBack: () -> Unit,
     onAdd: () -> Unit,
     onOpen: (String) -> Unit,
+    bottomBar: @Composable () -> Unit = {},
     viewModel: TransactionListViewModel = hiltViewModel()
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
-    TransactionListContent(state, onBack, onAdd, onOpen)
+    TransactionListContent(state, onBack, onAdd, onOpen, bottomBar)
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -38,7 +39,8 @@ private fun TransactionListContent(
     state: TransactionListState,
     onBack: () -> Unit,
     onAdd: () -> Unit,
-    onOpen: (String) -> Unit
+    onOpen: (String) -> Unit,
+    bottomBar: @Composable () -> Unit = {}
 ) {
     val addDescription = "Add transaction"
     Scaffold(
@@ -48,6 +50,7 @@ private fun TransactionListContent(
                 navigationIcon = { TextButton(onClick = onBack) { Text("Back") } }
             )
         },
+        bottomBar = bottomBar,
         floatingActionButton = {
             FloatingActionButton(onClick = onAdd, modifier = Modifier.semantics { contentDescription = addDescription }) {
                 Text("+", style = MaterialTheme.typography.headlineMedium)

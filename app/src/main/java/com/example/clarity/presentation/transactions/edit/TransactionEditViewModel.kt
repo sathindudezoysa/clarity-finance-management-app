@@ -187,6 +187,7 @@ class TransactionEditViewModel @Inject constructor(
                             TransactionError.SIGN_IN_REQUIRED -> TransactionMessages.SIGN_IN
                             TransactionError.ACCOUNT_REQUIRED -> TransactionMessages.ACCOUNT_SELECT
                             TransactionError.ACCOUNT_NOT_FOUND -> TransactionMessages.ACCOUNT_UNAVAILABLE
+                            TransactionError.INSUFFICIENT_BALANCE -> TransactionMessages.INSUFFICIENT_BALANCE
                         }
                         else -> TransactionMessages.SAVE_ERROR
                     }

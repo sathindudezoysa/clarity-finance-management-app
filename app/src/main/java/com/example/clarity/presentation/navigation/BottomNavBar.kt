@@ -2,7 +2,6 @@ package com.example.clarity.presentation.navigation
 
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.AccountBox
-import androidx.compose.material.icons.outlined.DateRange
 import androidx.compose.material.icons.outlined.Home
 import androidx.compose.material.icons.outlined.Star
 import androidx.compose.material3.Icon
@@ -10,11 +9,11 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.NavigationBarItemDefaults
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.NavHostController
+import com.example.clarity.presentation.common.AppIcons
 
 enum class BottomNavDestination(
     val label: String,
@@ -28,6 +27,12 @@ enum class BottomNavDestination(
         routePattern = Screen.Main.route,
         navigateRoute = Screen.Main.route
     ),
+    TRANSACTIONS(
+        label = "Transactions",
+        icon = AppIcons.Transactions,
+        routePattern = Screen.TransactionList.route,
+        navigateRoute = Screen.TransactionList.route
+    ),
     ACCOUNTS(
         label = "Accounts",
         icon = Icons.Outlined.AccountBox,
@@ -36,7 +41,7 @@ enum class BottomNavDestination(
     ),
     BUDGETS(
         label = "Budgets",
-        icon = Icons.Outlined.DateRange,
+        icon = AppIcons.Budgets,
         routePattern = Screen.Budgets.route,
         navigateRoute = Screen.Budgets.createRoute()
     ),
@@ -80,15 +85,10 @@ fun ClarityBottomNavBar(
                         contentDescription = item.label
                     )
                 },
-                label = {
-                    Text(text = item.label)
-                },
                 colors = NavigationBarItemDefaults.colors(
                     selectedIconColor = colors.onSecondaryContainer,
-                    selectedTextColor = colors.onSurface,
                     indicatorColor = colors.secondaryContainer,
-                    unselectedIconColor = colors.onSurfaceVariant,
-                    unselectedTextColor = colors.onSurfaceVariant
+                    unselectedIconColor = colors.onSurfaceVariant
                 )
             )
         }

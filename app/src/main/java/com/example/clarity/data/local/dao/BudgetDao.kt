@@ -18,9 +18,14 @@ abstract class BudgetDao {
     @Transaction
     open suspend fun upsert(row: BudgetEntity) {
         val old = get(row.userId, row.id)
-        if (old != null && old.limitMinor != row.limitMinor) putAlert(BudgetAlertEntity(row.userId, row.id, 0))
+        if (old != null && old.limitMinor != row.limitMinor) {
+            putAlert(BudgetAlertEntity(row.userId, row.id, 0))
+            resetPeriodAlerts(row.userId, "${row.id}@%")
+        }
         persist(row)
     }
+    @Query("UPDATE budget_alerts SET level = 0 WHERE userId = :uid AND budgetId LIKE :pattern")
+    open suspend fun resetPeriodAlerts(uid: String, pattern: String) = Unit
     @Upsert abstract suspend fun resolve(row: BudgetResolutionEntity)
     @Query("SELECT * FROM budget_resolutions WHERE userId = :uid")
     abstract fun resolutions(uid: String): Flow<List<BudgetResolutionEntity>>
@@ -29,7 +34,7 @@ abstract class BudgetDao {
     @Upsert abstract suspend fun putAlert(row: BudgetAlertEntity)
     @Transaction
     open suspend fun claimAlert(uid: String, id: String, level: Int, expectedVersion: Long, expectedLimit: Long): Boolean {
-        val budget = get(uid, id) ?: return false
+        val budget = get(uid, id.substringBefore('@')) ?: return false
         if (!budget.active || budget.updatedAt != expectedVersion || budget.limitMinor != expectedLimit) return false
         if (level <= (alert(uid, id)?.level ?: 0)) return false
         putAlert(BudgetAlertEntity(uid, id, level))

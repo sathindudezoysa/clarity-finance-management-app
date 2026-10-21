@@ -8,6 +8,7 @@ import com.example.clarity.domain.repository.BudgetOverview
 import com.example.clarity.domain.usecase.budget.*
 import com.example.clarity.domain.usecase.currency.ObserveCurrencyPreferenceUseCase
 import com.example.clarity.domain.usecase.transaction.GetTransactionTagsUseCase
+import com.example.clarity.domain.util.TransactionCalendar
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.*
@@ -17,10 +18,10 @@ import java.time.Clock
 import javax.inject.Inject
 
 data class BudgetEditor(val budget: Budget? = null, val category: String = "Food", val month: String,
-    val amount: String = "", val currency: String, val owner: String)
+    val amount: String = "", val currency: String, val owner: String, val period: BudgetPeriod = BudgetPeriod.MONTHLY)
 data class BudgetsState(val loading: Boolean = true, val overview: BudgetOverview = BudgetOverview(),
     val tags: List<String> = TransactionTags.predefined, val currency: String = "LKR", val editor: BudgetEditor? = null,
-    val busy: Boolean = false, val error: String? = null, val currentMonth: String = "")
+    val busy: Boolean = false, val error: String? = null, val currentMonth: String = "", val currentYear: String = "")
 
 @HiltViewModel
 class BudgetsViewModel @Inject constructor(
@@ -28,7 +29,10 @@ class BudgetsViewModel @Inject constructor(
     private val saveBudget: SaveBudgetUseCase, private val disableBudget: DisableBudgetUseCase,
     private val resolve: ResolveBudgetCurrencyUseCase, private val clock: Clock, private val auth: AuthRepository
 ) : ViewModel() {
-    private val mutable = MutableStateFlow(BudgetsState(currentMonth = BudgetPolicy.currentMonth(clock)))
+    private val mutable = MutableStateFlow(BudgetsState(
+        currentMonth = BudgetPolicy.currentMonth(clock),
+        currentYear = TransactionCalendar.currentYear(clock)
+    ))
     val state = mutable.asStateFlow()
     init {
         viewModelScope.launch {
@@ -37,7 +41,9 @@ class BudgetsViewModel @Inject constructor(
                 mutable.update { it.copy(loading = false, error = BudgetMessages.LOAD_ERROR) }
             }.collect { overview -> mutable.update { old ->
                 val changedOwner = old.overview.ownerId != overview.ownerId
-                old.copy(loading = overview.loading, overview = overview, currentMonth = BudgetPolicy.currentMonth(clock),
+                old.copy(loading = overview.loading, overview = overview,
+                    currentMonth = BudgetPolicy.currentMonth(clock),
+                    currentYear = TransactionCalendar.currentYear(clock),
                     editor = if (changedOwner) null else old.editor, error = if (changedOwner) null else old.error)
             } }
         }
@@ -46,9 +52,18 @@ class BudgetsViewModel @Inject constructor(
     }
     fun edit(budget: Budget? = null) {
         val owner = state.value.overview.ownerId ?: return
-        mutable.update { it.copy(editor = BudgetEditor(budget, budget?.category ?: "Food", budget?.month ?: BudgetPolicy.currentMonth(clock),
+        val period = budget?.period ?: BudgetPeriod.MONTHLY
+        mutable.update { it.copy(editor = BudgetEditor(budget, budget?.category ?: "Food",
+            budget?.month ?: BudgetPolicy.currentPeriodKey(clock, period),
             budget?.let { b -> BigDecimal.valueOf(b.limitMinor, Currencies.digits(b.currency)).toPlainString() } ?: "",
-            budget?.currency ?: it.currency, owner), error = null) }
+            budget?.currency ?: it.currency, owner, period), error = null) }
+    }
+    fun changePeriod(value: BudgetPeriod) {
+        mutable.update { state ->
+            val editor = state.editor ?: return@update state
+            if (editor.budget != null || editor.period == value) state
+            else state.copy(editor = editor.copy(period = value, month = BudgetPolicy.currentPeriodKey(clock, value)), error = null)
+        }
     }
     fun changeCategory(value: String) { mutable.update { it.copy(editor = it.editor?.copy(category = value), error = null) } }
     fun changeMonth(value: String) { mutable.update { it.copy(editor = it.editor?.copy(month = value), error = null) } }
@@ -58,12 +73,19 @@ class BudgetsViewModel @Inject constructor(
         val editor = state.value.editor ?: return
         val budget = runCatching {
             val category = TransactionTags.normalize(editor.category)
+            val month = editor.budget?.month ?: BudgetPolicy.currentPeriodKey(clock, editor.period)
             val amount = BigDecimal(editor.amount).movePointRight(Currencies.digits(editor.currency)).longValueExact()
             require(amount > 0)
-            val id = BudgetPolicy.id(editor.month, category)
+            val id = editor.budget?.id ?: BudgetPolicy.id(month, category)
+            val categoryKey = BudgetPolicy.categoryKey(category)
             // Existing budgets, including disabled ones, are edited with their recorded currency.
-            require(editor.budget != null || state.value.overview.statuses.none { it.budget.id == id })
-            Budget(id, editor.owner, editor.month, category, amount, editor.currency).also { BudgetPolicy.validate(it) }
+            require(
+                editor.budget != null || state.value.overview.statuses.none {
+                    it.budget.id == id ||
+                        (it.budget.period == editor.period && BudgetPolicy.categoryKey(it.budget.category) == categoryKey)
+                }
+            )
+            Budget(id, editor.owner, month, category, amount, editor.currency).also { BudgetPolicy.validate(it) }
         }.getOrElse { mutable.update { it.copy(error = BudgetMessages.VALIDATION) }; return }
         action(BudgetMessages.SAVE_ERROR) {
             saveBudget(budget).getOrThrow()

@@ -5,6 +5,7 @@ import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import androidx.room.Transaction
+import com.example.clarity.data.local.TransactionBalanceGuard
 import com.example.clarity.data.local.entity.TransactionEntity
 import com.example.clarity.data.local.entity.TransactionTagEntity
 import kotlinx.coroutines.flow.Flow
@@ -64,7 +65,7 @@ abstract class TransactionDao {
             current.amountMinor != expected.amountMinor || current.currency != expected.currency ||
             current.targetCurrency != expected.targetCurrency || !current.pendingConversion || current.isDeleted) return false
         require(current.updatedAt < Long.MAX_VALUE)
-        persistLocal(current.copy(conversion = snapshot, pendingConversion = false, pendingSync = true,
+        upsertWithTag(current.copy(conversion = snapshot, pendingConversion = false, pendingSync = true,
             updatedAt = maxOf(now, snapshot.fetchedAt, current.updatedAt + 1)))
         return true
     }
@@ -75,24 +76,10 @@ abstract class TransactionDao {
     @Transaction
     open suspend fun persistLocal(entity: TransactionEntity) {
         val previousAccountId = getById(entity.id)?.accountId
+        val before = getActiveForUser(entity.userId)
         upsertWithTag(entity)
-        val active = getActiveForUser(entity.userId)
-        fun netMinor(txs: List<TransactionEntity>): java.math.BigInteger {
-            var total = java.math.BigInteger.ZERO
-            for (tx in txs) {
-                val amount = java.math.BigInteger.valueOf(tx.conversion?.amountMinor ?: tx.amountMinor)
-                if (tx.type == "INCOME") total += amount else total -= amount
-            }
-            return total
-        }
-        require(netMinor(active) >= java.math.BigInteger.ZERO) { "Insufficient net worth balance" }
-        listOfNotNull(previousAccountId, entity.accountId)
-            .distinct()
-            .forEach { accountId ->
-                require(netMinor(active.filter { it.accountId == accountId }) >= java.math.BigInteger.ZERO) {
-                    "Insufficient account balance"
-                }
-            }
+        val after = getActiveForUser(entity.userId)
+        TransactionBalanceGuard.check(before, after, previousAccountId, entity.accountId)
     }
 
     @Transaction

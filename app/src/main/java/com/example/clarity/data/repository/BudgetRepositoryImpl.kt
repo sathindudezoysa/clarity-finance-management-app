@@ -30,7 +30,7 @@ class BudgetRepositoryImpl @Inject constructor(
             val entries = transactions.filter { !it.isDeleted }.map { it.toDomain() }
             val resolved = resolutions.map { BudgetResolution(it.transactionId, it.transactionVersion, it.currency, it.amountMinor) }
             val zone = ZoneId.systemDefault()
-            BudgetOverview(user.uid, budgets.map { BudgetPolicy.evaluate(it.toDomain(), entries, resolved, zone) }, user.uid in errors)
+            BudgetOverview(user.uid, budgets.map { BudgetPolicy.evaluate(it.toDomain(), entries, resolved, zone, clock) }, user.uid in errors)
         }.onStart { emit(BudgetOverview(user.uid, loading = true)) }
     }.flowOn(io)
 
@@ -61,10 +61,11 @@ class BudgetRepositoryImpl @Inject constructor(
         val uid = owner()
         val budget = requireNotNull(db.budgetDao.get(uid, id)).toDomain()
         val entries = db.transactionDao.observeAll(uid).first()
+        val zone = ZoneId.systemDefault()
         var incomplete = false
         for (row in entries) {
             val transaction = row.toDomain()
-            if (!BudgetPolicy.eligible(budget, transaction) || transaction.currency == budget.currency ||
+            if (!BudgetPolicy.eligible(budget, transaction, zone, clock) || transaction.currency == budget.currency ||
                 (!transaction.pendingConversion && transaction.targetCurrency == budget.currency)) continue
             try {
                 checkOwner(uid)

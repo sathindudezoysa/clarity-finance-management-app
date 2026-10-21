@@ -2,7 +2,7 @@ package com.example.clarity.domain.model
 
 import java.util.UUID
 
-enum class TransactionError { SIGN_IN_REQUIRED, ACCOUNT_REQUIRED, ACCOUNT_NOT_FOUND }
+enum class TransactionError { SIGN_IN_REQUIRED, ACCOUNT_REQUIRED, ACCOUNT_NOT_FOUND, INSUFFICIENT_BALANCE }
 
 class TransactionException(val error: TransactionError, message: String? = null) : Exception(message)
 
