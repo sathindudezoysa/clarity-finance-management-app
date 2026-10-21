@@ -11,6 +11,10 @@ import com.example.clarity.data.sync.*
 import com.example.clarity.di.DatabaseModule
 import com.example.clarity.domain.model.*
 import com.example.clarity.domain.repository.*
+import com.example.clarity.domain.usecase.budget.*
+import com.example.clarity.domain.usecase.currency.ObserveCurrencyPreferenceUseCase
+import com.example.clarity.domain.usecase.transaction.GetTransactionTagsUseCase
+import com.example.clarity.presentation.budgets.BudgetsViewModel
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
 import org.junit.Assert.*
@@ -121,6 +125,82 @@ class BudgetPersistenceTest {
             auth.currentUser.value = null
             assertNull(repo.observe().first().ownerId)
         } finally { db.close(); context.deleteDatabase(name) }
+    }
+
+    @Test fun viewModelPreservesSelectedMonthAcrossEmissionsSupportsDeepLinkAndDisableReenable() = runBlocking {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val name = "budget-vm-${UUID.randomUUID()}"
+        val auth = TestAuth()
+        val signals = BudgetSignals()
+        val db = DatabaseModule.createDatabase(context, name)
+        val repo = BudgetRepositoryImpl(db, auth, rates, clock, signals, Dispatchers.IO)
+        val tagsRepo = object : TransactionTagRepository {
+            override fun observeTags(): Flow<List<String>> = flowOf(listOf("CustomTag"))
+        }
+        val prefRepo = object : CurrencyPreferenceRepository {
+            override fun observe(): Flow<CurrencyPreference> = flowOf(CurrencyPreference("LKR"))
+            override suspend fun set(currency: String): Result<Unit> = Result.success(Unit)
+            override suspend fun current(): String = "LKR"
+        }
+        val vm = BudgetsViewModel(
+            observe = ObserveBudgetsUseCase(repo),
+            tags = GetTransactionTagsUseCase(tagsRepo),
+            preference = ObserveCurrencyPreferenceUseCase(prefRepo),
+            saveBudget = SaveBudgetUseCase(repo),
+            disableBudget = DisableBudgetUseCase(repo),
+            resolve = ResolveBudgetCurrencyUseCase(repo),
+            clock = clock,
+            auth = auth
+        )
+        try {
+            repo.save(budget).getOrThrow()
+            val novBudget = Budget(BudgetPolicy.id("2026-11", "Travel"), "owner", "2026-11", "Travel", 500_000, "LKR")
+            repo.save(novBudget).getOrThrow()
+            withTimeout(5_000) { vm.state.first { !it.loading && it.overview.statuses.size == 2 } }
+
+            // Navigate to November; currentMonth stays 2026-10 and re-emissions do not reset selectedMonth.
+            vm.nextMonth()
+            assertEquals("2026-11", vm.state.value.selectedMonth)
+            assertEquals("2026-10", vm.state.value.currentMonth)
+            db.transactionDao.upsert(
+                TransactionEntity("e1", "owner", "EXPENSE", 250_000, "Food", "",
+                    clock.millis(), clock.millis(), clock.millis(), pendingSync = true)
+            )
+            withTimeout(5_000) {
+                vm.state.first {
+                    it.overview.statuses.firstOrNull { s -> s.budget.id == budget.id }?.spent == 250_000.toBigInteger()
+                }
+            }
+            assertEquals("2026-11", vm.state.value.selectedMonth)
+            assertEquals("2026-10", vm.state.value.currentMonth)
+
+            // Deep link switches selectedMonth once per selectedId, then allows user navigation.
+            vm.applySelectedId(budget.id)
+            assertEquals("2026-10", vm.state.value.selectedMonth)
+            vm.nextMonth()
+            assertEquals("2026-11", vm.state.value.selectedMonth)
+            vm.applySelectedId(budget.id)
+            assertEquals("2026-11", vm.state.value.selectedMonth)
+
+            // Disable confirmation flow and re-enable via editor.
+            vm.selectMonth("2026-10")
+            vm.requestDisable(budget)
+            assertEquals(budget.id, vm.state.value.confirmDisable?.id)
+            vm.confirmDisable()
+            withTimeout(5_000) { vm.state.first { !it.busy && it.monthView.disabled.any { d -> d.budget.id == budget.id } } }
+            val disabled = vm.state.value.monthView.disabled.single().budget
+            vm.edit(disabled)
+            vm.changeAmount("15000.00")
+            vm.save()
+            withTimeout(5_000) {
+                vm.state.first {
+                    !it.busy && it.monthView.active.any { a -> a.budget.id == budget.id && a.budget.limitMinor == 1_500_000L }
+                }
+            }
+        } finally {
+            db.close()
+            context.deleteDatabase(name)
+        }
     }
 
     private class FakeNotifications : BudgetNotificationDelivery {

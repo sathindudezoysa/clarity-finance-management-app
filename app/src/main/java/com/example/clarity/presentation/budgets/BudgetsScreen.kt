@@ -14,123 +14,243 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.example.clarity.domain.model.BudgetStatus
-import com.example.clarity.domain.model.BudgetThreshold
-import com.example.clarity.presentation.transactions.edit.TransactionTagField
-import java.math.BigDecimal
-import java.math.RoundingMode
+import com.example.clarity.domain.model.BudgetSummary
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun BudgetsScreen(onBack: () -> Unit, selectedId: String? = null, viewModel: BudgetsViewModel = hiltViewModel()) {
+fun BudgetsScreen(
+    onBack: () -> Unit,
+    selectedId: String? = null,
+    viewModel: BudgetsViewModel = hiltViewModel()
+) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val listState = rememberLazyListState()
-    // Highlighting/navigation only selects a budget already loaded from the authenticated owner's stream.
-    val rows = state.overview.statuses.filter { it.budget.active }
-    LaunchedEffect(selectedId, rows.map { it.budget.id }) {
-        val index = rows.indexOfFirst { it.budget.id == selectedId }
-        if (index >= 0) listState.animateScrollToItem(index + 1)
+    val snackbarHostState = remember { SnackbarHostState() }
+    var scrolledId by remember { mutableStateOf<String?>(null) }
+
+    LaunchedEffect(selectedId) {
+        if (selectedId == null) scrolledId = null
+        viewModel.applySelectedId(selectedId)
     }
-    Scaffold(topBar = { TopAppBar(title = { Text("Budgets") },
-        navigationIcon = { TextButton(onClick = onBack) { Text("Back") } }) }) { padding ->
-        LazyColumn(state = listState, modifier = Modifier.fillMaxSize().padding(padding).padding(horizontal = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            item {
-                Column {
-                    Text("Calendar months use your device’s current timezone, matching transaction dates. Changing timezone can move spending between months. Existing budgets keep their currency.", style = MaterialTheme.typography.bodySmall)
-                    Button(onClick = { viewModel.edit() }, enabled = state.overview.ownerId != null && !state.busy) { Text("Create monthly budget") }
+
+    val monthView = state.monthView
+    val scrollIndex = BudgetSummary.scrollIndexFor(selectedId, monthView, headerItemCount = 1)
+    LaunchedEffect(selectedId, state.handledSelectedId, scrollIndex) {
+        if (selectedId != null && state.handledSelectedId == selectedId &&
+            scrolledId != selectedId && scrollIndex != null
+        ) {
+            scrolledId = selectedId
+            listState.animateScrollToItem(scrollIndex)
+        }
+    }
+
+    LaunchedEffect(state.notice) {
+        val message = state.notice ?: return@LaunchedEffect
+        snackbarHostState.showSnackbar(message)
+        viewModel.consumeNotice()
+    }
+
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text(BudgetMessages.SCREEN_TITLE) },
+                navigationIcon = { TextButton(onClick = onBack) { Text("Back") } }
+            )
+        },
+        snackbarHost = { SnackbarHost(snackbarHostState) }
+    ) { padding ->
+        LazyColumn(
+            state = listState,
+            modifier = Modifier.fillMaxSize().padding(padding).padding(horizontal = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            item(key = "header") {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    BudgetMonthSelector(
+                        selectedMonth = monthView.month,
+                        onPrevious = viewModel::previousMonth,
+                        onNext = viewModel::nextMonth
+                    )
+                    Text(
+                        text = "Calendar months use your device’s current timezone, matching transaction dates. Changing timezone can move spending between months. Existing budgets keep their currency.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Button(
+                        onClick = { viewModel.edit() },
+                        enabled = state.overview.ownerId != null && !state.busy,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("Create monthly budget")
+                    }
                     BudgetNotificationPermission()
                     if (state.loading) CircularProgressIndicator()
-                    if (state.overview.ownerId == null && !state.loading) Text("Sign in to manage your budgets.")
-                    if (state.overview.syncError) Text("Cloud sync is unavailable. Local changes are saved and will retry automatically.", color = MaterialTheme.colorScheme.error)
-                    state.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
-                    if (!state.loading && rows.isEmpty()) Text("Create a category budget to follow your monthly spending.")
+                    if (state.overview.ownerId == null && !state.loading) {
+                        Text("Sign in to manage your budgets.")
+                    }
+                    if (state.overview.syncError) {
+                        Text(
+                            text = "Cloud sync is unavailable. Local changes are saved and will retry automatically.",
+                            color = MaterialTheme.colorScheme.error
+                        )
+                    }
+                    if (state.editor == null) {
+                        state.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+                    }
+                    if (!state.loading && state.overview.ownerId != null && monthView.active.isEmpty()) {
+                        Text(BudgetMessages.EMPTY_MONTH)
+                    }
                 }
             }
-            items(rows, key = { it.budget.id }) { status ->
-                BudgetCard(status, selected = status.budget.id == selectedId,
+            items(monthView.summaries, key = { "summary-${it.currency}" }) { summary ->
+                BudgetSummaryCard(summary = summary)
+            }
+            items(monthView.active, key = { it.budget.id }) { status ->
+                BudgetCard(
+                    status = status,
+                    selected = status.budget.id == selectedId,
                     live = status.budget.month == state.currentMonth,
-                    onEdit = { viewModel.edit(status.budget) }, onDisable = { viewModel.disable(status.budget.id) },
-                    onRetry = { viewModel.retryCurrency(status.budget.id) }, enabled = !state.busy)
+                    onEdit = { viewModel.edit(status.budget) },
+                    onDisable = { viewModel.requestDisable(status.budget) },
+                    onRetry = { viewModel.retryCurrency(status.budget.id) },
+                    enabled = !state.busy
+                )
             }
-            val disabled = state.overview.statuses.filter { !it.budget.active }
-            items(disabled, key = { "disabled-${it.budget.id}" }) { status ->
-                TextButton(onClick = { viewModel.edit(status.budget) }, enabled = !state.busy) {
-                    Text("${status.budget.category} · ${status.budget.month} · Disabled — tap to enable")
+            if (monthView.disabled.isNotEmpty()) {
+                item(key = "disabled-header") {
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Divider()
+                        Text(
+                            text = "Disabled (${budgetMonthLabel(monthView.month)})",
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+                }
+                items(monthView.disabled, key = { "disabled-${it.budget.id}" }) { status ->
+                    TextButton(
+                        onClick = { viewModel.edit(status.budget) },
+                        enabled = !state.busy
+                    ) {
+                        Text("${budgetCategoryIcon(status.budget.category)} ${status.budget.category} · ${status.budget.month} · Disabled — tap to enable")
+                    }
                 }
             }
-            item { Spacer(Modifier.height(20.dp)) }
+            item(key = "footer") { Spacer(Modifier.height(20.dp)) }
         }
     }
+
     state.editor?.let { editor ->
-        AlertDialog(onDismissRequest = { if (!state.busy) viewModel.closeEditor() },
-            title = { Text(if (editor.budget == null) "Create monthly budget" else "Edit budget") },
+        val isCreate = editor.budget == null
+        AlertDialog(
+            onDismissRequest = { if (!state.busy) viewModel.closeEditor() },
+            title = { Text(if (isCreate) "Create monthly budget" else "Edit budget") },
             text = {
-                Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    TransactionTagField(editor.category, state.tags, viewModel::changeCategory, editor.budget == null && !state.busy, null)
-                    OutlinedTextField(editor.month, viewModel::changeMonth, label = { Text("Month (YYYY-MM)") }, singleLine = true, enabled = editor.budget == null && !state.busy)
-                    OutlinedTextField(editor.amount, viewModel::changeAmount, label = { Text("Limit (${editor.currency})") }, singleLine = true, enabled = !state.busy)
-                    state.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+                Column(
+                    modifier = Modifier.verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    BudgetCategorySelector(
+                        value = editor.category,
+                        tags = state.tags,
+                        onValueChange = viewModel::changeCategory,
+                        enabled = isCreate && !state.busy,
+                        error = editor.categoryError
+                    )
+                    BudgetMonthStepperField(
+                        month = editor.month,
+                        onMonthChange = viewModel::changeMonth,
+                        enabled = isCreate && !state.busy,
+                        error = editor.monthError
+                    )
+                    OutlinedTextField(
+                        value = editor.amount,
+                        onValueChange = viewModel::changeAmount,
+                        label = { Text("Limit (${editor.currency})") },
+                        singleLine = true,
+                        enabled = !state.busy,
+                        isError = editor.amountError != null,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                        supportingText = {
+                            Text(editor.amountError ?: "Currency: ${editor.currency}")
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    val dialogError = editor.duplicateError ?: state.error?.takeIf {
+                        it != editor.categoryError && it != editor.monthError && it != editor.amountError
+                    }
+                    dialogError?.let {
+                        Text(it, color = MaterialTheme.colorScheme.error)
+                    }
                 }
             },
-            confirmButton = { TextButton(onClick = viewModel::save, enabled = !state.busy) { Text("Save") } },
-            dismissButton = { TextButton(onClick = viewModel::closeEditor, enabled = !state.busy) { Text("Cancel") } })
+            confirmButton = {
+                TextButton(onClick = viewModel::save, enabled = !state.busy) {
+                    Text("Save")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = viewModel::closeEditor, enabled = !state.busy) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
+
+    state.confirmDisable?.let { target ->
+        DisableBudgetDialog(
+            budget = target,
+            busy = state.busy,
+            onConfirm = viewModel::confirmDisable,
+            onDismiss = viewModel::dismissDisable
+        )
     }
 }
 
 @Composable
-private fun BudgetCard(status: BudgetStatus, selected: Boolean, live: Boolean, onEdit: () -> Unit,
-    onDisable: () -> Unit, onRetry: () -> Unit, enabled: Boolean) {
-    val budget = status.budget
-    val warning = live && status.threshold != BudgetThreshold.NORMAL
-    val progress = BigDecimal(status.spent).divide(BigDecimal.valueOf(budget.limitMinor), 4, RoundingMode.DOWN).toFloat().coerceIn(0f, 1f)
-    Card(colors = CardDefaults.cardColors(containerColor = if (warning || selected) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceVariant)) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Text(budgetCategoryMonthText(budget.category, budget.month), style = MaterialTheme.typography.titleMedium)
-            Text(budgetSpendingText(budgetMoney(status.spent, budget.currency), budgetMoney(budget.limitMinor.toBigInteger(), budget.currency)))
-            LinearProgressIndicator(progress = progress, modifier = Modifier.fillMaxWidth())
-            Text(budgetStatusText(status.threshold, status.uncounted > 0))
-            Text(budgetMoney(status.remaining.abs(), budget.currency).let { amount ->
-                if (status.remaining.signum() < 0) budgetExceededByText(amount) else budgetRemainingText(amount) })
-            if (warning) Text(budgetFeedbackText(status.threshold, budget.category))
-            if (status.uncounted > 0) {
-                Text(budgetIncompleteText(status.uncounted))
-                TextButton(onClick = onRetry, enabled = enabled) { Text("Resolve uncounted currencies") }
-            }
-            if (budget.pendingSync) Text("Saved on this device · Waiting to sync", style = MaterialTheme.typography.bodySmall)
-            Row {
-                TextButton(onClick = onEdit, enabled = enabled) { Text("Edit budget") }
-                TextButton(onClick = onDisable, enabled = enabled) { Text("Disable") }
-            }
-        }
-    }
-}
-
-@Composable
-fun BudgetDashboardSummary(onOpen: (String?) -> Unit, viewModel: BudgetsViewModel = hiltViewModel()) {
+fun BudgetDashboardSummary(
+    onOpen: (String?) -> Unit,
+    viewModel: BudgetsViewModel = hiltViewModel()
+) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     Column {
         Button(onClick = { onOpen(null) }) { Text("Budgets") }
-        state.overview.statuses.filter { it.budget.active && it.budget.month == state.currentMonth &&
-            (it.threshold.level > 0 || it.uncounted > 0) }.take(3).forEach { status ->
+        state.overview.statuses.filter {
+            it.budget.active && it.budget.month == state.currentMonth &&
+                (it.threshold.level > 0 || it.uncounted > 0)
+        }.take(3).forEach { status ->
             TextButton(onClick = { onOpen(status.budget.id) }) {
                 Column {
                     Text(budgetCategoryMonthText(status.budget.category, status.budget.month))
                     Text(budgetStatusText(status.threshold, status.uncounted > 0))
-                    Text(budgetSpendingText(budgetMoney(status.spent, status.budget.currency), budgetMoney(status.budget.limitMinor.toBigInteger(), status.budget.currency)))
-                    if (status.remaining.signum() < 0) Text(budgetExceededByText(budgetMoney(-status.remaining, status.budget.currency)))
-                    if (status.threshold.level > 0) Text(budgetFeedbackText(status.threshold, status.budget.category))
-                    if (status.uncounted > 0) Text(budgetIncompleteText(status.uncounted))
+                    Text(
+                        budgetSpendingText(
+                            budgetMoney(status.spent, status.budget.currency),
+                            budgetMoney(status.budget.limitMinor.toBigInteger(), status.budget.currency)
+                        )
+                    )
+                    if (status.remaining.signum() < 0) {
+                        Text(budgetExceededByText(budgetMoney(-status.remaining, status.budget.currency)))
+                    }
+                    if (status.threshold.level > 0) {
+                        Text(budgetFeedbackText(status.threshold, status.budget.category))
+                    }
+                    if (status.uncounted > 0) {
+                        Text(budgetIncompleteText(status.uncounted))
+                    }
                 }
             }
         }
@@ -148,7 +268,10 @@ private fun BudgetNotificationPermission() {
         prefs.edit().putBoolean("asked", true).apply()
         if (Build.VERSION.SDK_INT >= 33) launcher.launch(Manifest.permission.POST_NOTIFICATIONS)
     }
-    Text("Optional local notifications tell you when a current monthly budget crosses a threshold. Budget warnings remain available here if notifications are off.", style = MaterialTheme.typography.bodySmall)
+    Text(
+        "Optional local notifications tell you when a current monthly budget crosses a threshold. Budget warnings remain available here if notifications are off.",
+        style = MaterialTheme.typography.bodySmall
+    )
     TextButton(onClick = {
         val activity = context as? Activity
         if (Build.VERSION.SDK_INT < 33 || ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED) {
@@ -157,8 +280,11 @@ private fun BudgetNotificationPermission() {
         else if (asked) context.startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:${context.packageName}")))
         else request()
     }) { Text("Enable or manage budget notifications") }
-    if (rationale) AlertDialog(onDismissRequest = { rationale = false },
-        title = { Text("Budget update") }, text = { Text("Optional local notifications tell you when a current monthly budget crosses a threshold. Budget warnings remain available here if notifications are off.") },
+    if (rationale) AlertDialog(
+        onDismissRequest = { rationale = false },
+        title = { Text("Budget update") },
+        text = { Text("Optional local notifications tell you when a current monthly budget crosses a threshold. Budget warnings remain available here if notifications are off.") },
         confirmButton = { TextButton(onClick = { rationale = false; request() }) { Text("Continue") } },
-        dismissButton = { TextButton(onClick = { rationale = false }) { Text("Cancel") } })
+        dismissButton = { TextButton(onClick = { rationale = false }) { Text("Cancel") } }
+    )
 }
