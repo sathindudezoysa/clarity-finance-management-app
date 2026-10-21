@@ -5,6 +5,8 @@ import com.example.clarity.presentation.navigation.TRANSACTION_ID_ARGUMENT
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.clarity.domain.model.TransactionError
+import com.example.clarity.domain.model.TransactionException
 import com.example.clarity.presentation.transactions.TransactionMessages
 import com.example.clarity.domain.usecase.transaction.DeleteTransactionUseCase
 import com.example.clarity.domain.usecase.transaction.GetTransactionUseCase
@@ -81,8 +83,12 @@ class TransactionDetailViewModel @Inject constructor(
             }.onFailure { error ->
                 _uiState.update { it.copy(
                     isDeleting = false,
-                    error = if (error.isSignInRequired()) TransactionMessages.SIGN_IN
-                    else TransactionMessages.DELETE_ERROR
+                    error = when {
+                        error.isSignInRequired() -> TransactionMessages.SIGN_IN
+                        error is TransactionException && error.error == TransactionError.INSUFFICIENT_BALANCE ->
+                            TransactionMessages.DELETE_BLOCKED_BALANCE
+                        else -> TransactionMessages.DELETE_ERROR
+                    }
                 ) }
             }
         }

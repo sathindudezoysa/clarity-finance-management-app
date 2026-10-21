@@ -6,6 +6,8 @@ object TransactionMessages {
     const val LOAD_ERROR = "Unable to sync transactions. Your saved local data is still available."
     const val SAVE_ERROR = "Unable to save this transaction. Please try again."
     const val DELETE_ERROR = "Unable to delete this transaction. Please try again."
+    const val INSUFFICIENT_BALANCE = "Not enough balance. Add income to this account first or enter a smaller amount."
+    const val DELETE_BLOCKED_BALANCE = "This transaction can't be deleted because it would make your balance negative."
     const val AMOUNT_INVALID = "Enter a number within the supported range and currency precision (JPY: 0, KWD: 3, others: 2 decimal places)."
     const val AMOUNT_POSITIVE = "Amount must be greater than zero."
     const val TAG_LONG = "Tag must be at most 100 characters."
@@ -19,4 +21,3 @@ object TransactionMessages {
     const val SAVE_LABEL = "Save"
     const val BACK_LABEL = "Back"
 }
-

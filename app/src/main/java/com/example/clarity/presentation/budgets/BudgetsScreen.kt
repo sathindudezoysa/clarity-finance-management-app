@@ -10,10 +10,13 @@ import android.os.Build
 import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.relocation.BringIntoViewRequester
+import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
@@ -27,9 +30,11 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.onFocusEvent
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
@@ -42,6 +47,7 @@ import com.example.clarity.domain.model.BudgetStatus
 import com.example.clarity.domain.repository.BudgetOverview
 import com.example.clarity.presentation.theme.ClarityTheme
 import com.example.clarity.presentation.transactions.edit.TransactionTagField
+import kotlinx.coroutines.launch
 
 @Composable
 fun BudgetsScreen(onBack: () -> Unit, selectedId: String? = null, viewModel: BudgetsViewModel = hiltViewModel()) {
@@ -121,23 +127,33 @@ private fun BudgetsHeader(state: BudgetsState, empty: Boolean, onCreate: () -> U
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun BudgetEditorDialog(editor: BudgetEditor, tags: List<String>, busy: Boolean, error: String?,
     onCategoryChange: (String) -> Unit, onMonthChange: (String) -> Unit, onAmountChange: (String) -> Unit,
     onSave: () -> Unit, onClose: () -> Unit) {
+    val scrollState = rememberScrollState()
+    val scope = rememberCoroutineScope()
+    val limitRequester = remember { BringIntoViewRequester() }
+    val monthRequester = remember { BringIntoViewRequester() }
     AlertDialog(onDismissRequest = { if (!busy) onClose() },
         title = { Text(if (editor.budget == null) BudgetUiText.CREATE else BudgetUiText.EDIT_TITLE) },
         text = {
-            Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Column(Modifier.verticalScroll(scrollState), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 if (busy) LinearProgressIndicator(Modifier.fillMaxWidth())
-                Box(Modifier.fillMaxWidth()) {
-                    TransactionTagField(editor.category, tags, onCategoryChange, editor.budget == null && !busy, null)
-                }
-                OutlinedTextField(editor.month, onMonthChange, modifier = Modifier.fillMaxWidth(),
-                    label = { Text(BudgetUiText.MONTH_LABEL) }, singleLine = true, enabled = editor.budget == null && !busy)
-                OutlinedTextField(editor.amount, onAmountChange, modifier = Modifier.fillMaxWidth(),
+                OutlinedTextField(editor.amount, onAmountChange,
+                    modifier = Modifier.fillMaxWidth().bringIntoViewRequester(limitRequester)
+                        .onFocusEvent { if (it.isFocused) scope.launch { limitRequester.bringIntoView() } },
                     label = { Text(budgetLimitLabel(editor.currency)) }, singleLine = true, enabled = !busy,
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal))
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal, imeAction = ImeAction.Done))
+                OutlinedTextField(editor.month, onMonthChange,
+                    modifier = Modifier.fillMaxWidth().bringIntoViewRequester(monthRequester)
+                        .onFocusEvent { if (it.isFocused) scope.launch { monthRequester.bringIntoView() } },
+                    label = { Text(BudgetUiText.MONTH_LABEL) }, singleLine = true, enabled = editor.budget == null && !busy)
+                Box(Modifier.fillMaxWidth()) {
+                    TransactionTagField(editor.category, tags, onCategoryChange, editor.budget == null && !busy, null,
+                        hint = "Tap a category or type a new one.")
+                }
                 error?.let { BudgetMessageBanner(Icons.Default.Warning, it, isError = true) }
             }
         },
