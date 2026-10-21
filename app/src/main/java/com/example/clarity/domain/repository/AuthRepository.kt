@@ -10,5 +10,7 @@ interface AuthRepository {
     suspend fun signUpWithEmailPassword(email: String, password: String): Result<User>
     suspend fun signInWithGoogle(idToken: String): Result<User>
     suspend fun sendPasswordResetEmail(email: String): Result<Unit>
+    suspend fun updateProfile(displayName: String): Result<User> =
+        Result.failure(UnsupportedOperationException("Not implemented"))
     suspend fun signOut()
 }
