@@ -20,11 +20,32 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 @Singleton
-class GoalSyncProcessor @Inject constructor(
+class GoalSyncProcessor @Inject internal constructor(
     private val db: ClarityDatabase,
     private val remote: GoalRemoteDataSource,
-    private val auth: AuthRepository
+    private val auth: AuthRepository,
+    private val accountUploader: AccountUploader
 ) {
+    private var awaitAccountUpload: Boolean = true
+
+    constructor(
+        db: ClarityDatabase,
+        remote: GoalRemoteDataSource,
+        auth: AuthRepository
+    ) : this(
+        db = db,
+        remote = remote,
+        auth = auth,
+        accountUploader = object : AccountUploader {
+            override suspend fun uploadPending(uid: String, afterAccounts: suspend () -> Unit): Boolean {
+                afterAccounts()
+                return true
+            }
+        }
+    ) {
+        awaitAccountUpload = false
+    }
+
     private val mutex = Mutex()
 
     suspend fun reconcile(uid: String, remoteGoals: List<FinancialGoal>) = mutex.withLock {
@@ -142,13 +163,27 @@ class GoalSyncProcessor @Inject constructor(
             }
         }
 
-        for (opRow in db.goalProgressOperationDao.pending(uid)) {
+        val pendingOperations = db.goalProgressOperationDao.pending(uid)
+        if (awaitAccountUpload && pendingOperations.any { it.sourceAccountId != null }) {
+            if (!accountUploader.uploadPending(uid)) {
+                complete = false
+            }
+        }
+
+        for (opRow in pendingOperations) {
             try {
                 checkOwner(uid)
                 val parentGoal = db.goalDao.get(uid, opRow.goalId)
                 if (parentGoal == null || parentGoal.pendingSync) {
                     complete = false
                     continue
+                }
+                if (awaitAccountUpload && opRow.sourceAccountId != null) {
+                    val sourceAccount = db.accountDao.getById(opRow.sourceAccountId)
+                    if (sourceAccount != null && sourceAccount.userId == uid && sourceAccount.pendingSync) {
+                        complete = false
+                        continue
+                    }
                 }
                 val opResult = remote.writeOperation(uid, opRow.toDomain())
                 db.withTransaction {
@@ -212,4 +247,3 @@ class GoalSyncProcessor @Inject constructor(
     private suspend fun checkOwner(uid: String) =
         check(auth.currentUser.first()?.uid == uid) { "Session changed" }
 }
-

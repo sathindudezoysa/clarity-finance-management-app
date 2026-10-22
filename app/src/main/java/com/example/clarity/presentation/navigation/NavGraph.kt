@@ -172,6 +172,7 @@ fun SetupNavGraph(
         ) {
             GoalProgressScreen(
                 onBack = { navController.popBackStack() },
+                onAddAccount = { navController.navigate(Screen.AccountEdit.createRoute()) },
                 viewModel = hiltViewModel()
             )
         }

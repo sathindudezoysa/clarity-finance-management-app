@@ -137,5 +137,57 @@ class TransactionBalanceGuardTest {
         )
         assertEquals(java.math.BigInteger.ZERO, TransactionBalanceGuard.netMinor(listOf(pendingUsdExpense)))
     }
+
+    @Test
+    fun reservedGoalContributionsReduceAvailableAccountBalanceForExpensesAndIncomeDeletions() {
+        val incA = entity("inc-a", "INCOME", 10_000, accountId = "acc-a")
+        val incB = entity("inc-b", "INCOME", 5_000, accountId = "acc-b")
+        val before = listOf(incA, incB)
+        val reserved = mapOf("acc-a" to java.math.BigInteger.valueOf(4_000L))
+
+        // acc-a has 10_000 income and 4_000 reserved for goals -> 6_000 available.
+        // Expense of 6_000 on acc-a passes:
+        val expExact = entity("exp-6000", "EXPENSE", 6_000, accountId = "acc-a")
+        TransactionBalanceGuard.check(
+            before = before,
+            after = before + expExact,
+            previousAccountId = null,
+            newAccountId = "acc-a",
+            reservedByAccount = reserved
+        )
+
+        // Expense of 6_001 on acc-a fails because available would drop to -1 (even though net tx is +3_999):
+        val expTooLarge = entity("exp-6001", "EXPENSE", 6_001, accountId = "acc-a")
+        assertInsufficientBalance {
+            TransactionBalanceGuard.check(
+                before = before,
+                after = before + expTooLarge,
+                previousAccountId = null,
+                newAccountId = "acc-a",
+                reservedByAccount = reserved
+            )
+        }
+
+        // Deleting the 10_000 income on acc-a while 4_000 is reserved for goals fails:
+        assertInsufficientBalance {
+            TransactionBalanceGuard.check(
+                before = before,
+                after = listOf(incB),
+                previousAccountId = "acc-a",
+                newAccountId = "acc-a",
+                reservedByAccount = reserved
+            )
+        }
+
+        // Reservations on acc-a do not restrict expenses on acc-b:
+        val expOnB = entity("exp-b", "EXPENSE", 5_000, accountId = "acc-b")
+        TransactionBalanceGuard.check(
+            before = before,
+            after = before + expOnB,
+            previousAccountId = null,
+            newAccountId = "acc-b",
+            reservedByAccount = reserved
+        )
+    }
 }
 

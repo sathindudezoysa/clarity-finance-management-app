@@ -1,6 +1,7 @@
 package com.example.clarity.presentation.goals
 
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -25,6 +26,7 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -37,6 +39,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.tooling.preview.Preview
@@ -45,10 +48,12 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.clarity.domain.model.GoalProgressOperationType
 import com.example.clarity.presentation.theme.ClarityTheme
+import java.math.BigInteger
 
 @Composable
 fun GoalProgressScreen(
     onBack: () -> Unit,
+    onAddAccount: () -> Unit = {},
     viewModel: GoalProgressViewModel = hiltViewModel()
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
@@ -58,7 +63,9 @@ fun GoalProgressScreen(
     GoalProgressContent(
         state = state,
         onBack = onBack,
+        onAddAccount = onAddAccount,
         onModeChange = viewModel::onModeChange,
+        onSelectAccount = viewModel::onSelectAccount,
         onAmountChange = viewModel::onAmountChange,
         onSave = viewModel::save
     )
@@ -69,7 +76,9 @@ fun GoalProgressScreen(
 internal fun GoalProgressContent(
     state: GoalProgressState,
     onBack: () -> Unit,
+    onAddAccount: () -> Unit = {},
     onModeChange: (GoalProgressOperationType) -> Unit,
+    onSelectAccount: (String) -> Unit = {},
     onAmountChange: (String) -> Unit,
     onSave: () -> Unit
 ) {
@@ -189,6 +198,28 @@ internal fun GoalProgressContent(
                         )
                     }
 
+                    if (state.mode == GoalProgressOperationType.ADD) {
+                        SourceAccountSelectorSection(
+                            state = state,
+                            enabled = enabled,
+                            onSelectAccount = onSelectAccount,
+                            onAddAccount = onAddAccount
+                        )
+                    } else {
+                        Surface(
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = MaterialTheme.shapes.medium,
+                            color = MaterialTheme.colorScheme.surfaceVariant,
+                            contentColor = MaterialTheme.colorScheme.onSurfaceVariant
+                        ) {
+                            Text(
+                                text = GoalMessages.SET_BALANCE_NOTE,
+                                style = MaterialTheme.typography.bodyMedium,
+                                modifier = Modifier.padding(12.dp)
+                            )
+                        }
+                    }
+
                     val fieldLabel = if (state.mode == GoalProgressOperationType.ADD) {
                         "Contribution amount (${state.currency})"
                     } else {
@@ -214,6 +245,10 @@ internal fun GoalProgressContent(
                         modifier = Modifier.fillMaxWidth()
                     )
 
+                    if (state.mode == GoalProgressOperationType.ADD && state.preview != null) {
+                        ContributionPreviewCard(preview = state.preview)
+                    }
+
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(12.dp)
@@ -230,7 +265,7 @@ internal fun GoalProgressContent(
                                 focusManager.clearFocus()
                                 onSave()
                             },
-                            enabled = enabled,
+                            enabled = enabled && state.isSubmitEnabled,
                             modifier = Modifier.weight(1f)
                         ) {
                             Text("Save")
@@ -242,6 +277,182 @@ internal fun GoalProgressContent(
                     }
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun SourceAccountSelectorSection(
+    state: GoalProgressState,
+    enabled: Boolean,
+    onSelectAccount: (String) -> Unit,
+    onAddAccount: () -> Unit
+) {
+    val colors = MaterialTheme.colorScheme
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Text(
+            text = "Source account",
+            style = MaterialTheme.typography.titleSmall,
+            fontWeight = FontWeight.SemiBold
+        )
+
+        state.accountError?.let { accountErr ->
+            Text(
+                text = accountErr,
+                style = MaterialTheme.typography.bodySmall,
+                color = colors.error
+            )
+        }
+
+        if (!state.hasEligibleAccount) {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                border = BorderStroke(1.dp, colors.outlineVariant),
+                colors = CardDefaults.cardColors(containerColor = colors.surfaceVariant)
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text(
+                        text = "No eligible ${state.currency} account with a positive available balance was found. Create or fund a ${state.currency} account first to add a contribution.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = colors.onSurfaceVariant
+                    )
+                    OutlinedButton(
+                        onClick = onAddAccount,
+                        enabled = enabled
+                    ) {
+                        Text("Create or manage account")
+                    }
+                }
+            }
+        }
+
+        state.accounts.forEach { option ->
+            val selected = option.id == state.selectedAccountId && option.isEligible
+            val rowClickable = enabled && option.isEligible
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .then(
+                        if (rowClickable) {
+                            Modifier.clickable(role = Role.RadioButton) { onSelectAccount(option.id) }
+                        } else {
+                            Modifier
+                        }
+                    ),
+                border = BorderStroke(
+                    width = if (selected) 2.dp else 1.dp,
+                    color = if (selected) colors.primary else colors.outlineVariant
+                ),
+                colors = CardDefaults.cardColors(
+                    containerColor = when {
+                        selected -> colors.primaryContainer.copy(alpha = 0.25f)
+                        !option.isEligible -> colors.surfaceVariant.copy(alpha = 0.5f)
+                        else -> colors.surface
+                    }
+                )
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    RadioButton(
+                        selected = selected,
+                        onClick = if (rowClickable) ({ onSelectAccount(option.id) }) else null,
+                        enabled = rowClickable
+                    )
+                    Column(
+                        modifier = Modifier.weight(1f),
+                        verticalArrangement = Arrangement.spacedBy(2.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = option.displayLabel,
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.Medium,
+                                color = if (option.isEligible) colors.onSurface else colors.onSurfaceVariant
+                            )
+                            Text(
+                                text = option.currency,
+                                style = MaterialTheme.typography.labelMedium,
+                                color = colors.onSurfaceVariant
+                            )
+                        }
+                        Text(
+                            text = "Available: ${option.availableBalanceFormatted}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = if (option.isEligible) colors.onSurfaceVariant else colors.outline
+                        )
+                        option.disabledReason?.let { reason ->
+                            Text(
+                                text = reason,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = colors.error
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        state.selectedAccountAvailableFormatted?.let { selectedBalance ->
+            Text(
+                text = "Selected account available balance: $selectedBalance",
+                style = MaterialTheme.typography.bodySmall,
+                fontWeight = FontWeight.Medium,
+                color = colors.primary
+            )
+        }
+    }
+}
+
+@Composable
+private fun ContributionPreviewCard(preview: GoalContributionPreviewUi) {
+    val colors = MaterialTheme.colorScheme
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        border = BorderStroke(1.dp, colors.primary),
+        colors = CardDefaults.cardColors(containerColor = colors.surface)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            Text(
+                text = "Contribution preview",
+                style = MaterialTheme.typography.labelLarge,
+                fontWeight = FontWeight.SemiBold,
+                color = colors.primary
+            )
+            Text(
+                text = "${preview.accountName}: ${preview.accountBeforeFormatted} -> ${preview.accountAfterFormatted}",
+                style = MaterialTheme.typography.bodySmall
+            )
+            Text(
+                text = "Goal saved: ${preview.goalBeforeFormatted} -> ${preview.goalAfterFormatted}",
+                style = MaterialTheme.typography.bodySmall
+            )
+            Text(
+                text = "Remaining to target: ${preview.remainingAfterFormatted}",
+                style = MaterialTheme.typography.bodySmall,
+                fontWeight = FontWeight.Medium
+            )
         }
     }
 }
@@ -260,7 +471,39 @@ private fun GoalProgressPreview() {
                 currentSavedFormatted = "LKR 100000.00",
                 remainingFormatted = "LKR 400000.00",
                 progressPercent = 20,
-                progressFraction = 0.2f
+                progressFraction = 0.2f,
+                accounts = listOf(
+                    GoalAccountOptionUi(
+                        id = "acc-1",
+                        displayLabel = "Main Savings (BOC)",
+                        currency = "LKR",
+                        availableBalanceMinor = BigInteger.valueOf(250_000_00L),
+                        availableBalanceFormatted = "LKR 250000.00",
+                        isEligible = true
+                    ),
+                    GoalAccountOptionUi(
+                        id = "acc-2",
+                        displayLabel = "Travel USD (HSBC)",
+                        currency = "USD",
+                        availableBalanceMinor = BigInteger.valueOf(500_00L),
+                        availableBalanceFormatted = "USD 500.00",
+                        isEligible = false,
+                        disabledReason = "Currency mismatch (USD, goal uses LKR)"
+                    )
+                ),
+                selectedAccountId = "acc-1",
+                selectedAccountAvailableFormatted = "LKR 250000.00",
+                hasEligibleAccount = true,
+                amount = "50000.00",
+                preview = GoalContributionPreviewUi(
+                    accountName = "Main Savings (BOC)",
+                    accountBeforeFormatted = "LKR 250000.00",
+                    accountAfterFormatted = "LKR 200000.00",
+                    goalBeforeFormatted = "LKR 100000.00",
+                    goalAfterFormatted = "LKR 150000.00",
+                    remainingAfterFormatted = "LKR 350000.00"
+                ),
+                isSubmitEnabled = true
             ),
             onBack = {},
             onModeChange = {},
@@ -269,4 +512,3 @@ private fun GoalProgressPreview() {
         )
     }
 }
-

@@ -1,5 +1,6 @@
 package com.example.clarity.domain.util
 
+import com.example.clarity.domain.model.Account
 import com.example.clarity.domain.model.Currencies
 import com.example.clarity.domain.model.FinancialGoal
 import com.example.clarity.domain.model.GoalError
@@ -8,12 +9,22 @@ import com.example.clarity.domain.model.GoalProgressOperation
 import com.example.clarity.domain.model.GoalProgressOperationState
 import com.example.clarity.domain.model.GoalProgressOperationType
 import com.example.clarity.domain.model.GoalStatus
+import com.example.clarity.domain.model.Transaction
+import com.example.clarity.domain.model.TransactionType
 import java.math.BigDecimal
 import java.math.BigInteger
 import java.math.RoundingMode
 import java.time.Clock
 import java.time.LocalDate
 import java.time.ZoneId
+
+data class GoalContributionPreview(
+    val accountBeforeMinor: BigInteger,
+    val accountAfterMinor: BigInteger,
+    val goalBeforeMinor: Long,
+    val goalAfterMinor: Long,
+    val remainingAfterMinor: Long
+)
 
 object GoalPolicy {
     const val MAX_NAME_LENGTH = 100
@@ -105,6 +116,173 @@ object GoalPolicy {
             goal.savedMinor < goal.targetMinor &&
             goal.targetDateEpochDay < todayEpochDay
 
+    /**
+     * Shared pure definition of funds reserved from an account by goal contributions:
+     * sum of amountMinor of ADD operations with sourceAccountId == accountId in state PENDING or APPLIED.
+     * REJECTED operations and legacy operations with null sourceAccountId are excluded.
+     */
+    fun reservedFromAccount(
+        accountId: String,
+        operations: Iterable<GoalProgressOperation>
+    ): BigInteger {
+        if (accountId.isBlank()) return BigInteger.ZERO
+        var total = BigInteger.ZERO
+        for (op in operations) {
+            if (op.type == GoalProgressOperationType.ADD &&
+                op.sourceAccountId == accountId &&
+                op.amountMinor > 0L &&
+                (op.state == GoalProgressOperationState.PENDING || op.state == GoalProgressOperationState.APPLIED)
+            ) {
+                total = total.add(BigInteger.valueOf(op.amountMinor))
+            }
+        }
+        return total
+    }
+
+    fun reservedByAccount(operations: Iterable<GoalProgressOperation>): Map<String, BigInteger> {
+        val result = mutableMapOf<String, BigInteger>()
+        for (op in operations) {
+            val accId = op.sourceAccountId
+            if (op.type == GoalProgressOperationType.ADD &&
+                !accId.isNullOrBlank() &&
+                op.amountMinor > 0L &&
+                (op.state == GoalProgressOperationState.PENDING || op.state == GoalProgressOperationState.APPLIED)
+            ) {
+                val current = result[accId] ?: BigInteger.ZERO
+                result[accId] = current.add(BigInteger.valueOf(op.amountMinor))
+            }
+        }
+        return result
+    }
+
+    /**
+     * Net of active transactions for an account, computed identically to TransactionBalanceGuard.netMinor:
+     * INCOME adds conversion.amountMinor; any other type subtracts conversion.amountMinor.
+     */
+    fun netTransactionsForAccount(
+        accountId: String,
+        transactions: Iterable<Transaction>
+    ): BigInteger {
+        var total = BigInteger.ZERO
+        for (tx in transactions) {
+            if (tx.accountId != accountId) continue
+            val converted = tx.conversion?.amountMinor ?: continue
+            val amount = BigInteger.valueOf(converted)
+            if (tx.type == TransactionType.INCOME) {
+                total = total.add(amount)
+            } else {
+                total = total.subtract(amount)
+            }
+        }
+        return total
+    }
+
+    /**
+     * Verifies that every active transaction on the account has a resolved conversion snapshot
+     * denominated in the account's own currency so that TransactionBalanceGuard's per-account sum
+     * is provably in [accountCurrency] minor units without currency conversion.
+     */
+    fun hasConsistentCurrencyUnits(
+        accountCurrency: String,
+        accountId: String,
+        transactions: Iterable<Transaction>
+    ): Boolean {
+        if (accountCurrency !in Currencies.supported) return false
+        for (tx in transactions) {
+            if (tx.accountId != accountId) continue
+            if (tx.pendingConversion || tx.conversion == null || tx.targetCurrency != accountCurrency) {
+                return false
+            }
+        }
+        return true
+    }
+
+    /**
+     * Shared pure definition of an account's available balance:
+     * net of the account's active transactions minus reservedFromAccount.
+     */
+    fun availableBalanceForAccount(
+        accountId: String,
+        transactions: Iterable<Transaction>,
+        operations: Iterable<GoalProgressOperation>
+    ): BigInteger =
+        netTransactionsForAccount(accountId, transactions)
+            .subtract(reservedFromAccount(accountId, operations))
+
+    /**
+     * Validates a new ADD contribution against the goal and source account in the exact required order:
+     * 1. signed in
+     * 2. goal exists
+     * 3. account selected / exists / owned
+     * 4. currency match (and consistent per-account transaction units)
+     * 5. amount > 0
+     * 6. amount <= goal remaining
+     * 7. amount <= account available balance ("Insufficient account balance.")
+     */
+    fun validateContributionWithAccount(
+        uid: String,
+        goal: FinancialGoal?,
+        sourceAccountId: String?,
+        account: Account?,
+        accountCurrencyUnitsValid: Boolean,
+        availableBalanceMinor: BigInteger,
+        amountMinor: Long
+    ): FinancialGoal {
+        if (uid.isBlank() || (goal != null && goal.userId.isNotEmpty() && goal.userId != uid)) {
+            throw GoalException(GoalError.SIGN_IN_REQUIRED)
+        }
+        if (goal == null) {
+            throw GoalException(GoalError.NOT_FOUND)
+        }
+        if (sourceAccountId.isNullOrBlank()) {
+            throw GoalException(GoalError.ACCOUNT_REQUIRED)
+        }
+        if (!validId(sourceAccountId)) {
+            throw GoalException(GoalError.INVALID_ID)
+        }
+        if (account == null || account.userId != uid || account.id != sourceAccountId) {
+            throw GoalException(GoalError.ACCOUNT_NOT_FOUND)
+        }
+        if (account.currency != goal.currency || !accountCurrencyUnitsValid) {
+            throw GoalException(GoalError.ACCOUNT_CURRENCY_MISMATCH)
+        }
+        val rem = remainingMinor(goal.targetMinor, goal.savedMinor)
+        if (amountMinor <= 0L) {
+            throw GoalException(GoalError.CONTRIBUTION_NON_POSITIVE, rem, goal.currency)
+        }
+        val newSavedBig = BigInteger.valueOf(goal.savedMinor).add(BigInteger.valueOf(amountMinor))
+        if (newSavedBig > BigInteger.valueOf(goal.targetMinor)) {
+            throw GoalException(GoalError.EXCEEDS_TARGET, rem, goal.currency)
+        }
+        if (BigInteger.valueOf(amountMinor) > availableBalanceMinor) {
+            throw GoalException(GoalError.INSUFFICIENT_ACCOUNT_BALANCE, rem, goal.currency)
+        }
+        val newSaved = newSavedBig.longValueExact()
+        return goal.copy(
+            savedMinor = newSaved,
+            status = deriveWriteStatus(newSaved, goal.targetMinor)
+        )
+    }
+
+    fun previewContribution(
+        goal: FinancialGoal,
+        accountAvailableMinor: BigInteger,
+        amountMinor: Long
+    ): GoalContributionPreview? {
+        if (amountMinor <= 0L) return null
+        val newGoalSaved = BigInteger.valueOf(goal.savedMinor).add(BigInteger.valueOf(amountMinor))
+        if (newGoalSaved > BigInteger.valueOf(goal.targetMinor)) return null
+        val accountAfter = accountAvailableMinor.subtract(BigInteger.valueOf(amountMinor))
+        val goalAfterLong = newGoalSaved.longValueExact()
+        return GoalContributionPreview(
+            accountBeforeMinor = accountAvailableMinor,
+            accountAfterMinor = accountAfter,
+            goalBeforeMinor = goal.savedMinor,
+            goalAfterMinor = goalAfterLong,
+            remainingAfterMinor = remainingMinor(goal.targetMinor, goalAfterLong)
+        )
+    }
+
     fun validateForCreate(goal: FinancialGoal, todayEpochDay: Long): FinancialGoal {
         val normalized = normalizeAndValidateCommon(goal, isEdit = false)
         if (normalized.targetDateEpochDay <= todayEpochDay) {
@@ -175,7 +353,7 @@ object GoalPolicy {
         }
     }
 
-    fun validateOperation(operation: GoalProgressOperation) {
+    fun validateOperation(operation: GoalProgressOperation, requireSourceAccountOnAdd: Boolean = false) {
         if (!validId(operation.id) || !validId(operation.goalId)) {
             throw GoalException(GoalError.INVALID_ID)
         }
@@ -190,10 +368,20 @@ object GoalPolicy {
                 if (operation.amountMinor <= 0L) {
                     throw GoalException(GoalError.CONTRIBUTION_NON_POSITIVE)
                 }
+                val sourceId = operation.sourceAccountId
+                if (requireSourceAccountOnAdd && sourceId.isNullOrBlank()) {
+                    throw GoalException(GoalError.ACCOUNT_REQUIRED)
+                }
+                if (sourceId != null && !validId(sourceId)) {
+                    throw GoalException(GoalError.INVALID_ID)
+                }
             }
             GoalProgressOperationType.SET -> {
                 if (operation.amountMinor < 0L) {
                     throw GoalException(GoalError.SAVED_NEGATIVE)
+                }
+                if (operation.sourceAccountId != null) {
+                    throw GoalException(GoalError.INVALID_ID)
                 }
             }
         }
@@ -299,4 +487,3 @@ object GoalPolicy {
         )
     }
 }
-

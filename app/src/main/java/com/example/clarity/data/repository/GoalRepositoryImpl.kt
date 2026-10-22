@@ -29,6 +29,7 @@ import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.withContext
+import java.math.BigInteger
 import java.time.Clock
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -47,6 +48,7 @@ class GoalRepositoryImpl @Inject constructor(
     private val goalDao get() = database.goalDao
     private val operationDao get() = database.goalProgressOperationDao
     private val dismissedRejectedByOwner = MutableStateFlow<Map<String, Set<String>>>(emptyMap())
+    internal var beforeGoalUpsertHook: (() -> Unit)? = null
 
     override fun observeGoals(): Flow<GoalsSnapshot> =
         auth.currentUser.distinctUntilChangedBy { it?.uid }.flatMapLatest { user ->
@@ -76,7 +78,8 @@ class GoalRepositoryImpl @Inject constructor(
                         ownerId = user.uid,
                         goals = goals,
                         pendingGoalIds = pendingGoalIds,
-                        rejectedOperations = rejectedOps
+                        rejectedOperations = rejectedOps,
+                        operations = ops
                     )
                 }
             }
@@ -144,12 +147,14 @@ class GoalRepositoryImpl @Inject constructor(
     override suspend fun addContribution(
         goalId: String,
         operationId: String,
-        amountMinor: Long
+        amountMinor: Long,
+        sourceAccountId: String
     ): Result<FinancialGoal> = recordProgressOperation(
         goalId = goalId,
         operationId = operationId,
         type = GoalProgressOperationType.ADD,
-        amountMinor = amountMinor
+        amountMinor = amountMinor,
+        sourceAccountId = sourceAccountId
     )
 
     override suspend fun setBalance(
@@ -160,7 +165,8 @@ class GoalRepositoryImpl @Inject constructor(
         goalId = goalId,
         operationId = operationId,
         type = GoalProgressOperationType.SET,
-        amountMinor = amountMinor
+        amountMinor = amountMinor,
+        sourceAccountId = null
     )
 
     override suspend fun dismissRejectedOperation(operationId: String): Result<Unit> = operation {
@@ -180,11 +186,24 @@ class GoalRepositoryImpl @Inject constructor(
         goalId: String,
         operationId: String,
         type: GoalProgressOperationType,
-        amountMinor: Long
+        amountMinor: Long,
+        sourceAccountId: String?
     ): Result<FinancialGoal> = operation {
         val uid = owner()
         if (!GoalPolicy.validId(goalId) || !GoalPolicy.validId(operationId)) {
             throw GoalException(GoalError.INVALID_ID)
+        }
+        val normalizedAccountId = when (type) {
+            GoalProgressOperationType.ADD -> {
+                val trimmed = sourceAccountId?.trim().orEmpty()
+                if (trimmed.isEmpty()) throw GoalException(GoalError.ACCOUNT_REQUIRED)
+                if (!GoalPolicy.validId(trimmed)) throw GoalException(GoalError.INVALID_ID)
+                trimmed
+            }
+            GoalProgressOperationType.SET -> {
+                if (sourceAccountId != null) throw GoalException(GoalError.INVALID_ID)
+                null
+            }
         }
         database.withTransaction {
             checkOwner(uid)
@@ -194,17 +213,60 @@ class GoalRepositoryImpl @Inject constructor(
 
             val existingOp = operationDao.get(uid, operationId)
             if (existingOp != null) {
-                if (existingOp.goalId != goalId) {
+                if (
+                    existingOp.goalId != goalId ||
+                    existingOp.type != type.name ||
+                    existingOp.amountMinor != amountMinor ||
+                    existingOp.sourceAccountId != normalizedAccountId
+                ) {
                     throw GoalException(GoalError.INVALID_ID)
                 }
                 return@withTransaction currentGoal
             }
 
-            val updatedGoal = GoalPolicy.applyOperation(
-                goal = currentGoal,
-                type = type,
-                amountMinor = amountMinor
-            )
+            val updatedGoal = when (type) {
+                GoalProgressOperationType.ADD -> {
+                    val accountId = checkNotNull(normalizedAccountId)
+                    val accountEntity = database.accountDao.getById(accountId)
+                        ?.takeIf { it.userId == uid }
+                    val activeTransactions = database.transactionDao.getActiveForUser(uid)
+                        .map { it.toDomain() }
+                    val allOperations = operationDao.getByUser(uid)
+                        .map { it.toDomain() }
+                    val hasConsistentCurrency = accountEntity != null &&
+                        GoalPolicy.hasConsistentCurrencyUnits(
+                            accountId = accountEntity.id,
+                            accountCurrency = accountEntity.currency,
+                            transactions = activeTransactions
+                        )
+                    val availableBalance = if (accountEntity != null) {
+                        GoalPolicy.availableBalanceForAccount(
+                            accountId = accountEntity.id,
+                            transactions = activeTransactions,
+                            operations = allOperations
+                        )
+                    } else {
+                        BigInteger.ZERO
+                    }
+                    GoalPolicy.validateContributionWithAccount(
+                        uid = uid,
+                        goal = currentGoal,
+                        sourceAccountId = accountId,
+                        account = accountEntity?.toDomain(),
+                        accountCurrencyUnitsValid = hasConsistentCurrency,
+                        availableBalanceMinor = availableBalance,
+                        amountMinor = amountMinor
+                    )
+                }
+                GoalProgressOperationType.SET -> {
+                    GoalPolicy.applyOperation(
+                        goal = currentGoal,
+                        type = GoalProgressOperationType.SET,
+                        amountMinor = amountMinor
+                    )
+                }
+            }
+
             val now = maxOf(clock.millis(), Math.addExact(currentGoal.updatedAt, 1L))
             val op = GoalProgressOperation(
                 id = operationId,
@@ -212,14 +274,19 @@ class GoalRepositoryImpl @Inject constructor(
                 goalId = goalId,
                 type = type,
                 amountMinor = amountMinor,
+                sourceAccountId = normalizedAccountId,
                 createdAt = now,
                 state = GoalProgressOperationState.PENDING
             )
-            GoalPolicy.validateOperation(op)
+            GoalPolicy.validateOperation(
+                op,
+                requireSourceAccountOnAdd = type == GoalProgressOperationType.ADD
+            )
             val inserted = operationDao.insert(op.toEntity())
             if (inserted == -1L) {
                 return@withTransaction currentGoal
             }
+            beforeGoalUpsertHook?.invoke()
             val savedGoal = updatedGoal.copy(
                 updatedAt = now,
                 pendingSync = currentGoal.pendingSync
@@ -247,4 +314,3 @@ class GoalRepositoryImpl @Inject constructor(
         }
     }
 }
-

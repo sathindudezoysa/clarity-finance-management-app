@@ -130,6 +130,13 @@ internal fun GoalsContent(
                 }
 
                 items(
+                    items = state.overdrawnAccountWarnings,
+                    key = { "overdrawn-$it" }
+                ) { warning ->
+                    GoalOverdrawnAccountWarningBanner(message = warning)
+                }
+
+                items(
                     items = state.rejectedOperations,
                     key = { "rejected-${it.id}" }
                 ) { rejected ->
@@ -232,6 +239,23 @@ internal fun GoalErrorBanner(
                 Text("Retry", color = colors.onErrorContainer, fontWeight = FontWeight.SemiBold)
             }
         }
+    }
+}
+
+@Composable
+private fun GoalOverdrawnAccountWarningBanner(message: String) {
+    val colors = MaterialTheme.colorScheme
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = MaterialTheme.shapes.medium,
+        color = colors.errorContainer,
+        contentColor = colors.onErrorContainer
+    ) {
+        Text(
+            text = message,
+            style = MaterialTheme.typography.bodyMedium,
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)
+        )
     }
 }
 

@@ -5,12 +5,16 @@ import androidx.sqlite.db.SupportSQLiteOpenHelper
 import androidx.sqlite.db.framework.FrameworkSQLiteOpenHelperFactory
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import com.example.clarity.data.local.entity.AccountEntity
+import com.example.clarity.data.local.entity.TransactionEntity
+import com.example.clarity.data.mapper.toDomain
 import com.example.clarity.data.remote.GoalDetailWriteResult
 import com.example.clarity.data.remote.GoalOperationWriteResult
 import com.example.clarity.data.remote.GoalRemoteDataSource
 import com.example.clarity.data.repository.GoalRepositoryImpl
 import com.example.clarity.data.sync.GoalSyncProcessor
 import com.example.clarity.di.DatabaseModule
+import com.example.clarity.domain.model.ConversionSnapshot
 import com.example.clarity.domain.model.FinancialGoal
 import com.example.clarity.domain.model.GoalError
 import com.example.clarity.domain.model.GoalException
@@ -18,6 +22,8 @@ import com.example.clarity.domain.model.GoalProgressOperation
 import com.example.clarity.domain.model.GoalProgressOperationState
 import com.example.clarity.domain.model.GoalProgressOperationType
 import com.example.clarity.domain.model.GoalStatus
+import com.example.clarity.domain.model.TransactionError
+import com.example.clarity.domain.model.TransactionException
 import com.example.clarity.domain.model.User
 import com.example.clarity.domain.repository.AuthRepository
 import com.example.clarity.domain.repository.CurrencyPreference
@@ -35,8 +41,10 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
+import org.junit.Assert.fail
 import org.junit.Test
 import org.junit.runner.RunWith
+import java.math.BigInteger
 import java.time.Clock
 import java.time.Instant
 import java.time.LocalDate
@@ -51,8 +59,56 @@ class GoalPersistenceTest {
     private val futureDay1 = todayEpochDay + 30L
     private val futureDay2 = todayEpochDay + 60L
 
+    private fun lkrIncomeTx(
+        id: String,
+        accountId: String,
+        amountMinor: Long,
+        userId: String = "owner"
+    ) = TransactionEntity(
+        id = id,
+        userId = userId,
+        type = "INCOME",
+        amountMinor = amountMinor,
+        category = "Salary",
+        note = "Seed income",
+        dateEpochMillis = 1_000L,
+        createdAt = 1_000L,
+        updatedAt = 1_000L,
+        pendingSync = false,
+        isDeleted = false,
+        accountId = accountId,
+        currency = "LKR",
+        targetCurrency = "LKR",
+        conversion = ConversionSnapshot.identity(amountMinor),
+        pendingConversion = false
+    )
+
+    private fun lkrExpenseTx(
+        id: String,
+        accountId: String,
+        amountMinor: Long,
+        userId: String = "owner"
+    ) = TransactionEntity(
+        id = id,
+        userId = userId,
+        type = "EXPENSE",
+        amountMinor = amountMinor,
+        category = "Shopping",
+        note = "Expense",
+        dateEpochMillis = 2_000L,
+        createdAt = 2_000L,
+        updatedAt = 2_000L,
+        pendingSync = false,
+        isDeleted = false,
+        accountId = accountId,
+        currency = "LKR",
+        targetCurrency = "LKR",
+        conversion = ConversionSnapshot.identity(amountMinor),
+        pendingConversion = false
+    )
+
     @Test
-    fun multiGoalLifecycle_atomicContributions_idempotency_reconcile_rejection_andUserIsolation() = runBlocking {
+    fun multiGoalLifecycle_atomicAccountLinkedContributions_rollback_idempotency_reconcile_rejection_andUserIsolation() = runBlocking {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val name = "goals-${UUID.randomUUID()}"
         val auth = TestAuth()
@@ -72,7 +128,73 @@ class GoalPersistenceTest {
         suspend fun awaitSnapshot(repo: GoalRepository, owner: String? = "owner") =
             withTimeout(5_000) { repo.observeGoals().first { it.ownerId == owner } }
 
+        suspend fun availableFor(accountId: String): BigInteger {
+            val txs = db.transactionDao.getActiveForUser("owner").map { it.toDomain() }
+            val ops = db.goalProgressOperationDao.getByUser("owner").map { it.toDomain() }
+            return GoalPolicy.availableBalanceForAccount(accountId, txs, ops)
+        }
+
         try {
+            // Seed accounts and initial income balances:
+            // acc-1 (LKR bank account): 55_000 LKR
+            // cash_wallet_owner (LKR cash wallet): 30_000 LKR
+            // acc-usd (USD account): 100_000 USD
+            // acc-other (owned by 'other'): 100_000 LKR
+            db.accountDao.upsertAll(
+                listOf(
+                    AccountEntity(
+                        id = "acc-1",
+                        userId = "owner",
+                        name = "Main Savings",
+                        bankName = "BOC",
+                        accountType = "SAVINGS",
+                        currency = "LKR",
+                        isDefault = true,
+                        createdAt = 1_000L,
+                        updatedAt = 1_000L,
+                        pendingSync = false
+                    ),
+                    AccountEntity(
+                        id = "cash_wallet_owner",
+                        userId = "owner",
+                        name = "Cash Wallet",
+                        bankName = "Cash",
+                        accountType = "CASH",
+                        currency = "LKR",
+                        isDefault = false,
+                        createdAt = 1_000L,
+                        updatedAt = 1_000L,
+                        pendingSync = false
+                    ),
+                    AccountEntity(
+                        id = "acc-usd",
+                        userId = "owner",
+                        name = "USD Account",
+                        bankName = "HSBC",
+                        accountType = "SAVINGS",
+                        currency = "USD",
+                        isDefault = false,
+                        createdAt = 1_000L,
+                        updatedAt = 1_000L,
+                        pendingSync = false
+                    ),
+                    AccountEntity(
+                        id = "acc-other",
+                        userId = "other",
+                        name = "Other User Account",
+                        bankName = "BOC",
+                        accountType = "SAVINGS",
+                        currency = "LKR",
+                        isDefault = true,
+                        createdAt = 1_000L,
+                        updatedAt = 1_000L,
+                        pendingSync = false
+                    )
+                )
+            )
+            db.transactionDao.persistLocal(lkrIncomeTx("inc-acc-1", "acc-1", 55_000L))
+            db.transactionDao.persistLocal(lkrIncomeTx("inc-cash", "cash_wallet_owner", 30_000L))
+
             var repo = repository()
 
             // 1. Create multiple goals offline
@@ -128,23 +250,78 @@ class GoalPersistenceTest {
             assertTrue(invalidEdit.isFailure)
             assertEquals(GoalError.TARGET_BELOW_SAVED, (invalidEdit.exceptionOrNull() as GoalException).error)
 
-            // 3. Repeated contributions accumulate atomically & duplicate operationId is idempotent
-            val step1 = repo.addContribution("goal-a", "op-1", 15_000L).getOrThrow()
+            // 3. Reject missing account, unowned account, currency mismatch, and insufficient account balance
+            val blankAccountRes = repo.addContribution("goal-a", "op-bad-blank", 5_000L, "   ")
+            assertEquals(GoalError.ACCOUNT_REQUIRED, (blankAccountRes.exceptionOrNull() as GoalException).error)
+
+            val missingAccountRes = repo.addContribution("goal-a", "op-bad-missing", 5_000L, "acc-nonexistent")
+            assertEquals(GoalError.ACCOUNT_NOT_FOUND, (missingAccountRes.exceptionOrNull() as GoalException).error)
+
+            val unownedAccountRes = repo.addContribution("goal-a", "op-bad-owner", 5_000L, "acc-other")
+            assertEquals(GoalError.ACCOUNT_NOT_FOUND, (unownedAccountRes.exceptionOrNull() as GoalException).error)
+
+            val mismatchCurrencyRes = repo.addContribution("goal-a", "op-bad-curr", 5_000L, "acc-usd")
+            assertEquals(GoalError.ACCOUNT_CURRENCY_MISMATCH, (mismatchCurrencyRes.exceptionOrNull() as GoalException).error)
+
+            val insufficientRes = repo.addContribution("goal-a", "op-bad-bal", 55_001L, "acc-1")
+            assertEquals(GoalError.INSUFFICIENT_ACCOUNT_BALANCE, (insufficientRes.exceptionOrNull() as GoalException).error)
+            // Verify both goal and account are unchanged after rejected attempts
+            assertEquals(10_000L, repo.getGoal("goal-a").getOrThrow()!!.savedMinor)
+            assertEquals(BigInteger.valueOf(55_000L), availableFor("acc-1"))
+
+            // 4. Simulated failure inside Room transaction rolls back BOTH operation insert and goal upsert
+            repo.beforeGoalUpsertHook = { throw IllegalStateException("Simulated crash after operation insert") }
+            val crashedRes = repo.addContribution("goal-a", "op-rollback", 15_000L, "acc-1")
+            assertTrue(crashedRes.isFailure)
+            repo.beforeGoalUpsertHook = null
+            assertNull(db.goalProgressOperationDao.get("owner", "op-rollback"))
+            assertEquals(10_000L, repo.getGoal("goal-a").getOrThrow()!!.savedMinor)
+            assertEquals(BigInteger.valueOf(55_000L), availableFor("acc-1"))
+
+            // 5. Repeated contributions from same and different accounts (including cash wallet) accumulate atomically
+            val step1 = repo.addContribution("goal-a", "op-1", 15_000L, "acc-1").getOrThrow()
             assertEquals(25_000L, step1.savedMinor)
-            // Duplicate operationId must NOT double-apply
-            val step1Retry = repo.addContribution("goal-a", "op-1", 15_000L).getOrThrow()
+            assertEquals(BigInteger.valueOf(40_000L), availableFor("acc-1"))
+
+            // Duplicate operationId with identical fields must NOT double-apply (neither goal nor account changes)
+            val step1Retry = repo.addContribution("goal-a", "op-1", 15_000L, "acc-1").getOrThrow()
             assertEquals(25_000L, step1Retry.savedMinor)
+            assertEquals(BigInteger.valueOf(40_000L), availableFor("acc-1"))
 
-            val step2 = repo.addContribution("goal-a", "op-2", 25_000L).getOrThrow()
+            // Duplicate operationId with different accountId or amount is rejected with INVALID_ID
+            val conflictingRetryAccount = repo.addContribution("goal-a", "op-1", 15_000L, "cash_wallet_owner")
+            assertEquals(GoalError.INVALID_ID, (conflictingRetryAccount.exceptionOrNull() as GoalException).error)
+            val conflictingRetryAmount = repo.addContribution("goal-a", "op-1", 10_000L, "acc-1")
+            assertEquals(GoalError.INVALID_ID, (conflictingRetryAmount.exceptionOrNull() as GoalException).error)
+
+            // Contribute from second account (cash_wallet_owner)
+            val step2 = repo.addContribution("goal-a", "op-2", 25_000L, "cash_wallet_owner").getOrThrow()
             assertEquals(50_000L, step2.savedMinor)
+            assertEquals(BigInteger.valueOf(40_000L), availableFor("acc-1"))
+            assertEquals(BigInteger.valueOf(5_000L), availableFor("cash_wallet_owner"))
 
-            // Set absolute balance on goal-b to complete it
+            // 6. TransactionDao.persistLocal enforces goal reservations via TransactionBalanceGuard:
+            // acc-1 has 55_000 net tx and 15_000 reserved -> 40_000 available.
+            // Expense of 40_001 on acc-1 must be blocked:
+            try {
+                db.transactionDao.persistLocal(lkrExpenseTx("exp-too-high", "acc-1", 40_001L))
+                fail("Expected TransactionException(INSUFFICIENT_BALANCE) when expense exceeds unreserved balance")
+            } catch (e: TransactionException) {
+                assertEquals(TransactionError.INSUFFICIENT_BALANCE, e.error)
+            }
+            // Expense of 10_000 on acc-1 succeeds, leaving 30_000 available on acc-1:
+            db.transactionDao.persistLocal(lkrExpenseTx("exp-ok", "acc-1", 10_000L))
+            assertEquals(BigInteger.valueOf(30_000L), availableFor("acc-1"))
+
+            // 7. Set absolute balance on goal-b to complete it without changing any account balance
             val completedB = repo.setBalance("goal-b", "op-b1", 50_000L).getOrThrow()
             assertEquals(50_000L, completedB.savedMinor)
             assertEquals(GoalStatus.COMPLETED, completedB.status)
             assertEquals(50_000L, repo.getGoal("goal-a").getOrThrow()!!.savedMinor)
+            assertEquals(BigInteger.valueOf(30_000L), availableFor("acc-1"))
+            assertEquals(BigInteger.valueOf(5_000L), availableFor("cash_wallet_owner"))
 
-            // 4. Reopen Room database and verify persistence of goals and pending operations
+            // 8. Reopen Room database and verify persistence of goals, pending operations, sourceAccountId, and available balances
             db.close()
             db = DatabaseModule.createDatabase(context, name)
             repo = repository()
@@ -155,8 +332,13 @@ class GoalPersistenceTest {
             assertEquals(50_000L, afterReopen.goals.first { it.id == "goal-a" }.savedMinor)
             assertEquals(GoalStatus.COMPLETED, afterReopen.goals.first { it.id == "goal-b" }.status)
             assertEquals(3, db.goalProgressOperationDao.pending("owner").size)
+            assertEquals("acc-1", db.goalProgressOperationDao.get("owner", "op-1")?.sourceAccountId)
+            assertEquals("cash_wallet_owner", db.goalProgressOperationDao.get("owner", "op-2")?.sourceAccountId)
+            assertNull(db.goalProgressOperationDao.get("owner", "op-b1")?.sourceAccountId)
+            assertEquals(BigInteger.valueOf(30_000L), availableFor("acc-1"))
+            assertEquals(BigInteger.valueOf(5_000L), availableFor("cash_wallet_owner"))
 
-            // 5. Offline upload -> online upload -> acknowledgement
+            // 9. Offline upload -> online upload -> acknowledgement (PENDING -> APPLIED does not double-deduct or release reservation)
             val sync = processor()
             assertFalse(sync.upload("owner")) // Still offline
             remote.offline = false
@@ -165,12 +347,18 @@ class GoalPersistenceTest {
             assertTrue(db.goalProgressOperationDao.pending("owner").isEmpty())
             assertEquals(50_000L, remote.goals.getValue("goal-a").savedMinor)
             assertEquals(50_000L, remote.goals.getValue("goal-b").savedMinor)
+            assertEquals("acc-1", remote.appliedOps.getValue("op-1").sourceAccountId)
+            assertEquals("cash_wallet_owner", remote.appliedOps.getValue("op-2").sourceAccountId)
+            // Available balances remain identical after PENDING -> APPLIED
+            assertEquals(BigInteger.valueOf(30_000L), availableFor("acc-1"))
+            assertEquals(BigInteger.valueOf(5_000L), availableFor("cash_wallet_owner"))
 
-            // 6. Reconciliation replays ONLY PENDING operations (never APPLIED operations)
-            // Create a new local pending operation op-3 (+20_000 -> 70_000) while offline
+            // 10. Reconciliation replays ONLY PENDING operations (never APPLIED operations)
+            // Create a new local pending operation op-3 (+20_000 from acc-1 -> goal-a 70_000, acc-1 available 10_000) while offline
             remote.offline = true
-            repo.addContribution("goal-a", "op-3", 20_000L).getOrThrow()
+            repo.addContribution("goal-a", "op-3", 20_000L, "acc-1").getOrThrow()
             assertEquals(70_000L, repo.getGoal("goal-a").getOrThrow()!!.savedMinor)
+            assertEquals(BigInteger.valueOf(10_000L), availableFor("acc-1"))
 
             // Simulate remote snapshot arriving with server savedMinor = 50_000 (before op-3 uploaded)
             val remoteSnapshotBeforeOp3 = listOf(
@@ -180,28 +368,115 @@ class GoalPersistenceTest {
             sync.reconcile("owner", remoteSnapshotBeforeOp3)
             // Reconciled local row should be remote 50_000 + pending op-3 (20_000) = 70_000 (op-1 and op-2 are APPLIED so not replayed!)
             assertEquals(70_000L, db.goalDao.get("owner", "goal-a")!!.savedMinor)
+            assertEquals(BigInteger.valueOf(10_000L), availableFor("acc-1"))
 
-            // 7. Rejected operation handling: if remote rejects op-3
+            // 11. Rejected operation handling: if remote rejects op-3, goal-a reconciles to 50_000 AND acc-1 available balance is restored from 10_000 back to 30_000!
             remote.offline = false
             remote.forceRejectOperationIds.add("op-3")
             assertTrue(sync.upload("owner"))
-            // op-3 is now marked REJECTED, and local goal-a is reconciled to remote truth (50_000)
             assertEquals(50_000L, db.goalDao.get("owner", "goal-a")!!.savedMinor)
+            assertEquals(BigInteger.valueOf(30_000L), availableFor("acc-1"))
             val snapWithRejection = withTimeout(5_000) {
                 repo.observeGoals().first { it.ownerId == "owner" && it.rejectedOperations.isNotEmpty() }
             }
             assertEquals(listOf("op-3"), snapWithRejection.rejectedOperations.map { it.id })
 
-            // 8. User isolation across account switch and sign out
+            // 12. User isolation across account switch and sign out
             auth.currentUser.value = User("other", null, null)
             val otherSnapshot = awaitSnapshot(repo, owner = "other")
             assertTrue(otherSnapshot.goals.isEmpty())
+            assertTrue(otherSnapshot.operations.isEmpty())
             assertNull(repo.getGoal("goal-a").getOrThrow())
 
             auth.currentUser.value = null
             val signedOutSnapshot = awaitSnapshot(repo, owner = null)
             assertNull(signedOutSnapshot.ownerId)
             assertTrue(signedOutSnapshot.goals.isEmpty())
+        } finally {
+            db.close()
+            context.deleteDatabase(name)
+        }
+    }
+
+    @Test
+    fun migration16To17_preservesAllExistingV16TablesAndAddsNullableSourceAccountIdColumn() = runBlocking {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val name = "migration-16-17-${UUID.randomUUID()}"
+        context.deleteDatabase(name)
+
+        // 1. Create a real v16 SQLite database using the exact ClarityDatabase_Impl v16 schema and identity hash
+        val v16Helper = FrameworkSQLiteOpenHelperFactory().create(
+            SupportSQLiteOpenHelper.Configuration.builder(context)
+                .name(name)
+                .callback(object : SupportSQLiteOpenHelper.Callback(16) {
+                    override fun onCreate(db: SupportSQLiteDatabase) {
+                        V16_CREATE_SQL.forEach { sql -> db.execSQL(sql) }
+                    }
+
+                    override fun onUpgrade(db: SupportSQLiteDatabase, oldVersion: Int, newVersion: Int) = Unit
+                })
+                .build()
+        )
+
+        v16Helper.writableDatabase.use { sqlDb ->
+            sqlDb.execSQL(
+                "INSERT INTO `accounts` (`id`, `userId`, `name`, `bankName`, `accountType`, `currency`, `isDefault`, `createdAt`, `updatedAt`, `pendingSync`) " +
+                    "VALUES ('acc-1', 'owner', 'Main Savings', 'BOC', 'SAVINGS', 'LKR', 1, 1000, 1000, 0)"
+            )
+            sqlDb.execSQL(
+                "INSERT INTO `transactions` (`id`, `userId`, `type`, `amountMinor`, `category`, `note`, `dateEpochMillis`, `createdAt`, `updatedAt`, `pendingSync`, `isDeleted`, `accountId`, `currency`, `targetCurrency`, `pendingConversion`, `conversion_amountMinor`, `conversion_rate`, `conversion_provider`, `conversion_rateAt`, `conversion_fetchedAt`, `conversion_cached`) " +
+                    "VALUES ('tx-inc-1', 'owner', 'INCOME', 100000, 'Salary', 'Monthly salary', 1000, 1000, 1000, 0, 0, 'acc-1', 'LKR', 'LKR', 0, 100000, '1', 'IDENTITY', 0, 0, 1)"
+            )
+            sqlDb.execSQL(
+                "INSERT INTO `goals` (`userId`, `id`, `name`, `description`, `targetMinor`, `savedMinor`, `currency`, `targetDateEpochDay`, `status`, `createdAt`, `updatedAt`, `pendingSync`) " +
+                    "VALUES ('owner', 'v16-goal', 'Car Fund', 'Existing v16 goal', 200000, 30000, 'LKR', $futureDay1, 'ACTIVE', 1000, 1000, 0)"
+            )
+            sqlDb.execSQL(
+                "INSERT INTO `goal_progress_operations` (`userId`, `id`, `goalId`, `type`, `amountMinor`, `createdAt`, `state`) " +
+                    "VALUES ('owner', 'legacy-op-1', 'v16-goal', 'ADD', 30000, 1000, 'APPLIED')"
+            )
+        }
+        v16Helper.close()
+
+        // 2. Open the database at v17 via DatabaseModule.createDatabase (runs MIGRATION_16_17 and validates schema)
+        val db = DatabaseModule.createDatabase(context, name)
+        try {
+            // Verify pre-existing v16 rows survived and legacy operation has sourceAccountId == null
+            assertEquals("Main Savings", db.accountDao.getById("acc-1")?.name)
+            assertEquals(100_000L, db.transactionDao.getById("tx-inc-1")?.amountMinor)
+            assertEquals(30_000L, db.goalDao.get("owner", "v16-goal")?.savedMinor)
+            val legacyOp = db.goalProgressOperationDao.get("owner", "legacy-op-1")
+            assertEquals(30_000L, legacyOp?.amountMinor)
+            assertNull(legacyOp?.sourceAccountId)
+
+            // Legacy operation with null sourceAccountId does not reduce acc-1's available balance
+            val txsBefore = db.transactionDao.getActiveForUser("owner").map { it.toDomain() }
+            val opsBefore = db.goalProgressOperationDao.getByUser("owner").map { it.toDomain() }
+            assertEquals(
+                BigInteger.valueOf(100_000L),
+                GoalPolicy.availableBalanceForAccount("acc-1", txsBefore, opsBefore)
+            )
+
+            // New v17 account-linked contribution works and reduces acc-1's available balance
+            val auth = TestAuth()
+            val remote = FakeGoalRemote()
+            val repo = GoalRepositoryImpl(
+                database = db,
+                auth = auth,
+                currencyPreferenceRepository = FakeCurrencyPrefs("LKR"),
+                processor = GoalSyncProcessor(db, remote, auth),
+                ioDispatcher = Dispatchers.IO,
+                clock = clock
+            )
+            val updated = repo.addContribution("v16-goal", "v17-op-1", 40_000L, "acc-1").getOrThrow()
+            assertEquals(70_000L, updated.savedMinor)
+            assertEquals("acc-1", db.goalProgressOperationDao.get("owner", "v17-op-1")?.sourceAccountId)
+
+            val opsAfter = db.goalProgressOperationDao.getByUser("owner").map { it.toDomain() }
+            assertEquals(
+                BigInteger.valueOf(60_000L),
+                GoalPolicy.availableBalanceForAccount("acc-1", txsBefore, opsAfter)
+            )
         } finally {
             db.close()
             context.deleteDatabase(name)
@@ -234,8 +509,8 @@ class GoalPersistenceTest {
                     "VALUES ('acc-1', 'owner', 'Main Savings', 'BOC', 'SAVINGS', 'LKR', 1, 1000, 1000, 0)"
             )
             sqlDb.execSQL(
-                "INSERT INTO `transactions` (`id`, `userId`, `type`, `amountMinor`, `category`, `note`, `dateEpochMillis`, `createdAt`, `updatedAt`, `pendingSync`, `isDeleted`, `accountId`, `currency`, `targetCurrency`, `pendingConversion`) " +
-                    "VALUES ('tx-1', 'owner', 'EXPENSE', 2500, 'Food', 'Lunch', 1000, 1000, 1000, 0, 0, 'acc-1', 'LKR', 'LKR', 0)"
+                "INSERT INTO `transactions` (`id`, `userId`, `type`, `amountMinor`, `category`, `note`, `dateEpochMillis`, `createdAt`, `updatedAt`, `pendingSync`, `isDeleted`, `accountId`, `currency`, `targetCurrency`, `pendingConversion`, `conversion_amountMinor`, `conversion_rate`, `conversion_provider`, `conversion_rateAt`, `conversion_fetchedAt`, `conversion_cached`) " +
+                    "VALUES ('tx-1', 'owner', 'INCOME', 100000, 'Salary', 'Salary', 1000, 1000, 1000, 0, 0, 'acc-1', 'LKR', 'LKR', 0, 100000, '1', 'IDENTITY', 0, 0, 1)"
             )
             sqlDb.execSQL(
                 "INSERT INTO `budgets` (`id`, `userId`, `month`, `category`, `categoryKey`, `limitMinor`, `currency`, `active`, `createdAt`, `updatedAt`, `pendingSync`) " +
@@ -252,17 +527,15 @@ class GoalPersistenceTest {
         }
         v15Helper.close()
 
-        // 2. Open the database at v16 via DatabaseModule.createDatabase (runs MIGRATION_15_16 and validates schema)
+        // 2. Open the database at v17 via DatabaseModule.createDatabase (runs MIGRATION_15_16 + MIGRATION_16_17 and validates schema)
         val db = DatabaseModule.createDatabase(context, name)
         try {
-            // Verify pre-existing v15 rows in accounts, transactions, budgets, income_sources, currency_preferences survived
             assertEquals("Main Savings", db.accountDao.getById("acc-1")?.name)
-            assertEquals(2500L, db.transactionDao.getById("tx-1")?.amountMinor)
+            assertEquals(100000L, db.transactionDao.getById("tx-1")?.amountMinor)
             assertEquals(50000L, db.budgetDao.get("owner", "b-1")?.limitMinor)
             assertEquals("Salary", db.incomeSourceDao.get("owner", "inc-1")?.name)
             assertEquals("LKR", db.currencyDao.preference("owner")?.currency)
 
-            // Verify new v16 tables (goals and goal_progress_operations) work properly
             val auth = TestAuth()
             val remote = FakeGoalRemote()
             val repo = GoalRepositoryImpl(
@@ -286,9 +559,10 @@ class GoalPersistenceTest {
             ).getOrThrow()
             assertEquals("migrated-goal", created.id)
 
-            val updated = repo.addContribution("migrated-goal", "mig-op-1", 25_000L).getOrThrow()
+            val updated = repo.addContribution("migrated-goal", "mig-op-1", 25_000L, "acc-1").getOrThrow()
             assertEquals(75_000L, updated.savedMinor)
             assertEquals(1, db.goalProgressOperationDao.pending("owner").size)
+            assertEquals("acc-1", db.goalProgressOperationDao.get("owner", "mig-op-1")?.sourceAccountId)
         } finally {
             db.close()
             context.deleteDatabase(name)
@@ -401,6 +675,29 @@ class GoalPersistenceTest {
             "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
             "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, 'ba9ad5ceef76b06a389535001a62f022')"
         )
+
+        private val V16_CREATE_SQL = listOf(
+            "CREATE TABLE IF NOT EXISTS `transactions` (`id` TEXT NOT NULL, `userId` TEXT NOT NULL, `type` TEXT NOT NULL, `amountMinor` INTEGER NOT NULL, `category` TEXT NOT NULL, `note` TEXT NOT NULL, `dateEpochMillis` INTEGER NOT NULL, `createdAt` INTEGER NOT NULL, `updatedAt` INTEGER NOT NULL, `pendingSync` INTEGER NOT NULL, `isDeleted` INTEGER NOT NULL, `accountId` TEXT DEFAULT NULL, `currency` TEXT NOT NULL, `targetCurrency` TEXT NOT NULL, `pendingConversion` INTEGER NOT NULL, `conversion_amountMinor` INTEGER, `conversion_rate` TEXT, `conversion_provider` TEXT, `conversion_rateAt` INTEGER, `conversion_fetchedAt` INTEGER, `conversion_cached` INTEGER, PRIMARY KEY(`id`))",
+            "CREATE INDEX IF NOT EXISTS `index_transactions_userId` ON `transactions` (`userId`)",
+            "CREATE INDEX IF NOT EXISTS `index_transactions_accountId` ON `transactions` (`accountId`)",
+            "CREATE TABLE IF NOT EXISTS `transaction_tags` (`userId` TEXT NOT NULL, `name` TEXT NOT NULL COLLATE NOCASE, PRIMARY KEY(`userId`, `name`))",
+            "CREATE TABLE IF NOT EXISTS `accounts` (`id` TEXT NOT NULL, `userId` TEXT NOT NULL, `name` TEXT NOT NULL COLLATE NOCASE, `bankName` TEXT NOT NULL, `accountType` TEXT, `currency` TEXT NOT NULL, `isDefault` INTEGER NOT NULL, `createdAt` INTEGER NOT NULL, `updatedAt` INTEGER NOT NULL, `pendingSync` INTEGER NOT NULL, PRIMARY KEY(`id`))",
+            "CREATE INDEX IF NOT EXISTS `index_accounts_userId` ON `accounts` (`userId`)",
+            "CREATE UNIQUE INDEX IF NOT EXISTS `index_accounts_userId_name` ON `accounts` (`userId`, `name`)",
+            "CREATE TABLE IF NOT EXISTS `exchange_rates` (`source` TEXT NOT NULL, `target` TEXT NOT NULL, `rate` TEXT NOT NULL, `provider` TEXT NOT NULL, `rateAt` INTEGER NOT NULL, `fetchedAt` INTEGER NOT NULL, `nextUpdateAt` INTEGER NOT NULL, PRIMARY KEY(`source`, `target`))",
+            "CREATE TABLE IF NOT EXISTS `currency_preferences` (`userId` TEXT NOT NULL, `currency` TEXT NOT NULL, `updatedAt` INTEGER NOT NULL, `pendingSync` INTEGER NOT NULL, PRIMARY KEY(`userId`))",
+            "CREATE TABLE IF NOT EXISTS `transaction_proofs` (`userId` TEXT NOT NULL, `transactionId` TEXT NOT NULL, `id` TEXT NOT NULL, `displayName` TEXT NOT NULL, `mimeType` TEXT NOT NULL, `sizeBytes` INTEGER NOT NULL, `createdAt` INTEGER NOT NULL, `verifiedAmountMinor` INTEGER, `pendingUpload` INTEGER NOT NULL, `revision` INTEGER NOT NULL, `unavailable` INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(`userId`, `transactionId`, `id`))",
+            "CREATE TABLE IF NOT EXISTS `income_sources` (`userId` TEXT NOT NULL, `id` TEXT NOT NULL, `name` TEXT NOT NULL, `amountMinor` INTEGER NOT NULL, `accountId` TEXT NOT NULL, `recurring` INTEGER NOT NULL, `active` INTEGER NOT NULL, `createdAt` INTEGER NOT NULL, `updatedAt` INTEGER NOT NULL, `lastConfirmedMonth` TEXT, `pendingSync` INTEGER NOT NULL, PRIMARY KEY(`userId`, `id`))",
+            "CREATE TABLE IF NOT EXISTS `budgets` (`id` TEXT NOT NULL, `userId` TEXT NOT NULL, `month` TEXT NOT NULL, `category` TEXT NOT NULL, `categoryKey` TEXT NOT NULL, `limitMinor` INTEGER NOT NULL, `currency` TEXT NOT NULL, `active` INTEGER NOT NULL, `createdAt` INTEGER NOT NULL, `updatedAt` INTEGER NOT NULL, `pendingSync` INTEGER NOT NULL, PRIMARY KEY(`userId`, `id`))",
+            "CREATE UNIQUE INDEX IF NOT EXISTS `index_budgets_userId_month_categoryKey` ON `budgets` (`userId`, `month`, `categoryKey`)",
+            "CREATE TABLE IF NOT EXISTS `budget_alerts` (`userId` TEXT NOT NULL, `budgetId` TEXT NOT NULL, `level` INTEGER NOT NULL, PRIMARY KEY(`userId`, `budgetId`))",
+            "CREATE TABLE IF NOT EXISTS `budget_resolutions` (`userId` TEXT NOT NULL, `transactionId` TEXT NOT NULL, `transactionVersion` INTEGER NOT NULL, `currency` TEXT NOT NULL, `amountMinor` INTEGER NOT NULL, PRIMARY KEY(`userId`, `transactionId`, `currency`))",
+            "CREATE TABLE IF NOT EXISTS `goals` (`userId` TEXT NOT NULL, `id` TEXT NOT NULL, `name` TEXT NOT NULL, `description` TEXT NOT NULL, `targetMinor` INTEGER NOT NULL, `savedMinor` INTEGER NOT NULL, `currency` TEXT NOT NULL, `targetDateEpochDay` INTEGER NOT NULL, `status` TEXT NOT NULL, `createdAt` INTEGER NOT NULL, `updatedAt` INTEGER NOT NULL, `pendingSync` INTEGER NOT NULL, PRIMARY KEY(`userId`, `id`))",
+            "CREATE INDEX IF NOT EXISTS `index_goals_userId` ON `goals` (`userId`)",
+            "CREATE TABLE IF NOT EXISTS `goal_progress_operations` (`userId` TEXT NOT NULL, `id` TEXT NOT NULL, `goalId` TEXT NOT NULL, `type` TEXT NOT NULL, `amountMinor` INTEGER NOT NULL, `createdAt` INTEGER NOT NULL, `state` TEXT NOT NULL, PRIMARY KEY(`userId`, `id`))",
+            "CREATE INDEX IF NOT EXISTS `index_goal_progress_operations_userId_goalId_state` ON `goal_progress_operations` (`userId`, `goalId`, `state`)",
+            "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
+            "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, 'eaa4dea1ffb511b2e5abb2885b44b6b8')"
+        )
     }
 }
-

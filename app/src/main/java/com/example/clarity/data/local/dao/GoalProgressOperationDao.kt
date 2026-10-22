@@ -18,6 +18,9 @@ interface GoalProgressOperationDao {
     @Query("SELECT * FROM goal_progress_operations WHERE userId = :uid ORDER BY createdAt ASC, id ASC")
     fun observeByUser(uid: String): Flow<List<GoalProgressOperationEntity>>
 
+    @Query("SELECT * FROM goal_progress_operations WHERE userId = :uid ORDER BY createdAt ASC, id ASC")
+    suspend fun getByUser(uid: String): List<GoalProgressOperationEntity>
+
     @Query("SELECT * FROM goal_progress_operations WHERE userId = :uid AND state = 'PENDING' ORDER BY createdAt ASC, id ASC")
     suspend fun pending(uid: String): List<GoalProgressOperationEntity>
 
@@ -30,4 +33,3 @@ interface GoalProgressOperationDao {
     @Query("UPDATE goal_progress_operations SET state = 'REJECTED' WHERE userId = :uid AND id = :id")
     suspend fun markRejected(uid: String, id: String)
 }
-

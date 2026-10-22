@@ -31,6 +31,19 @@ const baseOp = (opId = 'op-1', extra = {}) => ({
   ...extra
 });
 
+const baseAccount = (accountId = 'acc-lkr', extra = {}) => ({
+  id: accountId,
+  userId: 'alice',
+  name: 'Main Savings',
+  bankName: 'BOC',
+  accountType: 'SAVINGS',
+  currency: 'LKR',
+  isDefault: true,
+  createdAt: 5,
+  updatedAt: 5,
+  ...extra
+});
+
 before(async () => {
   env = await initializeTestEnvironment({
     projectId: 'demo-clarity-goals',
@@ -54,6 +67,8 @@ const db = uid => env.authenticatedContext(uid).firestore();
 const goalRef = (uid, owner = 'alice', id = goalId) => doc(db(uid), `users/${owner}/goals/${id}`);
 const opRef = (uid, opId = 'op-1', owner = 'alice', id = goalId) =>
   doc(db(uid), `users/${owner}/goals/${id}/progress_operations/${opId}`);
+const accountRef = (uid, accountId = 'acc-lkr', owner = 'alice') =>
+  doc(db(uid), `users/${owner}/accounts/${accountId}`);
 
 test('owner can create, read, and update goal details while preserving savedMinor; other users and unauthenticated denied', async () => {
   await assertSucceeds(setDoc(goalRef('alice'), baseGoal()));
@@ -153,7 +168,7 @@ test('savedMinor change requires a new matching progress operation in the same t
     goalId: 'missing-goal'
   }));
 
-  // Valid ADD operation + goal savedMinor update in one atomic batch succeeds.
+  // Legacy ADD operation (without sourceAccountId) + goal savedMinor update in one atomic batch succeeds.
   const batchAdd = writeBatch(db('alice'));
   batchAdd.set(opRef('alice', 'op-add-1'), baseOp('op-add-1', { type: 'ADD', amountMinor: 50000, createdAt: 30 }));
   batchAdd.update(goalRef('alice'), {
@@ -213,3 +228,112 @@ test('savedMinor change requires a new matching progress operation in the same t
   await assertSucceeds(batchReactivate.commit());
 });
 
+test('progress operations with sourceAccountId enforce ADD-only, owned account existence, currency match, and valid account ID', async () => {
+  await assertSucceeds(setDoc(goalRef('alice'), baseGoal()));
+
+  // Seed Alice's LKR account, Alice's USD account, and Bob's LKR account bypassing rules.
+  await env.withSecurityRulesDisabled(async context => {
+    const adminDb = context.firestore();
+    await setDoc(doc(adminDb, 'users/alice/accounts/acc-lkr'), baseAccount('acc-lkr', { currency: 'LKR', isDefault: true }));
+    await setDoc(doc(adminDb, 'users/alice/accounts/acc-usd'), baseAccount('acc-usd', { currency: 'USD', isDefault: false }));
+    await setDoc(doc(adminDb, 'users/bob/accounts/acc-lkr'), baseAccount('acc-lkr', { userId: 'bob', currency: 'LKR', isDefault: true }));
+  });
+
+  // 1. Valid ADD with owned same-currency account succeeds.
+  const validBatch = writeBatch(db('alice'));
+  validBatch.set(opRef('alice', 'op-acc-ok'), baseOp('op-acc-ok', {
+    type: 'ADD',
+    amountMinor: 25000,
+    sourceAccountId: 'acc-lkr',
+    createdAt: 31
+  }));
+  validBatch.update(goalRef('alice'), {
+    savedMinor: 125000,
+    lastOperationId: 'op-acc-ok',
+    updatedAt: 31
+  });
+  await assertSucceeds(validBatch.commit());
+
+  // 2. Missing account is denied.
+  const missingAccBatch = writeBatch(db('alice'));
+  missingAccBatch.set(opRef('alice', 'op-acc-missing'), baseOp('op-acc-missing', {
+    type: 'ADD',
+    amountMinor: 25000,
+    sourceAccountId: 'nonexistent-acc',
+    createdAt: 32
+  }));
+  missingAccBatch.update(goalRef('alice'), {
+    savedMinor: 150000,
+    lastOperationId: 'op-acc-missing',
+    updatedAt: 32
+  });
+  await assertFails(missingAccBatch.commit());
+
+  // 3. Currency mismatch (USD account for LKR goal) is denied.
+  const mismatchCurrencyBatch = writeBatch(db('alice'));
+  mismatchCurrencyBatch.set(opRef('alice', 'op-acc-usd'), baseOp('op-acc-usd', {
+    type: 'ADD',
+    amountMinor: 25000,
+    sourceAccountId: 'acc-usd',
+    createdAt: 33
+  }));
+  mismatchCurrencyBatch.update(goalRef('alice'), {
+    savedMinor: 150000,
+    lastOperationId: 'op-acc-usd',
+    updatedAt: 33
+  });
+  await assertFails(mismatchCurrencyBatch.commit());
+
+  // 4. SET operation carrying sourceAccountId is denied.
+  const setWithAccountBatch = writeBatch(db('alice'));
+  setWithAccountBatch.set(opRef('alice', 'op-set-acc'), baseOp('op-set-acc', {
+    type: 'SET',
+    amountMinor: 150000,
+    sourceAccountId: 'acc-lkr',
+    createdAt: 34
+  }));
+  setWithAccountBatch.update(goalRef('alice'), {
+    savedMinor: 150000,
+    lastOperationId: 'op-set-acc',
+    updatedAt: 34
+  });
+  await assertFails(setWithAccountBatch.commit());
+
+  // 5. Malformed sourceAccountId (empty, null, >128 chars) is denied.
+  for (const badAccountId of ['', null, 'x'.repeat(129)]) {
+    const badIdBatch = writeBatch(db('alice'));
+    badIdBatch.set(opRef('alice', 'op-bad-id'), baseOp('op-bad-id', {
+      type: 'ADD',
+      amountMinor: 10000,
+      sourceAccountId: badAccountId,
+      createdAt: 35
+    }));
+    badIdBatch.update(goalRef('alice'), {
+      savedMinor: 135000,
+      lastOperationId: 'op-bad-id',
+      updatedAt: 35
+    });
+    await assertFails(badIdBatch.commit());
+  }
+
+  // 6. Account doc in Alice's path whose userId field is tampered to 'bob' is denied.
+  await env.withSecurityRulesDisabled(async context => {
+    await setDoc(doc(context.firestore(), 'users/alice/accounts/acc-foreign'), baseAccount('acc-foreign', {
+      userId: 'bob',
+      currency: 'LKR'
+    }));
+  });
+  const foreignOwnerBatch = writeBatch(db('alice'));
+  foreignOwnerBatch.set(opRef('alice', 'op-foreign-owner'), baseOp('op-foreign-owner', {
+    type: 'ADD',
+    amountMinor: 10000,
+    sourceAccountId: 'acc-foreign',
+    createdAt: 36
+  }));
+  foreignOwnerBatch.update(goalRef('alice'), {
+    savedMinor: 135000,
+    lastOperationId: 'op-foreign-owner',
+    updatedAt: 36
+  });
+  await assertFails(foreignOwnerBatch.commit());
+});

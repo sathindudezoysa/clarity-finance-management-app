@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.room.Room
 import com.example.clarity.data.local.ClarityDatabase
 import com.example.clarity.data.local.MIGRATION_15_16
+import com.example.clarity.data.local.MIGRATION_16_17
 import com.example.clarity.data.local.dao.AccountDao
 import com.example.clarity.data.local.dao.GoalDao
 import com.example.clarity.data.local.dao.GoalProgressOperationDao
@@ -32,7 +33,7 @@ object DatabaseModule {
             ClarityDatabase::class.java,
             name
         )
-            .addMigrations(MIGRATION_15_16)
+            .addMigrations(MIGRATION_15_16, MIGRATION_16_17)
             .fallbackToDestructiveMigration()
             .fallbackToDestructiveMigrationOnDowngrade()
             .build()

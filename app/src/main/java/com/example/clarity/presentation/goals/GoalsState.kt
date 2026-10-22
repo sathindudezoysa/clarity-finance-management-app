@@ -8,6 +8,7 @@ import com.example.clarity.domain.model.GoalProgressOperation
 import com.example.clarity.domain.model.GoalProgressOperationType
 import com.example.clarity.domain.model.GoalStatus
 import com.example.clarity.domain.util.MoneyUtils
+import java.math.BigInteger
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import java.util.Locale
@@ -40,6 +41,7 @@ data class GoalsState(
     val activeGoals: List<GoalCardUiModel> = emptyList(),
     val completedGoals: List<GoalCardUiModel> = emptyList(),
     val rejectedOperations: List<RejectedGoalOperationUi> = emptyList(),
+    val overdrawnAccountWarnings: List<String> = emptyList(),
     val error: String? = null
 ) {
     val isEmpty: Boolean
@@ -66,6 +68,11 @@ object GoalMessages {
     const val INVALID_DATE = "Select a valid target date."
     const val DATE_NOT_IN_FUTURE = "Target date must be in the future."
     const val CONTRIBUTION_NON_POSITIVE = "Contribution amount must be greater than zero."
+    const val ACCOUNT_REQUIRED = "Select a source account."
+    const val ACCOUNT_NOT_FOUND = "Selected source account is not available."
+    const val ACCOUNT_CURRENCY_MISMATCH = "Source account currency must match the goal currency."
+    const val INSUFFICIENT_ACCOUNT_BALANCE = "Insufficient account balance."
+    const val SET_BALANCE_NOTE = "Corrections do not move funds between accounts."
 
     fun exceedsTargetMessage(remainingMinor: Long, currency: String): String =
         "Saved balance cannot exceed the goal target. Remaining amount to reach target: ${formatGoalMoney(remainingMinor, currency)}."
@@ -74,16 +81,20 @@ object GoalMessages {
         val currency = goal?.currency ?: Currencies.supported.first()
         val amountText = formatGoalMoney(op.amountMinor, currency)
         val goalName = goal?.name ?: "your goal"
-        val actionLabel = if (op.type == GoalProgressOperationType.ADD) {
-            "contribution of $amountText"
+        return if (op.type == GoalProgressOperationType.ADD) {
+            "Offline contribution of $amountText for \"$goalName\" was not applied because it conflicted with the latest server target or balance. The funds are available in your source account again."
         } else {
-            "balance update to $amountText"
+            "Offline balance update to $amountText for \"$goalName\" could not be applied because it conflicted with the latest server target or balance. The goal balance has been reconciled to the server value."
         }
-        return "Offline $actionLabel for \"$goalName\" could not be applied because it conflicted with the latest server target or balance. The goal balance has been reconciled to the server value."
     }
 }
 
 fun formatGoalMoney(amountMinor: Long, currency: String): String {
+    val safeCurrency = if (currency in Currencies.supported) currency else Currencies.supported.first()
+    return "$safeCurrency ${MoneyUtils.formatMinor(amountMinor, safeCurrency)}"
+}
+
+fun formatGoalMoneyBig(amountMinor: BigInteger, currency: String): String {
     val safeCurrency = if (currency in Currencies.supported) currency else Currencies.supported.first()
     return "$safeCurrency ${MoneyUtils.formatMinor(amountMinor, safeCurrency)}"
 }
@@ -120,6 +131,10 @@ fun goalErrorMessage(error: Throwable, fallback: String): String {
         }
         GoalError.IMMUTABLE_FIELD_CHANGED -> fallback
         GoalError.STATUS_MISMATCH -> fallback
+        GoalError.ACCOUNT_REQUIRED -> GoalMessages.ACCOUNT_REQUIRED
+        GoalError.ACCOUNT_NOT_FOUND -> GoalMessages.ACCOUNT_NOT_FOUND
+        GoalError.ACCOUNT_CURRENCY_MISMATCH -> GoalMessages.ACCOUNT_CURRENCY_MISMATCH
+        GoalError.INSUFFICIENT_ACCOUNT_BALANCE -> GoalMessages.INSUFFICIENT_ACCOUNT_BALANCE
     }
 }
 

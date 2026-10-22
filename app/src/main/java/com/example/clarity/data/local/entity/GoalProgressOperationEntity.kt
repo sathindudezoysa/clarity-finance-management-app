@@ -15,6 +15,6 @@ data class GoalProgressOperationEntity(
     val type: String,
     val amountMinor: Long,
     val createdAt: Long,
-    val state: String
+    val state: String,
+    val sourceAccountId: String? = null
 )
-

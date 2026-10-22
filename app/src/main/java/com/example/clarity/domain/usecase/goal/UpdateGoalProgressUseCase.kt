@@ -12,17 +12,29 @@ class UpdateGoalProgressUseCase @Inject constructor(
         goalId: String,
         operationId: String,
         type: GoalProgressOperationType,
-        amountMinor: Long
+        amountMinor: Long,
+        sourceAccountId: String? = null
     ): Result<FinancialGoal> = when (type) {
-        GoalProgressOperationType.ADD -> repository.addContribution(goalId, operationId, amountMinor)
+        GoalProgressOperationType.ADD -> repository.addContribution(
+            goalId = goalId,
+            operationId = operationId,
+            amountMinor = amountMinor,
+            sourceAccountId = sourceAccountId.orEmpty()
+        )
         GoalProgressOperationType.SET -> repository.setBalance(goalId, operationId, amountMinor)
     }
 
     suspend fun addContribution(
         goalId: String,
         operationId: String,
-        amountMinor: Long
-    ): Result<FinancialGoal> = repository.addContribution(goalId, operationId, amountMinor)
+        amountMinor: Long,
+        sourceAccountId: String
+    ): Result<FinancialGoal> = repository.addContribution(
+        goalId = goalId,
+        operationId = operationId,
+        amountMinor = amountMinor,
+        sourceAccountId = sourceAccountId
+    )
 
     suspend fun setBalance(
         goalId: String,
@@ -30,4 +42,3 @@ class UpdateGoalProgressUseCase @Inject constructor(
         amountMinor: Long
     ): Result<FinancialGoal> = repository.setBalance(goalId, operationId, amountMinor)
 }
-

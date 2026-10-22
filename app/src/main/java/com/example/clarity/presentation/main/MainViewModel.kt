@@ -5,14 +5,17 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.clarity.domain.model.Currencies
 import com.example.clarity.domain.model.CurrencyConversion
+import com.example.clarity.domain.model.GoalsSnapshot
 import com.example.clarity.domain.model.IncomeSources
 import com.example.clarity.domain.model.Transaction
 import com.example.clarity.domain.model.TransactionType
 import com.example.clarity.domain.repository.ExchangeRateRepository
 import com.example.clarity.domain.usecase.account.GetAccountsUseCase
 import com.example.clarity.domain.usecase.currency.ObserveCurrencyPreferenceUseCase
+import com.example.clarity.domain.usecase.goal.ObserveGoalsUseCase
 import com.example.clarity.domain.usecase.income.ObserveIncomeSourcesUseCase
 import com.example.clarity.domain.usecase.transaction.GetTransactionsUseCase
+import com.example.clarity.domain.util.GoalPolicy
 import com.example.clarity.domain.util.MoneyUtils
 import com.example.clarity.domain.util.Resource
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -35,7 +38,8 @@ class MainViewModel @Inject constructor(
     getAccounts: GetAccountsUseCase,
     getTransactions: GetTransactionsUseCase,
     observeIncomeSources: ObserveIncomeSourcesUseCase,
-    observeCurrency: ObserveCurrencyPreferenceUseCase
+    observeCurrency: ObserveCurrencyPreferenceUseCase,
+    observeGoals: ObserveGoalsUseCase
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(loadQuickState())
@@ -47,8 +51,9 @@ class MainViewModel @Inject constructor(
                 getAccounts().catch { emit(Resource.Success(emptyList())) },
                 getTransactions().catch { emit(Resource.Success(emptyList())) },
                 observeIncomeSources().catch { emit(IncomeSources(null, emptyList())) },
-                observeCurrency()
-            ) { accountsResult, txResult, incomeSources, pref ->
+                observeCurrency(),
+                observeGoals().catch { emit(GoalsSnapshot(null, emptyList())) }
+            ) { accountsResult, txResult, incomeSources, pref, goalsSnapshot ->
                 val targetCurrency = pref.currency
                 val accounts = accountsResult.data ?: return@combine null
                 val transactions = txResult.data ?: return@combine null
@@ -108,6 +113,14 @@ class MainViewModel @Inject constructor(
                             expenseCount++
                         }
                     }
+                }
+
+                if (cashAccount != null) {
+                    val reservedCashMinor = GoalPolicy.reservedFromAccount(
+                        accountId = cashAccount.id,
+                        operations = goalsSnapshot.operations
+                    )
+                    cashBalanceMinor -= convertMinor(reservedCashMinor, cashAccount.currency)
                 }
 
                 val activeSources = incomeSources.sources.filter { it.active }.map { it.name }

@@ -101,10 +101,19 @@ class FirestoreGoalDataSource @Inject constructor(
         val goalDoc = firestore.getCollection("users/$uid/goals").document(operation.goalId)
         val opDoc = firestore.getCollection("users/$uid/goals/${operation.goalId}/progress_operations")
             .document(operation.id)
+        val sourceAccountId = operation.sourceAccountId?.takeIf { it.isNotBlank() }
+        val accountDoc = sourceAccountId?.let { accId ->
+            if (GoalPolicy.validId(accId)) {
+                firestore.getCollection("users/$uid/accounts").document(accId)
+            } else {
+                null
+            }
+        }
         goalDoc.firestore.runTransaction { tx ->
             // All reads must execute before any writes in a Firestore transaction.
             val opSnapshot = tx.get(opDoc)
             val goalSnapshot = tx.get(goalDoc)
+            val accountSnapshot = accountDoc?.let { tx.get(it) }
 
             if (opSnapshot.exists()) {
                 val existingOp = opSnapshot.data?.toGoalProgressOperation(operation.id, operation.goalId, uid)
@@ -122,6 +131,30 @@ class FirestoreGoalDataSource @Inject constructor(
 
             val remoteGoal = goalSnapshot.data?.toFinancialGoal(operation.goalId, uid)
                 ?: throw IllegalStateException("Malformed remote goal")
+
+            if (operation.type == GoalProgressOperationType.SET && operation.sourceAccountId != null) {
+                return@runTransaction GoalOperationWriteResult.Rejected(
+                    remoteGoal = remoteGoal,
+                    reason = "Set balance operations cannot specify a source account."
+                )
+            }
+
+            if (operation.sourceAccountId != null) {
+                if (operation.type != GoalProgressOperationType.ADD || accountDoc == null || accountSnapshot == null || !accountSnapshot.exists()) {
+                    return@runTransaction GoalOperationWriteResult.Rejected(
+                        remoteGoal = remoteGoal,
+                        reason = "Source account does not exist on server."
+                    )
+                }
+                val accUserId = accountSnapshot.data?.get("userId") as? String
+                val accCurrency = accountSnapshot.data?.get("currency") as? String
+                if (accUserId != uid || accCurrency != remoteGoal.currency) {
+                    return@runTransaction GoalOperationWriteResult.Rejected(
+                        remoteGoal = remoteGoal,
+                        reason = "Source account currency or owner does not match the goal."
+                    )
+                }
+            }
 
             val candidate: BigInteger = when (operation.type) {
                 GoalProgressOperationType.ADD -> {
@@ -164,11 +197,13 @@ class FirestoreGoalDataSource @Inject constructor(
                 updatedAt = newUpdatedAt,
                 pendingSync = false
             )
-            val remoteOp = operation.copy(userId = uid)
+            val remoteOp = operation.copy(
+                userId = uid,
+                sourceAccountId = if (operation.type == GoalProgressOperationType.ADD) sourceAccountId else null
+            )
             tx.set(opDoc, remoteOp.toRemoteMap())
             tx.set(goalDoc, updatedGoal.toRemoteMap(lastOperationId = operation.id))
             GoalOperationWriteResult.Applied(updatedGoal)
         }.await()
     } ?: throw IOException("Goal operation sync timed out")
 }
-

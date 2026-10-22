@@ -48,7 +48,8 @@ fun GoalProgressOperationEntity.toDomain(): GoalProgressOperation = GoalProgress
     type = GoalProgressOperationType.valueOf(type),
     amountMinor = amountMinor,
     createdAt = createdAt,
-    state = GoalProgressOperationState.valueOf(state)
+    state = GoalProgressOperationState.valueOf(state),
+    sourceAccountId = sourceAccountId
 )
 
 fun GoalProgressOperation.toEntity(): GoalProgressOperationEntity = GoalProgressOperationEntity(
@@ -58,7 +59,8 @@ fun GoalProgressOperation.toEntity(): GoalProgressOperationEntity = GoalProgress
     type = type.name,
     amountMinor = amountMinor,
     createdAt = createdAt,
-    state = state.name
+    state = state.name,
+    sourceAccountId = sourceAccountId
 )
 
 fun FinancialGoal.toRemoteMap(lastOperationId: String? = null): Map<String, Any?> {
@@ -81,14 +83,20 @@ fun FinancialGoal.toRemoteMap(lastOperationId: String? = null): Map<String, Any?
     return base
 }
 
-fun GoalProgressOperation.toRemoteMap(): Map<String, Any?> = mapOf(
-    "id" to id,
-    "userId" to userId,
-    "goalId" to goalId,
-    "type" to type.name,
-    "amountMinor" to amountMinor,
-    "createdAt" to createdAt
-)
+fun GoalProgressOperation.toRemoteMap(): Map<String, Any?> {
+    val base = mutableMapOf<String, Any?>(
+        "id" to id,
+        "userId" to userId,
+        "goalId" to goalId,
+        "type" to type.name,
+        "amountMinor" to amountMinor,
+        "createdAt" to createdAt
+    )
+    if (type == GoalProgressOperationType.ADD && !sourceAccountId.isNullOrBlank()) {
+        base["sourceAccountId"] = sourceAccountId
+    }
+    return base
+}
 
 private val REQUIRED_GOAL_KEYS = setOf(
     "id",
@@ -150,14 +158,22 @@ private val REQUIRED_OPERATION_KEYS = setOf(
     "createdAt"
 )
 
+private val ALLOWED_OPERATION_KEYS = REQUIRED_OPERATION_KEYS + "sourceAccountId"
+
 fun Map<String, Any?>.toGoalProgressOperation(id: String, goalId: String, uid: String): GoalProgressOperation? {
-    if (keys != REQUIRED_OPERATION_KEYS) return null
+    if (!keys.containsAll(REQUIRED_OPERATION_KEYS) || !ALLOWED_OPERATION_KEYS.containsAll(keys)) return null
     if (this["id"] != id || this["goalId"] != goalId || this["userId"] != uid) return null
     if (!GoalPolicy.validId(id) || !GoalPolicy.validId(goalId) || !GoalPolicy.validId(uid)) return null
     val typeStr = this["type"] as? String ?: return null
     val type = runCatching { GoalProgressOperationType.valueOf(typeStr) }.getOrNull() ?: return null
     val amountMinor = this["amountMinor"].goalLong() ?: return null
     val createdAt = this["createdAt"].goalLong() ?: return null
+    val rawSourceAccount = if (containsKey("sourceAccountId")) {
+        this["sourceAccountId"] as? String ?: return null
+    } else {
+        null
+    }
+    if (type == GoalProgressOperationType.SET && rawSourceAccount != null) return null
     val op = GoalProgressOperation(
         id = id,
         userId = uid,
@@ -165,7 +181,8 @@ fun Map<String, Any?>.toGoalProgressOperation(id: String, goalId: String, uid: S
         type = type,
         amountMinor = amountMinor,
         createdAt = createdAt,
-        state = GoalProgressOperationState.APPLIED
+        state = GoalProgressOperationState.APPLIED,
+        sourceAccountId = rawSourceAccount
     )
     return op.takeIf { runCatching { GoalPolicy.validateOperation(it) }.isSuccess }
 }
@@ -178,4 +195,3 @@ private fun Any?.goalLong(): Long? = when (this) {
     is Byte -> toLong()
     else -> null
 }
-
