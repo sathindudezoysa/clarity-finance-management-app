@@ -1,5 +1,10 @@
 rules_version = '2';
 
+// Financial goals: users/{uid}/goals/{goalId} and progress_operations/{operationId}, owner-private.
+// Immutable id/userId/currency/createdAt; targetMinor > 0, 0 <= savedMinor <= targetMinor,
+// status ACTIVE/COMPLETED/ARCHIVED (COMPLETED iff savedMinor == targetMinor when not ARCHIVED).
+// Progress operations are create-only ledger entries (ADD > 0, SET >= 0) paired with goal balance updates.
+
 // Budgets: users/{uid}/budgets/{(YYYY-MM|YYYY)_sha256(normalized category)}, device-local calendar months or years.
 // Required id/userId/month/category/categoryKey/limitMinor/currency/active/createdAt/updatedAt.
 // Owner-only, category trimmed, SHA-256 of lowercase UTF-8 category; positive integer minor units.
@@ -234,6 +239,86 @@ service cloud.firestore {
         && request.resource.data.createdAt == resource.data.createdAt
         && request.resource.data.updatedAt >= resource.data.updatedAt;
       allow delete: if false;
+    }
+
+    function validGoal(data, goalId, userId) {
+      let fields = ['id', 'userId', 'name', 'description', 'targetMinor', 'savedMinor',
+                    'currency', 'targetDateEpochDay', 'status', 'createdAt', 'updatedAt'];
+      return data.keys().hasAll(fields) && data.keys().hasOnly(fields.concat(['lastOperationId']))
+        && data.id is string && data.id == goalId && goalId.size() > 0 && goalId.size() <= 128
+        && goalId != '.' && goalId != '..'
+        && data.userId is string && data.userId.size() > 0 && data.userId.size() <= 128
+        && data.userId == userId && uidUnchanged(data)
+        && data.name is string && data.name.size() > 0 && data.name.size() <= 100
+        && data.name.matches('(?s).*[^\\s].*')
+        && data.description is string && data.description.size() <= 500
+        && data.targetMinor is int && data.targetMinor > 0
+        && data.savedMinor is int && data.savedMinor >= 0 && data.savedMinor <= data.targetMinor
+        && validCurrency(data.currency)
+        && data.targetDateEpochDay is int
+        && data.status is string && data.status in ['ACTIVE', 'COMPLETED', 'ARCHIVED']
+        && (data.status == 'ARCHIVED' || (data.status == 'COMPLETED') == (data.savedMinor == data.targetMinor))
+        && data.createdAt is int && data.createdAt >= 0
+        && data.updatedAt is int && data.updatedAt >= data.createdAt
+        && (!('lastOperationId' in data) || data.lastOperationId == null
+          || (data.lastOperationId is string && data.lastOperationId.size() > 0
+            && data.lastOperationId.size() <= 128 && !data.lastOperationId.matches('.*[/].*')
+            && data.lastOperationId != '.' && data.lastOperationId != '..'));
+    }
+
+    function validProgressOperation(data, operationId, goalId, userId) {
+      let fields = ['id', 'userId', 'goalId', 'type', 'amountMinor', 'createdAt'];
+      return data.keys().hasAll(fields) && data.keys().hasOnly(fields)
+        && data.id is string && data.id == operationId && operationId.size() > 0 && operationId.size() <= 128
+        && operationId != '.' && operationId != '..'
+        && data.userId is string && data.userId.size() > 0 && data.userId.size() <= 128
+        && data.userId == userId && uidUnchanged(data)
+        && data.goalId is string && data.goalId == goalId && goalId.size() > 0 && goalId.size() <= 128
+        && data.type is string && data.type in ['ADD', 'SET']
+        && data.amountMinor is int
+        && ((data.type == 'ADD' && data.amountMinor > 0) || (data.type == 'SET' && data.amountMinor >= 0))
+        && data.createdAt is int && data.createdAt >= 0;
+    }
+
+    function validGoalBalanceChange(userId, goalId, before, after) {
+      let opId = ('lastOperationId' in after && after.lastOperationId is string)
+        ? after.lastOperationId
+        : string(after.updatedAt);
+      let opPath = /databases/$(database)/documents/users/$(userId)/goals/$(goalId)/progress_operations/$(opId);
+      let opChanged = ('lastOperationId' in after && after.lastOperationId != null
+        && (!('lastOperationId' in before) || after.lastOperationId != before.lastOperationId));
+      return (after.savedMinor == before.savedMinor && !opChanged)
+        || (opId.size() > 0 && opId.size() <= 128 && !opId.matches('.*[/].*')
+          && !exists(opPath)
+          && existsAfter(opPath)
+          && validProgressOperation(getAfter(opPath).data, opId, goalId, userId)
+          && ((getAfter(opPath).data.type == 'ADD' && after.savedMinor == before.savedMinor + getAfter(opPath).data.amountMinor)
+            || (getAfter(opPath).data.type == 'SET' && after.savedMinor == getAfter(opPath).data.amountMinor)));
+    }
+
+    match /users/{userId}/goals/{goalId} {
+      allow read: if isOwner(userId);
+      allow create: if isOwner(userId) && validGoal(request.resource.data, goalId, userId)
+        && (!('lastOperationId' in request.resource.data) || request.resource.data.lastOperationId == null);
+      allow update: if isOwner(userId)
+        && validGoal(request.resource.data, goalId, userId)
+        && uidNotModified(request.resource.data)
+        && request.resource.data.id == resource.data.id
+        && request.resource.data.currency == resource.data.currency
+        && request.resource.data.createdAt == resource.data.createdAt
+        && request.resource.data.updatedAt >= resource.data.updatedAt
+        && validGoalBalanceChange(userId, goalId, resource.data, request.resource.data);
+      allow delete: if false;
+
+      match /progress_operations/{operationId} {
+        allow read: if isOwner(userId);
+        allow create: if isOwner(userId)
+          && validProgressOperation(request.resource.data, operationId, goalId, userId)
+          && (exists(/databases/$(database)/documents/users/$(userId)/goals/$(goalId))
+            || existsAfter(/databases/$(database)/documents/users/$(userId)/goals/$(goalId)))
+          && getAfter(/databases/$(database)/documents/users/$(userId)/goals/$(goalId)).data.userId == userId;
+        allow update, delete: if false;
+      }
     }
 
     match /{document=**} {
