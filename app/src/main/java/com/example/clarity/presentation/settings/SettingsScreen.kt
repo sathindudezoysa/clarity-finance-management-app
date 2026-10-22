@@ -27,7 +27,6 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -46,6 +45,7 @@ fun SettingsScreen(
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     var currencyMenuExpanded by remember { mutableStateOf(false) }
+    var defaultAccountMenuExpanded by remember { mutableStateOf(false) }
     var isEditingName by remember { mutableStateOf(false) }
 
     LaunchedEffect(state.destination) {
@@ -195,12 +195,79 @@ fun SettingsScreen(
 
                     SettingsDivider()
 
-                    SettingsRow(
-                        icon = Icons.Outlined.AccountBox,
-                        title = "Default Spending Account",
-                        subtitle = state.defaultAccountName ?: "Manage bank accounts",
-                        onClick = viewModel::onBankAccounts
-                    )
+                    Box {
+                        SettingsRow(
+                            icon = Icons.Outlined.AccountBox,
+                            title = "Default Spending Account",
+                            subtitle = state.defaultAccountName ?: "Manage bank accounts",
+                            onClick = {
+                                if (state.changingDefaultId == null) {
+                                    if (state.bankAccounts.isEmpty()) {
+                                        viewModel.onBankAccounts()
+                                    } else {
+                                        defaultAccountMenuExpanded = true
+                                    }
+                                }
+                            },
+                            trailingContent = if (state.changingDefaultId != null) {
+                                {
+                                    CircularProgressIndicator(
+                                        modifier = Modifier.size(20.dp),
+                                        strokeWidth = 2.dp
+                                    )
+                                }
+                            } else null
+                        )
+                        DropdownMenu(
+                            expanded = defaultAccountMenuExpanded && state.bankAccounts.isNotEmpty(),
+                            onDismissRequest = { defaultAccountMenuExpanded = false }
+                        ) {
+                            state.bankAccounts.forEach { account ->
+                                DropdownMenuItem(
+                                    text = {
+                                        Text(
+                                            text = account.displayLabel,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                    },
+                                    trailingIcon = if (account.isDefault) {
+                                        { Icon(Icons.Default.Check, contentDescription = null, tint = colors.primary) }
+                                    } else null,
+                                    enabled = state.changingDefaultId == null,
+                                    onClick = {
+                                        defaultAccountMenuExpanded = false
+                                        viewModel.setDefaultAccount(account.id)
+                                    }
+                                )
+                            }
+                            Divider()
+                            DropdownMenuItem(
+                                text = { Text("Manage bank accounts") },
+                                trailingIcon = {
+                                    Icon(
+                                        imageVector = Icons.Default.KeyboardArrowRight,
+                                        contentDescription = null,
+                                        tint = colors.onSurfaceVariant
+                                    )
+                                },
+                                enabled = state.changingDefaultId == null,
+                                onClick = {
+                                    defaultAccountMenuExpanded = false
+                                    viewModel.onBankAccounts()
+                                }
+                            )
+                        }
+                    }
+
+                    state.defaultAccountError?.let { errorText ->
+                        Text(
+                            text = errorText,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = colors.error,
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
+                        )
+                    }
 
                     SettingsDivider()
 
