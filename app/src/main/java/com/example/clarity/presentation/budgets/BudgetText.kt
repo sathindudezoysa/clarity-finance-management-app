@@ -52,7 +52,6 @@ object BudgetUiText {
     const val BACK = "Back"
     const val CREATE = "Create budget"
     const val EDIT_TITLE = "Edit budget"
-    const val MONTH_POLICY = "Calendar months and years use your device’s current timezone, matching transaction dates. Changing timezone can move spending between months or years. Existing budgets keep their currency."
     const val SIGN_IN = "Sign in to manage your budgets."
     const val SYNC_ERROR = "Cloud sync is unavailable. Local changes are saved and will retry automatically."
     const val EMPTY_TITLE = "No budgets yet"
