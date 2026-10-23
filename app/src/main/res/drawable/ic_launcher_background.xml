@@ -1,19 +1,55 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- res/drawable/ic_launcher_background.xml -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
     android:width="108dp"
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
 
-    <!-- Base Neutral Background -->
-    <path
-        android:fillColor="#172B3A"
-        android:pathData="M0,0h108v108h-108z" />
+    <!-- Base Rich Gradient Background (Neutral #172B3A to Deep Primary Blend) -->
+    <path android:pathData="M0,0h108v108h-108z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:type="linear"
+                android:startX="0"
+                android:startY="0"
+                android:endX="108"
+                android:endY="108">
+                <item android:offset="0.0" android:color="#172B3A" />
+                <item android:offset="0.55" android:color="#103940" />
+                <item android:offset="1.0" android:color="#005248" />
+            </gradient>
+        </aapt:attr>
+    </path>
 
-    <!-- Subtle Primary Accent Shape -->
+    <!-- Subtle Ambient Glow in Top-Right -->
+    <path android:pathData="M0,0h108v108h-108z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:type="radial"
+                android:centerX="84"
+                android:centerY="24"
+                android:gradientRadius="68">
+                <item android:offset="0.0" android:color="#38006B5E" />
+                <item android:offset="1.0" android:color="#00172B3A" />
+            </gradient>
+        </aapt:attr>
+    </path>
+
+    <!-- Modern Geometric Accent Wave in Bottom-Right -->
     <path
-        android:fillColor="#006B5E"
-        android:fillAlpha="0.28"
-        android:pathData="M0,108 L0,68 Q54,48 108,82 L108,108 Z" />
+        android:fillAlpha="0.22"
+        android:pathData="M0,108 L0,76 C36,64 68,84 108,58 L108,108 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:type="linear"
+                android:startX="20"
+                android:startY="64"
+                android:endX="96"
+                android:endY="108">
+                <item android:offset="0.0" android:color="#006B5E" />
+                <item android:offset="1.0" android:color="#18794E" />
+            </gradient>
+        </aapt:attr>
+    </path>
 </vector>
