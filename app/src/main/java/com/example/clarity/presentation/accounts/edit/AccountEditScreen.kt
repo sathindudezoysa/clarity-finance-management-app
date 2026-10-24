@@ -108,7 +108,7 @@ internal fun AccountEditContent(
                                 Switch(checked = state.isDefault, onCheckedChange = null, enabled = enabled && !state.isDefaultLocked)
                             }
                             if (state.isDefaultLocked) {
-                                Text("Choose another default account in Settings before turning this off.", style = MaterialTheme.typography.bodySmall,
+                                Text("Choose another default account in the accounts list before turning this off.", style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant)
                             } else if (!state.isEditMode) {
                                 Text("Your first account automatically becomes the default.", style = MaterialTheme.typography.bodySmall,

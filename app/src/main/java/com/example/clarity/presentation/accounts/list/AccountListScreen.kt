@@ -44,7 +44,14 @@ fun AccountListScreen(
     viewModel: AccountListViewModel = hiltViewModel()
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
-    AccountListContent(state, onBack, onAdd, onEdit, bottomBar)
+    AccountListContent(
+        state = state,
+        onBack = onBack,
+        onAdd = onAdd,
+        onEdit = onEdit,
+        onMakeDefault = { id -> viewModel.makeDefault(id) },
+        bottomBar = bottomBar
+    )
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -54,6 +61,7 @@ internal fun AccountListContent(
     onBack: () -> Unit,
     onAdd: () -> Unit,
     onEdit: (String) -> Unit,
+    onMakeDefault: (String) -> Unit,
     bottomBar: @Composable () -> Unit = {}
 ) {
     val addDescription = "Add account"
@@ -143,7 +151,9 @@ internal fun AccountListContent(
                 items(state.accounts, key = { it.id }) { account ->
                     AccountCard(
                         account = account,
-                        onClick = { onEdit(account.id) }
+                        changingDefaultId = state.changingDefaultId,
+                        onClick = { onEdit(account.id) },
+                        onMakeDefault = { onMakeDefault(account.id) }
                     )
                 }
             }
@@ -183,11 +193,14 @@ private fun AccountErrorRow(message: String) {
 @Composable
 private fun AccountCard(
     account: Account,
-    onClick: () -> Unit
+    changingDefaultId: String?,
+    onClick: () -> Unit,
+    onMakeDefault: () -> Unit
 ) {
     val colors = MaterialTheme.colorScheme
     val showBankName = account.bankName.isNotBlank() && !account.bankName.equals(account.name, ignoreCase = true)
     val typeLabel = account.accountType?.takeIf { it.isNotBlank() }
+    val showSetDefault = !account.isCashWallet && !account.isDefault
 
     Card(
         shape = RoundedCornerShape(16.dp),
@@ -198,111 +211,148 @@ private fun AccountCard(
             .clip(RoundedCornerShape(16.dp))
             .clickable(role = Role.Button, onClick = onClick)
     ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            Box(
+        Column(modifier = Modifier.fillMaxWidth()) {
+            Row(
                 modifier = Modifier
-                    .size(40.dp)
-                    .clip(RoundedCornerShape(10.dp))
-                    .background(colors.secondaryContainer.copy(alpha = 0.6f)),
-                contentAlignment = Alignment.Center
+                    .fillMaxWidth()
+                    .padding(
+                        start = 16.dp,
+                        end = 16.dp,
+                        top = 16.dp,
+                        bottom = if (showSetDefault) 8.dp else 16.dp
+                    ),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                Icon(
-                    imageVector = if (account.isCashWallet) AppIcons.Wallet else Icons.Outlined.AccountBox,
-                    contentDescription = null,
-                    tint = colors.primary,
-                    modifier = Modifier.size(20.dp)
-                )
-            }
-            Column(
-                modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(6.dp)
-            ) {
-                Text(
-                    text = account.name,
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold,
-                    color = colors.onSurface,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis
-                )
-                if (showBankName) {
-                    Text(
-                        text = account.bankName,
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = colors.onSurfaceVariant,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
+                Box(
+                    modifier = Modifier
+                        .size(40.dp)
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(colors.secondaryContainer.copy(alpha = 0.6f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = if (account.isCashWallet) AppIcons.Wallet else Icons.Outlined.AccountBox,
+                        contentDescription = null,
+                        tint = colors.primary,
+                        modifier = Modifier.size(20.dp)
                     )
                 }
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
-                    Surface(
-                        shape = MaterialTheme.shapes.small,
-                        color = colors.surfaceVariant,
-                        contentColor = colors.onSurfaceVariant
-                    ) {
+                    Text(
+                        text = account.name,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        color = colors.onSurface,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    if (showBankName) {
                         Text(
-                            text = account.currency,
-                            style = MaterialTheme.typography.labelMedium,
+                            text = account.bankName,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = colors.onSurfaceVariant,
                             maxLines = 1,
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                            overflow = TextOverflow.Ellipsis
                         )
                     }
-                    if (typeLabel != null) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
                         Surface(
                             shape = MaterialTheme.shapes.small,
                             color = colors.surfaceVariant,
-                            contentColor = colors.onSurfaceVariant,
-                            modifier = Modifier.weight(1f, fill = false)
+                            contentColor = colors.onSurfaceVariant
                         ) {
                             Text(
-                                text = typeLabel,
+                                text = account.currency,
                                 style = MaterialTheme.typography.labelMedium,
                                 maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
                                 modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
                             )
                         }
-                    }
-                    if (account.isDefault) {
-                        Surface(
-                            shape = MaterialTheme.shapes.small,
-                            color = colors.secondaryContainer,
-                            contentColor = colors.onSecondaryContainer
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        if (typeLabel != null) {
+                            Surface(
+                                shape = MaterialTheme.shapes.small,
+                                color = colors.surfaceVariant,
+                                contentColor = colors.onSurfaceVariant,
+                                modifier = Modifier.weight(1f, fill = false)
                             ) {
-                                Icon(
-                                    imageVector = Icons.Default.Check,
-                                    contentDescription = null,
-                                    modifier = Modifier.size(14.dp)
-                                )
                                 Text(
-                                    text = "Default",
+                                    text = typeLabel,
                                     style = MaterialTheme.typography.labelMedium,
-                                    maxLines = 1
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
                                 )
+                            }
+                        }
+                        if (account.isDefault) {
+                            Surface(
+                                shape = MaterialTheme.shapes.small,
+                                color = colors.secondaryContainer,
+                                contentColor = colors.onSecondaryContainer
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Check,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(14.dp)
+                                    )
+                                    Text(
+                                        text = "Default",
+                                        style = MaterialTheme.typography.labelMedium,
+                                        maxLines = 1
+                                    )
+                                }
                             }
                         }
                     }
                 }
+                Icon(
+                    imageVector = Icons.Default.KeyboardArrowRight,
+                    contentDescription = null,
+                    tint = colors.onSurfaceVariant
+                )
             }
-            Icon(
-                imageVector = Icons.Default.KeyboardArrowRight,
-                contentDescription = null,
-                tint = colors.onSurfaceVariant
-            )
+            if (showSetDefault) {
+                Divider(
+                    modifier = Modifier.padding(horizontal = 16.dp),
+                    color = colors.onSurface.copy(alpha = 0.08f)
+                )
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 8.dp, vertical = 4.dp)
+                        .heightIn(min = 48.dp),
+                    contentAlignment = Alignment.CenterEnd
+                ) {
+                    if (changingDefaultId == account.id) {
+                        CircularProgressIndicator(
+                            modifier = Modifier
+                                .padding(horizontal = 16.dp)
+                                .size(20.dp),
+                            strokeWidth = 2.dp
+                        )
+                    } else {
+                        TextButton(
+                            onClick = onMakeDefault,
+                            enabled = changingDefaultId == null,
+                            modifier = Modifier.heightIn(min = 48.dp)
+                        ) {
+                            Text("Set as default")
+                        }
+                    }
+                }
+            }
         }
     }
 }
@@ -333,7 +383,13 @@ private val previewAccountListState = AccountListState(
 @Composable
 private fun AccountListPreviewContent(state: AccountListState = previewAccountListState) {
     ClarityTheme {
-        AccountListContent(state = state, onBack = {}, onAdd = {}, onEdit = {})
+        AccountListContent(
+            state = state,
+            onBack = {},
+            onAdd = {},
+            onEdit = {},
+            onMakeDefault = {}
+        )
     }
 }
 
