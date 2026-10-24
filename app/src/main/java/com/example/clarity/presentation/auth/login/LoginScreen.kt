@@ -52,8 +52,7 @@ fun LoginScreen(
     onNavigateToRegister: () -> Unit,
     viewModel: LoginViewModel = hiltViewModel()
 ) {
-+    val state by viewModel.state.collectAsStateWithLifecycle()
-
+    val state by viewModel.state.collectAsState()
     var email by rememberSaveable { mutableStateOf("") }
     var password by rememberSaveable { mutableStateOf("") }
 
