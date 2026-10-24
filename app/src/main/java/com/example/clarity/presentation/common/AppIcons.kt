@@ -222,5 +222,55 @@ object AppIcons {
             close()
         }.build()
     }
-}
 
+    // Fixed Google brand colors (official 4-color "G" mark).
+    val Google: ImageVector by lazy {
+        ImageVector.Builder(
+            name = "Google",
+            defaultWidth = 24.dp,
+            defaultHeight = 24.dp,
+            viewportWidth = 48f,
+            viewportHeight = 48f
+        ).path(fill = SolidColor(Color(0xFF4285F4))) {
+            moveTo(45.12f, 24.5f)
+            curveToRelative(0f, -1.56f, -0.14f, -3.06f, -0.4f, -4.5f)
+            horizontalLineTo(24f)
+            verticalLineToRelative(8.51f)
+            horizontalLineToRelative(11.84f)
+            curveToRelative(-0.51f, 2.75f, -2.06f, 5.08f, -4.39f, 6.64f)
+            verticalLineToRelative(5.52f)
+            horizontalLineToRelative(7.11f)
+            curveToRelative(4.16f, -3.83f, 6.56f, -9.47f, 6.56f, -16.17f)
+            close()
+        }.path(fill = SolidColor(Color(0xFF34A853))) {
+            moveTo(24f, 46f)
+            curveToRelative(5.94f, 0f, 10.92f, -1.97f, 14.56f, -5.33f)
+            lineToRelative(-7.11f, -5.52f)
+            curveToRelative(-1.97f, 1.32f, -4.49f, 2.1f, -7.45f, 2.1f)
+            curveToRelative(-5.73f, 0f, -10.58f, -3.87f, -12.31f, -9.07f)
+            horizontalLineTo(4.34f)
+            verticalLineToRelative(5.7f)
+            curveTo(7.96f, 41.07f, 15.4f, 46f, 24f, 46f)
+            close()
+        }.path(fill = SolidColor(Color(0xFFFBBC05))) {
+            moveTo(11.69f, 28.18f)
+            curveTo(11.25f, 26.86f, 11f, 25.45f, 11f, 24f)
+            reflectiveCurveToRelative(0.25f, -2.86f, 0.69f, -4.18f)
+            verticalLineToRelative(-5.7f)
+            horizontalLineTo(4.34f)
+            curveTo(2.85f, 17.09f, 2f, 20.45f, 2f, 24f)
+            curveToRelative(0f, 3.55f, 0.85f, 6.91f, 2.34f, 9.88f)
+            lineToRelative(7.35f, -5.7f)
+            close()
+        }.path(fill = SolidColor(Color(0xFFEA4335))) {
+            moveTo(24f, 10.75f)
+            curveToRelative(3.23f, 0f, 6.13f, 1.11f, 8.41f, 3.29f)
+            lineToRelative(6.31f, -6.31f)
+            curveTo(34.91f, 4.18f, 29.93f, 2f, 24f, 2f)
+            curveTo(15.4f, 2f, 7.96f, 6.93f, 4.34f, 14.12f)
+            lineToRelative(7.35f, 5.7f)
+            curveToRelative(1.73f, -5.2f, 6.58f, -9.07f, 12.31f, -9.07f)
+            close()
+        }.build()
+    }
+}

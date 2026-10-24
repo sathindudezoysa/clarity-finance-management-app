@@ -1,19 +1,47 @@
 package com.example.clarity.presentation.auth.register
 
 import android.app.Activity
+import android.content.res.Configuration
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Email
+import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.withStyle
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.example.clarity.R
+import com.example.clarity.presentation.auth.AuthFieldLabel
+import com.example.clarity.presentation.auth.AuthOrDivider
+import com.example.clarity.presentation.auth.AuthScaffoldLayout
+import com.example.clarity.presentation.auth.AuthUiText
+import com.example.clarity.presentation.auth.GoogleSignInButton
+import com.example.clarity.presentation.auth.authTextFieldColors
+import com.example.clarity.presentation.common.AppIcons
+import com.example.clarity.presentation.theme.ClarityTheme
 import com.google.android.gms.auth.api.signin.GoogleSignIn
 import com.google.android.gms.auth.api.signin.GoogleSignInOptions
 import com.google.android.gms.common.api.ApiException
@@ -25,10 +53,10 @@ fun RegisterScreen(
     viewModel: RegisterViewModel = hiltViewModel()
 ) {
     val state by viewModel.state.collectAsState()
-    
-    var email by remember { mutableStateOf("") }
-    var password by remember { mutableStateOf("") }
-    
+
+    var email by rememberSaveable { mutableStateOf("") }
+    var password by rememberSaveable { mutableStateOf("") }
+
     val context = LocalContext.current
     val launcher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.StartActivityForResult()
@@ -63,81 +91,202 @@ fun RegisterScreen(
         }
     }
 
-    Scaffold { padding ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding)
-                .padding(16.dp),
-            verticalArrangement = Arrangement.Center,
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
-            Text(text = "Register to Clarity", style = MaterialTheme.typography.headlineLarge)
-            Spacer(modifier = Modifier.height(32.dp))
+    RegisterContent(
+        state = state,
+        email = email,
+        password = password,
+        onEmailChange = { email = it },
+        onPasswordChange = { password = it },
+        onRegisterClick = { viewModel.onRegisterClick(email, password) },
+        onGoogleSignInClick = {
+            val gso = GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
+                .requestIdToken(context.getString(R.string.default_web_client_id))
+                .requestEmail()
+                .build()
+            val googleSignInClient = GoogleSignIn.getClient(context, gso)
+            googleSignInClient.signOut().addOnCompleteListener {
+                launcher.launch(googleSignInClient.signInIntent)
+            }
+        },
+        onNavigateToLogin = onNavigateToLogin
+    )
+}
 
+@Composable
+internal fun RegisterContent(
+    state: RegisterState,
+    email: String,
+    password: String,
+    onEmailChange: (String) -> Unit,
+    onPasswordChange: (String) -> Unit,
+    onRegisterClick: () -> Unit,
+    onGoogleSignInClick: () -> Unit,
+    onNavigateToLogin: () -> Unit
+) {
+    var passwordVisible by rememberSaveable { mutableStateOf(false) }
+    val colors = MaterialTheme.colorScheme
+
+    AuthScaffoldLayout(title = AuthUiText.REGISTER_TITLE) {
+        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            AuthFieldLabel(text = AuthUiText.EMAIL_LABEL)
             OutlinedTextField(
                 value = email,
-                onValueChange = { email = it },
-                label = { Text("Email") },
+                onValueChange = onEmailChange,
+                placeholder = {
+                    Text(
+                        text = AuthUiText.EMAIL_LABEL,
+                        color = colors.onSurfaceVariant
+                    )
+                },
+                leadingIcon = {
+                    Icon(
+                        imageVector = Icons.Default.Email,
+                        contentDescription = null,
+                        tint = colors.onSurfaceVariant
+                    )
+                },
+                singleLine = true,
+                shape = RoundedCornerShape(12.dp),
+                colors = authTextFieldColors(),
+                keyboardOptions = KeyboardOptions(
+                    keyboardType = KeyboardType.Email,
+                    imeAction = ImeAction.Next
+                ),
                 modifier = Modifier.fillMaxWidth()
             )
-            
-            Spacer(modifier = Modifier.height(16.dp))
-            
+        }
+
+        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            AuthFieldLabel(text = AuthUiText.PASSWORD_LABEL)
             OutlinedTextField(
                 value = password,
-                onValueChange = { password = it },
-                label = { Text("Password") },
-                visualTransformation = PasswordVisualTransformation(),
+                onValueChange = onPasswordChange,
+                placeholder = {
+                    Text(
+                        text = AuthUiText.PASSWORD_LABEL,
+                        color = colors.onSurfaceVariant
+                    )
+                },
+                leadingIcon = {
+                    Icon(
+                        imageVector = Icons.Default.Lock,
+                        contentDescription = null,
+                        tint = colors.onSurfaceVariant
+                    )
+                },
+                trailingIcon = {
+                    IconButton(onClick = { passwordVisible = !passwordVisible }) {
+                        Icon(
+                            imageVector = if (passwordVisible) AppIcons.VisibilityOff else AppIcons.Visibility,
+                            contentDescription = if (passwordVisible) AuthUiText.HIDE_PASSWORD else AuthUiText.SHOW_PASSWORD,
+                            tint = colors.onSurfaceVariant
+                        )
+                    }
+                },
+                visualTransformation = if (passwordVisible) VisualTransformation.None else PasswordVisualTransformation(),
+                singleLine = true,
+                shape = RoundedCornerShape(12.dp),
+                colors = authTextFieldColors(),
+                keyboardOptions = KeyboardOptions(
+                    keyboardType = KeyboardType.Password,
+                    imeAction = ImeAction.Done
+                ),
+                keyboardActions = KeyboardActions(
+                    onDone = { if (!state.isLoading) onRegisterClick() }
+                ),
                 modifier = Modifier.fillMaxWidth()
             )
+        }
 
-            if (state.error != null) {
-                Spacer(modifier = Modifier.height(8.dp))
-                Text(text = state.error!!, color = MaterialTheme.colorScheme.error)
-            }
+        if (state.error != null) {
+            Text(
+                text = state.error,
+                style = MaterialTheme.typography.bodySmall,
+                color = colors.error
+            )
+        }
 
-            Spacer(modifier = Modifier.height(16.dp))
-
+        Button(
+            onClick = onRegisterClick,
+            enabled = !state.isLoading,
+            shape = CircleShape,
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(min = 52.dp)
+        ) {
             if (state.isLoading) {
-                CircularProgressIndicator()
-            } else {
-                Button(
-                    onClick = { viewModel.onRegisterClick(email, password) },
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Text("Register")
-                }
-
-                Spacer(modifier = Modifier.height(8.dp))
-
-                OutlinedButton(
-                    onClick = {
-                        val gso = GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
-                            .requestIdToken(context.getString(R.string.default_web_client_id))
-                            .requestEmail()
-                            .build()
-                        val googleSignInClient = GoogleSignIn.getClient(context, gso)
-                        googleSignInClient.signOut().addOnCompleteListener {
-                            launcher.launch(googleSignInClient.signInIntent)
-                        }
-                    },
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Text("Continue with Google")
-                }
-
-                Spacer(modifier = Modifier.height(16.dp))
-
-                Text(
-                    text = "Already have an account? Log In",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier
-                        .clickable { onNavigateToLogin() }
-                        .padding(8.dp)
+                CircularProgressIndicator(
+                    modifier = Modifier.size(20.dp),
+                    strokeWidth = 2.dp,
+                    color = colors.onPrimary
                 )
+                Spacer(modifier = Modifier.width(10.dp))
             }
+            Text(
+                text = "Register",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold
+            )
+        }
+
+        AuthOrDivider()
+
+        GoogleSignInButton(
+            onClick = onGoogleSignInClick,
+            enabled = !state.isLoading
+        )
+
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(min = 48.dp)
+                .clip(RoundedCornerShape(8.dp))
+                .clickable(role = Role.Button, onClick = onNavigateToLogin)
+                .padding(horizontal = 8.dp, vertical = 4.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                text = buildAnnotatedString {
+                    withStyle(SpanStyle(color = colors.onSurfaceVariant)) {
+                        append("Already have an account? ")
+                    }
+                    withStyle(SpanStyle(color = colors.primary, fontWeight = FontWeight.Bold)) {
+                        append("Log In")
+                    }
+                },
+                style = MaterialTheme.typography.bodyMedium,
+                textAlign = TextAlign.Center
+            )
         }
     }
 }
+
+@Composable
+private fun RegisterPreviewContent(state: RegisterState = RegisterState()) {
+    ClarityTheme {
+        RegisterContent(
+            state = state,
+            email = "",
+            password = "",
+            onEmailChange = {},
+            onPasswordChange = {},
+            onRegisterClick = {},
+            onGoogleSignInClick = {},
+            onNavigateToLogin = {}
+        )
+    }
+}
+
+@Preview(showBackground = true)
+@Composable
+private fun RegisterScreenPreview() = RegisterPreviewContent()
+
+@Preview(showBackground = true, uiMode = Configuration.UI_MODE_NIGHT_YES)
+@Composable
+private fun RegisterScreenDarkPreview() = RegisterPreviewContent()
+
+@Preview(showBackground = true, fontScale = 1.5f)
+@Composable
+private fun RegisterScreenLargeFontPreview() = RegisterPreviewContent(
+    state = RegisterState(error = "Password must be at least 6 characters")
+)
