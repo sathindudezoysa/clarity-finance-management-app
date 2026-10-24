@@ -4,11 +4,7 @@ import com.example.clarity.domain.model.Currencies
 import com.example.clarity.domain.model.FinancialGoal
 import com.example.clarity.domain.model.GoalError
 import com.example.clarity.domain.model.GoalException
-import com.example.clarity.domain.model.GoalProgressOperation
-import com.example.clarity.domain.model.GoalProgressOperationType
-import com.example.clarity.domain.model.GoalStatus
 import com.example.clarity.domain.util.MoneyUtils
-import java.math.BigInteger
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import java.util.Locale
@@ -19,33 +15,20 @@ data class GoalCardUiModel(
     val description: String,
     val currency: String,
     val targetFormatted: String,
-    val savedFormatted: String,
-    val remainingFormatted: String,
-    val deadlineFormatted: String,
+    val targetDateFormatted: String,
+    val daysRemainingLabel: String,
     val isOverdue: Boolean,
-    val progressPercent: Int,
-    val progressFraction: Float,
-    val statusLabel: String,
-    val isCompleted: Boolean,
     val isSyncing: Boolean
-)
-
-data class RejectedGoalOperationUi(
-    val id: String,
-    val message: String
 )
 
 data class GoalsState(
     val isLoading: Boolean = true,
     val ownerId: String? = null,
-    val activeGoals: List<GoalCardUiModel> = emptyList(),
-    val completedGoals: List<GoalCardUiModel> = emptyList(),
-    val rejectedOperations: List<RejectedGoalOperationUi> = emptyList(),
-    val overdrawnAccountWarnings: List<String> = emptyList(),
+    val goals: List<GoalCardUiModel> = emptyList(),
     val error: String? = null
 ) {
     val isEmpty: Boolean
-        get() = activeGoals.isEmpty() && completedGoals.isEmpty()
+        get() = goals.isEmpty()
 }
 
 object GoalMessages {
@@ -55,46 +38,17 @@ object GoalMessages {
     const val NOT_FOUND = "Financial goal not found."
     const val OPEN_ERROR = "Could not open this financial goal. Please go back and try again."
     const val SAVE_ERROR = "Could not save the financial goal. Please check your inputs and try again."
-    const val PROGRESS_SAVE_ERROR = "Could not update goal progress. Please check the amount and try again."
     const val NAME_BLANK = "Enter a goal name."
     const val NAME_TOO_LONG = "Goal name must be 100 characters or fewer."
     const val DESCRIPTION_TOO_LONG = "Description must be 500 characters or fewer."
     const val INVALID_CURRENCY = "Unsupported currency code."
     const val INVALID_AMOUNT = "Enter a valid unsigned numeric amount matching the currency precision."
     const val TARGET_NON_POSITIVE = "Target amount must be greater than zero."
-    const val SAVED_NEGATIVE = "Saved amount cannot be negative."
-    const val SAVED_EXCEEDS_TARGET = "Initial saved amount cannot exceed the target amount."
-    const val TARGET_BELOW_SAVED = "Target cannot be lower than the amount already saved."
     const val INVALID_DATE = "Select a valid target date."
     const val DATE_NOT_IN_FUTURE = "Target date must be in the future."
-    const val CONTRIBUTION_NON_POSITIVE = "Contribution amount must be greater than zero."
-    const val ACCOUNT_REQUIRED = "Select a source account."
-    const val ACCOUNT_NOT_FOUND = "Selected source account is not available."
-    const val ACCOUNT_CURRENCY_MISMATCH = "Source account currency must match the goal currency."
-    const val INSUFFICIENT_ACCOUNT_BALANCE = "Insufficient account balance."
-    const val SET_BALANCE_NOTE = "Corrections do not move funds between accounts."
-
-    fun exceedsTargetMessage(remainingMinor: Long, currency: String): String =
-        "Saved balance cannot exceed the goal target. Remaining amount to reach target: ${formatGoalMoney(remainingMinor, currency)}."
-
-    fun rejectedOperationMessage(op: GoalProgressOperation, goal: FinancialGoal?): String {
-        val currency = goal?.currency ?: Currencies.supported.first()
-        val amountText = formatGoalMoney(op.amountMinor, currency)
-        val goalName = goal?.name ?: "your goal"
-        return if (op.type == GoalProgressOperationType.ADD) {
-            "Offline contribution of $amountText for \"$goalName\" was not applied because it conflicted with the latest server target or balance. The funds are available in your source account again."
-        } else {
-            "Offline balance update to $amountText for \"$goalName\" could not be applied because it conflicted with the latest server target or balance. The goal balance has been reconciled to the server value."
-        }
-    }
 }
 
 fun formatGoalMoney(amountMinor: Long, currency: String): String {
-    val safeCurrency = if (currency in Currencies.supported) currency else Currencies.supported.first()
-    return "$safeCurrency ${MoneyUtils.formatMinor(amountMinor, safeCurrency)}"
-}
-
-fun formatGoalMoneyBig(amountMinor: BigInteger, currency: String): String {
     val safeCurrency = if (currency in Currencies.supported) currency else Currencies.supported.first()
     return "$safeCurrency ${MoneyUtils.formatMinor(amountMinor, safeCurrency)}"
 }
@@ -118,43 +72,29 @@ fun goalErrorMessage(error: Throwable, fallback: String): String {
         GoalError.INVALID_CURRENCY -> GoalMessages.INVALID_CURRENCY
         GoalError.INVALID_AMOUNT -> GoalMessages.INVALID_AMOUNT
         GoalError.TARGET_NON_POSITIVE -> GoalMessages.TARGET_NON_POSITIVE
-        GoalError.SAVED_NEGATIVE -> GoalMessages.SAVED_NEGATIVE
-        GoalError.SAVED_EXCEEDS_TARGET -> GoalMessages.SAVED_EXCEEDS_TARGET
-        GoalError.TARGET_BELOW_SAVED -> GoalMessages.TARGET_BELOW_SAVED
         GoalError.INVALID_DATE -> GoalMessages.INVALID_DATE
         GoalError.DATE_NOT_IN_FUTURE -> GoalMessages.DATE_NOT_IN_FUTURE
-        GoalError.CONTRIBUTION_NON_POSITIVE -> GoalMessages.CONTRIBUTION_NON_POSITIVE
-        GoalError.EXCEEDS_TARGET -> {
-            val rem = goalEx.remainingMinor ?: 0L
-            val curr = goalEx.currency ?: Currencies.supported.first()
-            GoalMessages.exceedsTargetMessage(rem, curr)
-        }
         GoalError.IMMUTABLE_FIELD_CHANGED -> fallback
-        GoalError.STATUS_MISMATCH -> fallback
-        GoalError.ACCOUNT_REQUIRED -> GoalMessages.ACCOUNT_REQUIRED
-        GoalError.ACCOUNT_NOT_FOUND -> GoalMessages.ACCOUNT_NOT_FOUND
-        GoalError.ACCOUNT_CURRENCY_MISMATCH -> GoalMessages.ACCOUNT_CURRENCY_MISMATCH
-        GoalError.INSUFFICIENT_ACCOUNT_BALANCE -> GoalMessages.INSUFFICIENT_ACCOUNT_BALANCE
     }
 }
 
-fun FinancialGoal.toCardUiModel(todayEpochDay: Long, isSyncing: Boolean): GoalCardUiModel {
-    val completed = status == GoalStatus.COMPLETED
+fun FinancialGoal.toCardUiModel(todayEpochDay: Long): GoalCardUiModel {
     val overdue = isOverdue(todayEpochDay)
+    val daysLeft = daysRemaining(todayEpochDay)
+    val daysLabel = if (overdue) {
+        "Overdue"
+    } else {
+        "$daysLeft days left"
+    }
     return GoalCardUiModel(
         id = id,
         name = name,
         description = description,
         currency = currency,
         targetFormatted = formatGoalMoney(targetMinor, currency),
-        savedFormatted = formatGoalMoney(savedMinor, currency),
-        remainingFormatted = formatGoalMoney(remainingMinor, currency),
-        deadlineFormatted = formatGoalEpochDay(targetDateEpochDay),
+        targetDateFormatted = formatGoalEpochDay(targetDateEpochDay),
+        daysRemainingLabel = daysLabel,
         isOverdue = overdue,
-        progressPercent = progressPercent,
-        progressFraction = progressFraction,
-        statusLabel = if (completed) "Completed" else "Active",
-        isCompleted = completed,
-        isSyncing = isSyncing
+        isSyncing = pendingSync
     )
 }

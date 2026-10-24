@@ -3,11 +3,8 @@ package com.example.clarity.di
 import android.content.Context
 import androidx.room.Room
 import com.example.clarity.data.local.ClarityDatabase
-import com.example.clarity.data.local.MIGRATION_15_16
-import com.example.clarity.data.local.MIGRATION_16_17
 import com.example.clarity.data.local.dao.AccountDao
 import com.example.clarity.data.local.dao.GoalDao
-import com.example.clarity.data.local.dao.GoalProgressOperationDao
 import com.example.clarity.data.local.dao.TransactionDao
 import com.example.clarity.data.local.dao.TransactionTagDao
 import dagger.Module
@@ -33,7 +30,6 @@ object DatabaseModule {
             ClarityDatabase::class.java,
             name
         )
-            .addMigrations(MIGRATION_15_16, MIGRATION_16_17)
             .fallbackToDestructiveMigration()
             .fallbackToDestructiveMigrationOnDowngrade()
             .build()
@@ -58,10 +54,5 @@ object DatabaseModule {
     fun provideBudgetDao(database: ClarityDatabase): com.example.clarity.data.local.dao.BudgetDao = database.budgetDao
 
     @Provides
-    @Singleton
     fun provideGoalDao(database: ClarityDatabase): GoalDao = database.goalDao
-
-    @Provides
-    @Singleton
-    fun provideGoalProgressOperationDao(database: ClarityDatabase): GoalProgressOperationDao = database.goalProgressOperationDao
 }

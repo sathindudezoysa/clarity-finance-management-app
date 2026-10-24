@@ -13,7 +13,6 @@ import com.example.clarity.presentation.accounts.list.AccountListScreen
 import com.example.clarity.presentation.auth.login.LoginScreen
 import com.example.clarity.presentation.auth.register.RegisterScreen
 import com.example.clarity.presentation.goals.GoalEditScreen
-import com.example.clarity.presentation.goals.GoalProgressScreen
 import com.example.clarity.presentation.goals.GoalsScreen
 import com.example.clarity.presentation.income.IncomeScreen
 import com.example.clarity.presentation.main.MainScreen
@@ -149,11 +148,6 @@ fun SetupNavGraph(
                     navController.navigate(Screen.GoalEdit.createRoute(goalId)) {
                         launchSingleTop = true
                     }
-                },
-                onUpdateProgress = { goalId ->
-                    navController.navigate(Screen.GoalProgress.createRoute(goalId)) {
-                        launchSingleTop = true
-                    }
                 }
             )
         }
@@ -163,16 +157,6 @@ fun SetupNavGraph(
         ) {
             GoalEditScreen(
                 onBack = { navController.popBackStack() },
-                viewModel = hiltViewModel()
-            )
-        }
-        composable(
-            route = Screen.GoalProgress.route,
-            arguments = listOf(navArgument("goalId") { type = NavType.StringType; nullable = true; defaultValue = null })
-        ) {
-            GoalProgressScreen(
-                onBack = { navController.popBackStack() },
-                onAddAccount = { navController.navigate(Screen.AccountEdit.createRoute()) },
                 viewModel = hiltViewModel()
             )
         }

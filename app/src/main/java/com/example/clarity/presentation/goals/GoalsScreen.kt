@@ -10,18 +10,17 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
@@ -33,7 +32,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
@@ -48,7 +46,6 @@ import com.example.clarity.presentation.theme.ClarityTheme
 fun GoalsScreen(
     onAddGoal: () -> Unit = {},
     onEditGoal: (String) -> Unit = {},
-    onUpdateProgress: (String) -> Unit = {},
     bottomBar: @Composable () -> Unit = {},
     viewModel: GoalsViewModel = hiltViewModel()
 ) {
@@ -57,9 +54,7 @@ fun GoalsScreen(
         state = state,
         onAddGoal = onAddGoal,
         onEditGoal = onEditGoal,
-        onUpdateProgress = onUpdateProgress,
         onRetry = viewModel::retry,
-        onDismissRejected = viewModel::dismissRejectedOperation,
         bottomBar = bottomBar
     )
 }
@@ -70,9 +65,7 @@ internal fun GoalsContent(
     state: GoalsState,
     onAddGoal: () -> Unit,
     onEditGoal: (String) -> Unit,
-    onUpdateProgress: (String) -> Unit,
     onRetry: () -> Unit,
-    onDismissRejected: (String) -> Unit,
     bottomBar: @Composable () -> Unit = {}
 ) {
     val canCreate = state.ownerId != null && !state.isLoading
@@ -85,13 +78,6 @@ internal fun GoalsContent(
                         style = MaterialTheme.typography.titleLarge,
                         fontWeight = FontWeight.SemiBold
                     )
-                },
-                actions = {
-                    if (canCreate) {
-                        TextButton(onClick = onAddGoal) {
-                            Text("Add Goal")
-                        }
-                    }
                 }
             )
         },
@@ -129,23 +115,6 @@ internal fun GoalsContent(
                     }
                 }
 
-                items(
-                    items = state.overdrawnAccountWarnings,
-                    key = { "overdrawn-$it" }
-                ) { warning ->
-                    GoalOverdrawnAccountWarningBanner(message = warning)
-                }
-
-                items(
-                    items = state.rejectedOperations,
-                    key = { "rejected-${it.id}" }
-                ) { rejected ->
-                    GoalRejectedOperationBanner(
-                        message = rejected.message,
-                        onDismiss = { onDismissRejected(rejected.id) }
-                    )
-                }
-
                 if (state.isLoading) {
                     item(key = "goals-loading") {
                         Box(
@@ -159,55 +128,22 @@ internal fun GoalsContent(
                     }
                 } else if (state.isEmpty && state.ownerId != null) {
                     item(key = "goals-empty") {
-                        GoalEmptyState(onAddGoal = onAddGoal)
+                        GoalEmptyState()
                     }
                 } else {
-                    if (state.activeGoals.isNotEmpty()) {
-                        item(key = "section-active-goals") {
-                            GoalSectionHeader("Active Goals")
-                        }
-                        items(
-                            items = state.activeGoals,
-                            key = { "active-${it.id}" }
-                        ) { goal ->
-                            GoalCard(
-                                goal = goal,
-                                onUpdateProgress = { onUpdateProgress(goal.id) },
-                                onEdit = { onEditGoal(goal.id) }
-                            )
-                        }
-                    }
-
-                    if (state.completedGoals.isNotEmpty()) {
-                        item(key = "section-completed-goals") {
-                            GoalSectionHeader("Completed Goals")
-                        }
-                        items(
-                            items = state.completedGoals,
-                            key = { "completed-${it.id}" }
-                        ) { goal ->
-                            GoalCard(
-                                goal = goal,
-                                onUpdateProgress = { onUpdateProgress(goal.id) },
-                                onEdit = { onEditGoal(goal.id) }
-                            )
-                        }
+                    items(
+                        items = state.goals,
+                        key = { it.id }
+                    ) { goal ->
+                        GoalCard(
+                            goal = goal,
+                            onEdit = { onEditGoal(goal.id) }
+                        )
                     }
                 }
             }
         }
     }
-}
-
-@Composable
-private fun GoalSectionHeader(title: String) {
-    Text(
-        text = title,
-        style = MaterialTheme.typography.titleMedium,
-        fontWeight = FontWeight.SemiBold,
-        color = MaterialTheme.colorScheme.onSurface,
-        modifier = Modifier.padding(top = 4.dp, bottom = 2.dp)
-    )
 }
 
 @Composable
@@ -243,78 +179,23 @@ internal fun GoalErrorBanner(
 }
 
 @Composable
-private fun GoalOverdrawnAccountWarningBanner(message: String) {
-    val colors = MaterialTheme.colorScheme
-    Surface(
-        modifier = Modifier.fillMaxWidth(),
-        shape = MaterialTheme.shapes.medium,
-        color = colors.errorContainer,
-        contentColor = colors.onErrorContainer
-    ) {
-        Text(
-            text = message,
-            style = MaterialTheme.typography.bodyMedium,
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)
-        )
-    }
-}
-
-@Composable
-private fun GoalRejectedOperationBanner(
-    message: String,
-    onDismiss: () -> Unit
-) {
-    val colors = MaterialTheme.colorScheme
-    Surface(
-        modifier = Modifier.fillMaxWidth(),
-        shape = MaterialTheme.shapes.medium,
-        color = colors.errorContainer,
-        contentColor = colors.onErrorContainer
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            Text(
-                text = message,
-                style = MaterialTheme.typography.bodyMedium
-            )
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.End
-            ) {
-                TextButton(onClick = onDismiss) {
-                    Text("Dismiss", color = colors.onErrorContainer, fontWeight = FontWeight.SemiBold)
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun GoalEmptyState(onAddGoal: () -> Unit) {
+private fun GoalEmptyState() {
     Card(
         modifier = Modifier.fillMaxWidth(),
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
     ) {
-        Column(
+        Box(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(24.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(12.dp)
+            contentAlignment = Alignment.Center
         ) {
             Text(
                 text = GoalMessages.EMPTY_GOALS,
                 style = MaterialTheme.typography.bodyLarge,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
-            Button(onClick = onAddGoal) {
-                Text("Add Goal")
-            }
         }
     }
 }
@@ -322,7 +203,6 @@ private fun GoalEmptyState(onAddGoal: () -> Unit) {
 @Composable
 private fun GoalCard(
     goal: GoalCardUiModel,
-    onUpdateProgress: () -> Unit,
     onEdit: () -> Unit
 ) {
     val colors = MaterialTheme.colorScheme
@@ -366,17 +246,6 @@ private fun GoalCard(
                         )
                     }
                 }
-                Surface(
-                    shape = RoundedCornerShape(50),
-                    color = if (goal.isCompleted) colors.tertiaryContainer else colors.primaryContainer,
-                    contentColor = if (goal.isCompleted) colors.onTertiaryContainer else colors.onPrimaryContainer
-                ) {
-                    Text(
-                        text = goal.statusLabel,
-                        style = MaterialTheme.typography.labelMedium,
-                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
-                    )
-                }
             }
 
             if (goal.description.isNotEmpty()) {
@@ -384,78 +253,39 @@ private fun GoalCard(
                     text = goal.description,
                     style = MaterialTheme.typography.bodySmall,
                     color = colors.onSurfaceVariant,
-                    maxLines = 3,
+                    maxLines = 2,
                     overflow = TextOverflow.Ellipsis
                 )
             }
 
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = "Saved: ${goal.savedFormatted}",
-                    style = MaterialTheme.typography.bodyMedium,
-                    fontWeight = FontWeight.Medium
-                )
-                Text(
-                    text = "${goal.progressPercent}%",
-                    style = MaterialTheme.typography.bodyMedium,
-                    fontWeight = FontWeight.SemiBold,
-                    color = if (goal.isCompleted) colors.tertiary else colors.primary
-                )
-            }
-
-            LinearProgressIndicator(
-                progress = goal.progressFraction,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(8.dp)
-                    .clip(RoundedCornerShape(4.dp)),
-                color = if (goal.isCompleted) colors.tertiary else colors.primary,
-                trackColor = colors.surfaceVariant
+            Text(
+                text = "Target: ${goal.targetFormatted}",
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.SemiBold,
+                color = colors.onSurface
             )
 
             Row(
                 modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
                 Text(
-                    text = "Target: ${goal.targetFormatted}",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = colors.onSurfaceVariant
-                )
-                Text(
-                    text = "Remaining: ${goal.remainingFormatted}",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = colors.onSurfaceVariant
-                )
-            }
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                Text(
-                    text = "Deadline: ${goal.deadlineFormatted}",
+                    text = "Target date: ${goal.targetDateFormatted}",
                     style = MaterialTheme.typography.bodySmall,
                     color = if (goal.isOverdue) colors.error else colors.onSurfaceVariant
                 )
-                if (goal.isOverdue) {
-                    Surface(
-                        shape = RoundedCornerShape(50),
-                        color = colors.errorContainer,
-                        contentColor = colors.onErrorContainer
-                    ) {
-                        Text(
-                            text = "Overdue",
-                            style = MaterialTheme.typography.labelSmall,
-                            fontWeight = FontWeight.SemiBold,
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
-                        )
-                    }
+                Surface(
+                    shape = RoundedCornerShape(50),
+                    color = if (goal.isOverdue) colors.errorContainer else colors.primaryContainer,
+                    contentColor = if (goal.isOverdue) colors.onErrorContainer else colors.onPrimaryContainer
+                ) {
+                    Text(
+                        text = goal.daysRemainingLabel,
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                    )
                 }
             }
 
@@ -463,14 +293,14 @@ private fun GoalCard(
 
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
+                horizontalArrangement = Arrangement.End,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                OutlinedButton(onClick = onEdit) {
+                OutlinedButton(
+                    onClick = onEdit,
+                    modifier = Modifier.heightIn(min = 48.dp)
+                ) {
                     Text("Edit")
-                }
-                Button(onClick = onUpdateProgress) {
-                    Text("Update progress")
                 }
             }
         }
@@ -485,48 +315,34 @@ private fun GoalsScreenPreview() {
             state = GoalsState(
                 isLoading = false,
                 ownerId = "preview",
-                activeGoals = listOf(
+                goals = listOf(
                     GoalCardUiModel(
                         id = "1",
                         name = "Emergency Fund",
                         description = "Six months of essential expenses",
                         currency = "LKR",
                         targetFormatted = "LKR 500000.00",
-                        savedFormatted = "LKR 200000.00",
-                        remainingFormatted = "LKR 300000.00",
-                        deadlineFormatted = "15 Jun 2027",
+                        targetDateFormatted = "15 Jun 2027",
+                        daysRemainingLabel = "120 days left",
                         isOverdue = false,
-                        progressPercent = 40,
-                        progressFraction = 0.4f,
-                        statusLabel = "Active",
-                        isCompleted = false,
                         isSyncing = true
-                    )
-                ),
-                completedGoals = listOf(
+                    ),
                     GoalCardUiModel(
                         id = "2",
                         name = "Laptop Upgrade",
                         description = "",
                         currency = "LKR",
                         targetFormatted = "LKR 300000.00",
-                        savedFormatted = "LKR 300000.00",
-                        remainingFormatted = "LKR 0.00",
-                        deadlineFormatted = "01 Jan 2027",
-                        isOverdue = false,
-                        progressPercent = 100,
-                        progressFraction = 1f,
-                        statusLabel = "Completed",
-                        isCompleted = true,
+                        targetDateFormatted = "01 Jan 2026",
+                        daysRemainingLabel = "Overdue",
+                        isOverdue = true,
                         isSyncing = false
                     )
                 )
             ),
             onAddGoal = {},
             onEditGoal = {},
-            onUpdateProgress = {},
-            onRetry = {},
-            onDismissRejected = {}
+            onRetry = {}
         )
     }
 }

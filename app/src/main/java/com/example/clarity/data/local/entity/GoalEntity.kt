@@ -14,12 +14,9 @@ data class GoalEntity(
     val name: String,
     val description: String,
     val targetMinor: Long,
-    val savedMinor: Long,
     val currency: String,
     val targetDateEpochDay: Long,
-    val status: String,
     val createdAt: Long,
     val updatedAt: Long,
-    val pendingSync: Boolean
+    val pendingSync: Boolean = false
 )
-

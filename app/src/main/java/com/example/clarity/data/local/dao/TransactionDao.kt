@@ -73,24 +73,13 @@ abstract class TransactionDao {
     @Query("SELECT * FROM transactions WHERE userId = :userId AND isDeleted = 0")
     abstract suspend fun getActiveForUser(userId: String): List<TransactionEntity>
 
-    @Query(
-        "SELECT COALESCE(SUM(amountMinor), 0) FROM goal_progress_operations " +
-            "WHERE userId = :userId AND sourceAccountId = :accountId AND type = 'ADD' AND state IN ('PENDING', 'APPLIED') AND amountMinor > 0"
-    )
-    abstract suspend fun getReservedMinorForAccount(userId: String, accountId: String): Long
-
     @Transaction
     open suspend fun persistLocal(entity: TransactionEntity) {
         val previousAccountId = getById(entity.id)?.accountId
         val before = getActiveForUser(entity.userId)
         upsertWithTag(entity)
         val after = getActiveForUser(entity.userId)
-        val reservedByAccount = listOfNotNull(previousAccountId, entity.accountId)
-            .distinct()
-            .associateWith { accountId ->
-                java.math.BigInteger.valueOf(getReservedMinorForAccount(entity.userId, accountId))
-            }
-        TransactionBalanceGuard.check(before, after, previousAccountId, entity.accountId, reservedByAccount)
+        TransactionBalanceGuard.check(before, after, previousAccountId, entity.accountId)
     }
 
     @Transaction

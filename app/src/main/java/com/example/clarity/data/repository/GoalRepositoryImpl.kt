@@ -8,9 +8,6 @@ import com.example.clarity.data.sync.GoalSyncProcessor
 import com.example.clarity.domain.model.FinancialGoal
 import com.example.clarity.domain.model.GoalError
 import com.example.clarity.domain.model.GoalException
-import com.example.clarity.domain.model.GoalProgressOperation
-import com.example.clarity.domain.model.GoalProgressOperationState
-import com.example.clarity.domain.model.GoalProgressOperationType
 import com.example.clarity.domain.model.GoalsSnapshot
 import com.example.clarity.domain.repository.AuthRepository
 import com.example.clarity.domain.repository.CurrencyPreferenceRepository
@@ -20,16 +17,13 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChangedBy
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.flowOn
-import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
-import java.math.BigInteger
 import java.time.Clock
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -46,40 +40,16 @@ class GoalRepositoryImpl @Inject constructor(
 ) : GoalRepository {
 
     private val goalDao get() = database.goalDao
-    private val operationDao get() = database.goalProgressOperationDao
-    private val dismissedRejectedByOwner = MutableStateFlow<Map<String, Set<String>>>(emptyMap())
-    internal var beforeGoalUpsertHook: (() -> Unit)? = null
 
     override fun observeGoals(): Flow<GoalsSnapshot> =
         auth.currentUser.distinctUntilChangedBy { it?.uid }.flatMapLatest { user ->
             if (user == null) {
                 flowOf(GoalsSnapshot(ownerId = null, goals = emptyList()))
             } else {
-                combine(
-                    goalDao.observe(user.uid),
-                    operationDao.observeByUser(user.uid),
-                    dismissedRejectedByOwner
-                ) { goalRows, opRows, dismissedMap ->
-                    val goals = goalRows.map { it.toDomain() }
-                    val ops = opRows.map { it.toDomain() }
-                    val pendingOpGoalIds = ops
-                        .filter { it.state == GoalProgressOperationState.PENDING }
-                        .map { it.goalId }
-                        .toSet()
-                    val pendingGoalIds = goals
-                        .filter { it.pendingSync }
-                        .map { it.id }
-                        .toSet() + pendingOpGoalIds
-                    val dismissed = dismissedMap[user.uid].orEmpty()
-                    val rejectedOps = ops.filter {
-                        it.state == GoalProgressOperationState.REJECTED && it.id !in dismissed
-                    }
+                goalDao.observe(user.uid).map { rows ->
                     GoalsSnapshot(
                         ownerId = user.uid,
-                        goals = goals,
-                        pendingGoalIds = pendingGoalIds,
-                        rejectedOperations = rejectedOps,
-                        operations = ops
+                        goals = rows.map { it.toDomain() }
                     )
                 }
             }
@@ -144,156 +114,9 @@ class GoalRepositoryImpl @Inject constructor(
         }
     }
 
-    override suspend fun addContribution(
-        goalId: String,
-        operationId: String,
-        amountMinor: Long,
-        sourceAccountId: String
-    ): Result<FinancialGoal> = recordProgressOperation(
-        goalId = goalId,
-        operationId = operationId,
-        type = GoalProgressOperationType.ADD,
-        amountMinor = amountMinor,
-        sourceAccountId = sourceAccountId
-    )
-
-    override suspend fun setBalance(
-        goalId: String,
-        operationId: String,
-        amountMinor: Long
-    ): Result<FinancialGoal> = recordProgressOperation(
-        goalId = goalId,
-        operationId = operationId,
-        type = GoalProgressOperationType.SET,
-        amountMinor = amountMinor,
-        sourceAccountId = null
-    )
-
-    override suspend fun dismissRejectedOperation(operationId: String): Result<Unit> = operation {
-        val uid = owner()
-        dismissedRejectedByOwner.update { current ->
-            val updatedForUser = current[uid].orEmpty() + operationId
-            current + (uid to updatedForUser)
-        }
-    }
-
     override suspend fun retrySync(): Result<Unit> = operation {
         val uid = owner()
         processor.upload(uid)
-    }
-
-    private suspend fun recordProgressOperation(
-        goalId: String,
-        operationId: String,
-        type: GoalProgressOperationType,
-        amountMinor: Long,
-        sourceAccountId: String?
-    ): Result<FinancialGoal> = operation {
-        val uid = owner()
-        if (!GoalPolicy.validId(goalId) || !GoalPolicy.validId(operationId)) {
-            throw GoalException(GoalError.INVALID_ID)
-        }
-        val normalizedAccountId = when (type) {
-            GoalProgressOperationType.ADD -> {
-                val trimmed = sourceAccountId?.trim().orEmpty()
-                if (trimmed.isEmpty()) throw GoalException(GoalError.ACCOUNT_REQUIRED)
-                if (!GoalPolicy.validId(trimmed)) throw GoalException(GoalError.INVALID_ID)
-                trimmed
-            }
-            GoalProgressOperationType.SET -> {
-                if (sourceAccountId != null) throw GoalException(GoalError.INVALID_ID)
-                null
-            }
-        }
-        database.withTransaction {
-            checkOwner(uid)
-            val currentEntity = goalDao.get(uid, goalId)
-                ?: throw GoalException(GoalError.NOT_FOUND)
-            val currentGoal = currentEntity.toDomain()
-
-            val existingOp = operationDao.get(uid, operationId)
-            if (existingOp != null) {
-                if (
-                    existingOp.goalId != goalId ||
-                    existingOp.type != type.name ||
-                    existingOp.amountMinor != amountMinor ||
-                    existingOp.sourceAccountId != normalizedAccountId
-                ) {
-                    throw GoalException(GoalError.INVALID_ID)
-                }
-                return@withTransaction currentGoal
-            }
-
-            val updatedGoal = when (type) {
-                GoalProgressOperationType.ADD -> {
-                    val accountId = checkNotNull(normalizedAccountId)
-                    val accountEntity = database.accountDao.getById(accountId)
-                        ?.takeIf { it.userId == uid }
-                    val activeTransactions = database.transactionDao.getActiveForUser(uid)
-                        .map { it.toDomain() }
-                    val allOperations = operationDao.getByUser(uid)
-                        .map { it.toDomain() }
-                    val hasConsistentCurrency = accountEntity != null &&
-                        GoalPolicy.hasConsistentCurrencyUnits(
-                            accountId = accountEntity.id,
-                            accountCurrency = accountEntity.currency,
-                            transactions = activeTransactions
-                        )
-                    val availableBalance = if (accountEntity != null) {
-                        GoalPolicy.availableBalanceForAccount(
-                            accountId = accountEntity.id,
-                            transactions = activeTransactions,
-                            operations = allOperations
-                        )
-                    } else {
-                        BigInteger.ZERO
-                    }
-                    GoalPolicy.validateContributionWithAccount(
-                        uid = uid,
-                        goal = currentGoal,
-                        sourceAccountId = accountId,
-                        account = accountEntity?.toDomain(),
-                        accountCurrencyUnitsValid = hasConsistentCurrency,
-                        availableBalanceMinor = availableBalance,
-                        amountMinor = amountMinor
-                    )
-                }
-                GoalProgressOperationType.SET -> {
-                    GoalPolicy.applyOperation(
-                        goal = currentGoal,
-                        type = GoalProgressOperationType.SET,
-                        amountMinor = amountMinor
-                    )
-                }
-            }
-
-            val now = maxOf(clock.millis(), Math.addExact(currentGoal.updatedAt, 1L))
-            val op = GoalProgressOperation(
-                id = operationId,
-                userId = uid,
-                goalId = goalId,
-                type = type,
-                amountMinor = amountMinor,
-                sourceAccountId = normalizedAccountId,
-                createdAt = now,
-                state = GoalProgressOperationState.PENDING
-            )
-            GoalPolicy.validateOperation(
-                op,
-                requireSourceAccountOnAdd = type == GoalProgressOperationType.ADD
-            )
-            val inserted = operationDao.insert(op.toEntity())
-            if (inserted == -1L) {
-                return@withTransaction currentGoal
-            }
-            beforeGoalUpsertHook?.invoke()
-            val savedGoal = updatedGoal.copy(
-                updatedAt = now,
-                pendingSync = currentGoal.pendingSync
-            )
-            goalDao.upsert(savedGoal.toEntity())
-            savedGoal
-        }
     }
 
     private suspend fun owner(): String =

@@ -5,16 +5,13 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.clarity.domain.model.Currencies
 import com.example.clarity.domain.model.CurrencyConversion
-import com.example.clarity.domain.model.GoalsSnapshot
 import com.example.clarity.domain.model.Transaction
 import com.example.clarity.domain.model.TransactionType
 import com.example.clarity.domain.repository.ExchangeRateRepository
 import com.example.clarity.domain.usecase.account.GetAccountsUseCase
 import com.example.clarity.domain.usecase.currency.ObserveCurrencyPreferenceUseCase
-import com.example.clarity.domain.usecase.goal.ObserveGoalsUseCase
 import com.example.clarity.domain.usecase.transaction.AddTransactionUseCase
 import com.example.clarity.domain.usecase.transaction.GetTransactionsUseCase
-import com.example.clarity.domain.util.GoalPolicy
 import com.example.clarity.domain.util.MoneyUtils
 import com.example.clarity.domain.util.Resource
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -38,8 +35,7 @@ class CashWalletViewModel @Inject constructor(
     getAccounts: GetAccountsUseCase,
     getTransactions: GetTransactionsUseCase,
     private val addTransaction: AddTransactionUseCase,
-    observeCurrency: ObserveCurrencyPreferenceUseCase,
-    observeGoals: ObserveGoalsUseCase
+    observeCurrency: ObserveCurrencyPreferenceUseCase
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(loadQuickState())
@@ -50,9 +46,8 @@ class CashWalletViewModel @Inject constructor(
             combine(
                 getAccounts(),
                 getTransactions().catch { emit(Resource.Success(emptyList())) },
-                observeCurrency(),
-                observeGoals().catch { emit(GoalsSnapshot(null, emptyList())) }
-            ) { accountsResult, txResult, pref, goalsSnapshot ->
+                observeCurrency()
+            ) { accountsResult, txResult, pref ->
                 val accounts = accountsResult.data ?: return@combine null
                 val transactions = txResult.data ?: emptyList()
                 val targetCurrency = pref.currency
@@ -104,14 +99,6 @@ class CashWalletViewModel @Inject constructor(
                     } else {
                         balanceMinor -= amount
                     }
-                }
-
-                if (cashAccount != null) {
-                    val reservedCashMinor = GoalPolicy.reservedFromAccount(
-                        accountId = cashAccount.id,
-                        operations = goalsSnapshot.operations
-                    )
-                    balanceMinor -= convertMinor(reservedCashMinor, cashAccount.currency, targetCurrency)
                 }
 
                 val current = _uiState.value
