@@ -19,6 +19,10 @@ sealed class Screen(val route: String) {
     object Settings : Screen("settings")
     object AccountList : Screen("accounts")
     object Goals : Screen("goals")
+    object GoalEdit : Screen("goals/edit?goalId={goalId}") {
+        fun createRoute(goalId: String? = null) = if (goalId == null) "goals/edit"
+            else "goals/edit?goalId=${Uri.encode(goalId)}"
+    }
     object AccountEdit : Screen("accounts/edit?id={id}") {
         fun createRoute(id: String? = null) = if (id == null) "accounts/edit"
             else "accounts/edit?id=${Uri.encode(id)}"

@@ -1,6 +1,7 @@
 package com.example.clarity
 
 import android.app.Application
+import com.example.clarity.data.sync.GoalSyncManager
 import com.example.clarity.data.sync.IncomeSyncManager
 import com.example.clarity.data.sync.ProofSyncManager
 import dagger.hilt.android.HiltAndroidApp
@@ -23,6 +24,7 @@ class ClarityApp : Application() {
     @Inject lateinit var incomeSyncManager: IncomeSyncManager
     @Inject lateinit var budgetSyncManager: com.example.clarity.data.sync.BudgetSyncManager
     @Inject lateinit var budgetAlertManager: com.example.clarity.data.sync.BudgetAlertManager
+    @Inject lateinit var goalSyncManager: GoalSyncManager
 
     override fun onCreate() {
         super.onCreate()
@@ -30,5 +32,6 @@ class ClarityApp : Application() {
         incomeSyncManager.start()
         budgetSyncManager.start()
         budgetAlertManager.start()
+        goalSyncManager.start()
     }
 }
