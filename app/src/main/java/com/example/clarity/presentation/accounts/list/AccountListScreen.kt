@@ -65,6 +65,7 @@ internal fun AccountListContent(
     bottomBar: @Composable () -> Unit = {}
 ) {
     val addDescription = "Add account"
+    val visibleAccounts = state.accounts.filterNot { it.isCashWallet }
     Scaffold(
         topBar = {
             TopAppBar(
@@ -109,7 +110,7 @@ internal fun AccountListContent(
                             CircularProgressIndicator()
                         }
                     }
-                } else if (state.accounts.isEmpty() && state.error != AccountMessages.SIGN_IN) {
+                } else if (visibleAccounts.isEmpty() && state.error != AccountMessages.SIGN_IN) {
                     item(key = "empty") {
                         Card(
                             shape = RoundedCornerShape(16.dp),
@@ -148,7 +149,7 @@ internal fun AccountListContent(
                         }
                     }
                 }
-                items(state.accounts, key = { it.id }) { account ->
+                items(visibleAccounts, key = { it.id }) { account ->
                     AccountCard(
                         account = account,
                         changingDefaultId = state.changingDefaultId,
