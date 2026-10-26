@@ -5,11 +5,14 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.clarity.data.repository.AuthRepositoryImpl
 import com.example.clarity.domain.usecase.account.GetAccountsUseCase
+import com.example.clarity.domain.usecase.account.SetDefaultAccountUseCase
 import com.example.clarity.domain.usecase.auth.ObserveCurrentUserUseCase
 import com.example.clarity.domain.usecase.auth.SignOutUseCase
 import com.example.clarity.domain.usecase.auth.UpdateUserProfileUseCase
 import com.example.clarity.domain.usecase.currency.ObserveCurrencyPreferenceUseCase
 import com.example.clarity.domain.usecase.currency.SetCurrencyPreferenceUseCase
+import com.example.clarity.presentation.accounts.AccountMessages
+import com.example.clarity.presentation.accounts.accountErrorMessage
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -27,6 +30,7 @@ class SettingsViewModel @Inject constructor(
     private val observeCurrentUser: ObserveCurrentUserUseCase,
     private val updateUserProfile: UpdateUserProfileUseCase,
     private val getAccounts: GetAccountsUseCase,
+    private val setDefaultAccountUseCase: SetDefaultAccountUseCase,
     private val signOutUseCase: SignOutUseCase
 ) : ViewModel() {
 
@@ -80,7 +84,10 @@ class SettingsViewModel @Inject constructor(
                     val accountLabel = defaultAccount?.displayLabel
                     prefs.edit().putString(KEY_DEFAULT_ACCOUNT, accountLabel).apply()
                     _uiState.update {
-                        it.copy(defaultAccountName = accountLabel)
+                        it.copy(
+                            defaultAccountName = accountLabel,
+                            bankAccounts = bankAccounts
+                        )
                     }
                 }
         }
@@ -95,6 +102,23 @@ class SettingsViewModel @Inject constructor(
                 prefs.edit().putString(KEY_CURRENCY, currency).apply()
             }
             _uiState.update { it.copy(saving = false, error = result.isFailure) }
+        }
+    }
+
+    fun setDefaultAccount(id: String) {
+        val state = _uiState.value
+        if (state.changingDefaultId != null || state.bankAccounts.none { it.id == id && !it.isDefault }) return
+        _uiState.update { it.copy(changingDefaultId = id, defaultAccountError = null) }
+        viewModelScope.launch {
+            val result = setDefaultAccountUseCase(id)
+            _uiState.update {
+                it.copy(
+                    changingDefaultId = null,
+                    defaultAccountError = result.exceptionOrNull()?.let { error ->
+                        accountErrorMessage(error, AccountMessages.DEFAULT_ERROR)
+                    }
+                )
+            }
         }
     }
 

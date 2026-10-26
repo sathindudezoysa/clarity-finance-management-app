@@ -1,5 +1,6 @@
 package com.example.clarity.presentation.navigation
 
+import android.util.Log
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -176,6 +177,7 @@ fun SetupNavGraph(
                 onBack = { navController.popBackStack() },
                 onBankAccounts = { navController.navigate(Screen.AccountList.route) },
                 onSignOut = {
+                    Log.d("LogoutDebug", "3. NavGraph onSignOut, navigating to Login")
                     navController.navigate(Screen.Login.route) {
                         popUpTo(0) { inclusive = true }
                     }

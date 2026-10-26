@@ -1,5 +1,7 @@
 package com.example.clarity.presentation.settings
 
+import com.example.clarity.domain.model.Account
+
 enum class SettingsDestination { BACK, BANK_ACCOUNTS, LOGIN }
 
 data class SettingsState(
@@ -22,5 +24,8 @@ data class SettingsState(
     val appearanceMode: String? = null,
     val isUpdatingProfile: Boolean = false,
     val profileSaved: Boolean = false,
-    val profileError: String? = null
+    val profileError: String? = null,
+    val bankAccounts: List<Account> = emptyList(),
+    val changingDefaultId: String? = null,
+    val defaultAccountError: String? = null
 )
