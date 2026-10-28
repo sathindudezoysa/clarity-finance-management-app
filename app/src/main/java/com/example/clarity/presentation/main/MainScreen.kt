@@ -10,7 +10,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.outlined.Person
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -29,6 +28,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.clarity.presentation.budgets.BudgetDashboardSummary
 import com.example.clarity.presentation.common.AppIcons
 import com.example.clarity.presentation.income.IncomeMonthlyPrompt
+import com.example.clarity.presentation.navigation.BottomNavDestination
+import com.example.clarity.presentation.navigation.ClarityTopBar
 
 @Composable
 fun MainScreen(
@@ -37,6 +38,12 @@ fun MainScreen(
     onNavigateToSettings: () -> Unit = {},
     onNavigateToIncome: () -> Unit = {},
     onNavigateToBudgets: (String?) -> Unit = {},
+    topBar: @Composable () -> Unit = {
+        ClarityTopBar(
+            title = BottomNavDestination.HOME.label,
+            onProfileClick = onNavigateToSettings
+        )
+    },
     bottomBar: @Composable () -> Unit = {},
     viewModel: MainViewModel = hiltViewModel()
 ) {
@@ -44,6 +51,7 @@ fun MainScreen(
     val colors = MaterialTheme.colorScheme
 
     Scaffold(
+        topBar = topBar,
         bottomBar = bottomBar,
         floatingActionButton = {
             FloatingActionButton(
@@ -57,25 +65,11 @@ fun MainScreen(
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(padding)
                 .verticalScroll(rememberScrollState())
+                .padding(padding)
                 .padding(horizontal = 16.dp, vertical = 12.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text("Home", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-                IconButton(
-                    onClick = onNavigateToSettings,
-                    modifier = Modifier.size(48.dp).clip(CircleShape).background(colors.surfaceVariant)
-                ) {
-                    Icon(Icons.Outlined.Person, contentDescription = "Settings", tint = colors.primary)
-                }
-            }
-
             // Hero Net Worth Card
             Surface(
                 shape = RoundedCornerShape(24.dp),

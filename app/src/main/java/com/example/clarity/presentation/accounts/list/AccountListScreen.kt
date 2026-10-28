@@ -9,7 +9,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Warning
@@ -33,13 +32,22 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.clarity.domain.model.Account
 import com.example.clarity.presentation.accounts.AccountMessages
 import com.example.clarity.presentation.common.AppIcons
+import com.example.clarity.presentation.navigation.BottomNavDestination
+import com.example.clarity.presentation.navigation.ClarityTopBar
 import com.example.clarity.presentation.theme.ClarityTheme
 
 @Composable
 fun AccountListScreen(
-    onBack: () -> Unit,
+    onBack: () -> Unit = {},
     onAdd: () -> Unit,
     onEdit: (String) -> Unit,
+    onNavigateToProfile: () -> Unit = {},
+    topBar: @Composable () -> Unit = {
+        ClarityTopBar(
+            title = BottomNavDestination.ACCOUNTS.label,
+            onProfileClick = onNavigateToProfile
+        )
+    },
     bottomBar: @Composable () -> Unit = {},
     viewModel: AccountListViewModel = hiltViewModel()
 ) {
@@ -50,11 +58,11 @@ fun AccountListScreen(
         onAdd = onAdd,
         onEdit = onEdit,
         onMakeDefault = { id -> viewModel.makeDefault(id) },
+        topBar = topBar,
         bottomBar = bottomBar
     )
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun AccountListContent(
     state: AccountListState,
@@ -62,21 +70,18 @@ internal fun AccountListContent(
     onAdd: () -> Unit,
     onEdit: (String) -> Unit,
     onMakeDefault: (String) -> Unit,
+    topBar: @Composable () -> Unit = {
+        ClarityTopBar(
+            title = BottomNavDestination.ACCOUNTS.label,
+            onProfileClick = {}
+        )
+    },
     bottomBar: @Composable () -> Unit = {}
 ) {
     val addDescription = "Add account"
     val visibleAccounts = state.accounts.filterNot { it.isCashWallet }
     Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text("Bank accounts") },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.Default.ArrowBack, contentDescription = "Back")
-                    }
-                }
-            )
-        },
+        topBar = topBar,
         bottomBar = bottomBar,
         floatingActionButton = {
             if (state.error != AccountMessages.SIGN_IN) {
@@ -89,10 +94,15 @@ internal fun AccountListContent(
             }
         }
     ) { padding ->
-        Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.TopCenter) {
+        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
             LazyColumn(
                 modifier = Modifier.widthIn(max = 600.dp).fillMaxSize(),
-                contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 88.dp),
+                contentPadding = PaddingValues(
+                    start = 16.dp,
+                    end = 16.dp,
+                    top = padding.calculateTopPadding() + 16.dp,
+                    bottom = padding.calculateBottomPadding() + 88.dp
+                ),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 state.error?.let { error ->
