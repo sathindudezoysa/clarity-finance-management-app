@@ -13,8 +13,12 @@ import com.example.clarity.data.repository.AccountRepositoryImpl
 import com.example.clarity.data.sync.AccountUploader
 import com.example.clarity.data.remote.AccountRemoteDataSource
 import com.example.clarity.data.remote.FirestoreAccountDataSource
+import com.example.clarity.data.remote.FirestoreGoalDataSource
+import com.example.clarity.data.remote.GoalRemoteDataSource
+import com.example.clarity.data.repository.GoalRepositoryImpl
 import com.example.clarity.domain.repository.AccountRepository
 import com.example.clarity.domain.repository.AuthRepository
+import com.example.clarity.domain.repository.GoalRepository
 import com.example.clarity.data.repository.TransactionRepositoryImpl
 import com.example.clarity.domain.repository.TransactionRepository
 import com.example.clarity.data.repository.TransactionTagRepositoryImpl
@@ -64,6 +68,12 @@ abstract class RepositoryModule {
 
     @Binds @Singleton
     abstract fun bindIncomeSourceRepository(impl: IncomeSourceRepositoryImpl): IncomeSourceRepository
+
+    @Binds @Singleton
+    abstract fun bindGoalRemote(impl: FirestoreGoalDataSource): GoalRemoteDataSource
+
+    @Binds @Singleton
+    abstract fun bindGoalRepository(impl: GoalRepositoryImpl): GoalRepository
 
     @Binds
     @Singleton

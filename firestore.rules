@@ -1,5 +1,11 @@
 rules_version = '2';
 
+// Financial goals: users/{uid}/goals/{goalId}, owner-private.
+// Required fields: id, userId, name, description, targetMinor, currency, targetDateEpochDay, createdAt, updatedAt.
+// Immutable id/userId/currency/createdAt; name 1..100 (non-whitespace), description 0..500,
+// positive integer targetMinor, supported currency, targetDateEpochDay epoch-day int, updatedAt >= createdAt.
+// Delete is disabled.
+
 // Budgets: users/{uid}/budgets/{(YYYY-MM|YYYY)_sha256(normalized category)}, device-local calendar months or years.
 // Required id/userId/month/category/categoryKey/limitMinor/currency/active/createdAt/updatedAt.
 // Owner-only, category trimmed, SHA-256 of lowercase UTF-8 category; positive integer minor units.
@@ -230,6 +236,37 @@ service cloud.firestore {
         && request.resource.data.id == resource.data.id
         && request.resource.data.month == resource.data.month
         && request.resource.data.categoryKey == resource.data.categoryKey
+        && request.resource.data.currency == resource.data.currency
+        && request.resource.data.createdAt == resource.data.createdAt
+        && request.resource.data.updatedAt >= resource.data.updatedAt;
+      allow delete: if false;
+    }
+
+    function validGoal(data, goalId, userId) {
+      let fields = ['id', 'userId', 'name', 'description', 'targetMinor',
+                    'currency', 'targetDateEpochDay', 'createdAt', 'updatedAt'];
+      return data.keys().hasAll(fields) && data.keys().hasOnly(fields)
+        && data.id is string && data.id == goalId && goalId.size() > 0 && goalId.size() <= 128
+        && goalId != '.' && goalId != '..'
+        && data.userId is string && data.userId.size() > 0 && data.userId.size() <= 128
+        && data.userId == userId && uidUnchanged(data)
+        && data.name is string && data.name.size() > 0 && data.name.size() <= 100
+        && data.name.matches('(?s).*[^\\s].*')
+        && data.description is string && data.description.size() <= 500
+        && data.targetMinor is int && data.targetMinor > 0
+        && validCurrency(data.currency)
+        && data.targetDateEpochDay is int
+        && data.createdAt is int && data.createdAt >= 0
+        && data.updatedAt is int && data.updatedAt >= data.createdAt;
+    }
+
+    match /users/{userId}/goals/{goalId} {
+      allow read: if isOwner(userId);
+      allow create: if isOwner(userId) && validGoal(request.resource.data, goalId, userId);
+      allow update: if isOwner(userId)
+        && validGoal(request.resource.data, goalId, userId)
+        && uidNotModified(request.resource.data)
+        && request.resource.data.id == resource.data.id
         && request.resource.data.currency == resource.data.currency
         && request.resource.data.createdAt == resource.data.createdAt
         && request.resource.data.updatedAt >= resource.data.updatedAt;

@@ -166,4 +166,3 @@ class SettingsDefaultAccountViewModelTest {
         override suspend fun current(): String = "LKR"
     }
 }
-

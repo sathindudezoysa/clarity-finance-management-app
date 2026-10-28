@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.room.Room
 import com.example.clarity.data.local.ClarityDatabase
 import com.example.clarity.data.local.dao.AccountDao
+import com.example.clarity.data.local.dao.GoalDao
 import com.example.clarity.data.local.dao.TransactionDao
 import com.example.clarity.data.local.dao.TransactionTagDao
 import dagger.Module
@@ -51,4 +52,7 @@ object DatabaseModule {
 
     @Provides
     fun provideBudgetDao(database: ClarityDatabase): com.example.clarity.data.local.dao.BudgetDao = database.budgetDao
+
+    @Provides
+    fun provideGoalDao(database: ClarityDatabase): GoalDao = database.goalDao
 }

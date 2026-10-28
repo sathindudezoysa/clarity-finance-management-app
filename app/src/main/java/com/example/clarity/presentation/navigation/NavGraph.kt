@@ -13,6 +13,7 @@ import com.example.clarity.presentation.accounts.edit.AccountEditScreen
 import com.example.clarity.presentation.accounts.list.AccountListScreen
 import com.example.clarity.presentation.auth.login.LoginScreen
 import com.example.clarity.presentation.auth.register.RegisterScreen
+import com.example.clarity.presentation.goals.GoalEditScreen
 import com.example.clarity.presentation.goals.GoalsScreen
 import com.example.clarity.presentation.income.IncomeScreen
 import com.example.clarity.presentation.main.MainScreen
@@ -138,6 +139,25 @@ fun SetupNavGraph(
                         currentDestination = BottomNavDestination.GOALS
                     )
                 },
+                viewModel = hiltViewModel(),
+                onAddGoal = {
+                    navController.navigate(Screen.GoalEdit.createRoute()) {
+                        launchSingleTop = true
+                    }
+                },
+                onEditGoal = { goalId ->
+                    navController.navigate(Screen.GoalEdit.createRoute(goalId)) {
+                        launchSingleTop = true
+                    }
+                }
+            )
+        }
+        composable(
+            route = Screen.GoalEdit.route,
+            arguments = listOf(navArgument("goalId") { type = NavType.StringType; nullable = true; defaultValue = null })
+        ) {
+            GoalEditScreen(
+                onBack = { navController.popBackStack() },
                 viewModel = hiltViewModel()
             )
         }
