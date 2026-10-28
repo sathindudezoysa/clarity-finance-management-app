@@ -30,4 +30,7 @@ abstract class AccountDao {
     // Include pending deletes and every owner: any stored reference must remain valid.
     @Query("SELECT EXISTS(SELECT 1 FROM transactions WHERE accountId = :accountId)")
     abstract suspend fun hasTransactionReferences(accountId: String): Boolean
+
+    @Query("UPDATE transactions SET accountId = :targetCashId, pendingSync = 1 WHERE userId = :userId AND accountId LIKE 'cash_wallet_%' AND accountId != :targetCashId")
+    abstract suspend fun migrateCashWalletTransactions(userId: String, targetCashId: String)
 }

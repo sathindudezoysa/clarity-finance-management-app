@@ -29,12 +29,15 @@ data class Account(
     companion object {
         const val CASH_WALLET_PREFIX = "cash_wallet_"
 
-        fun defaultCashWallet(currency: String, isDefault: Boolean = false): Account = Account(
-            id = "$CASH_WALLET_PREFIX${UUID.randomUUID()}",
+        fun cashWalletId(userId: String): String = "$CASH_WALLET_PREFIX$userId"
+
+        fun defaultCashWallet(currency: String, isDefault: Boolean = false, userId: String = ""): Account = Account(
+            id = if (userId.isNotBlank()) cashWalletId(userId) else "$CASH_WALLET_PREFIX${UUID.randomUUID()}",
             name = "Cash Wallet",
             bankName = "Cash",
             accountType = "CASH",
             currency = currency,
+            userId = userId,
             isDefault = isDefault
         )
     }

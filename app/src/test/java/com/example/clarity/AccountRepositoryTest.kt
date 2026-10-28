@@ -645,6 +645,7 @@ class AccountRepositoryTest {
         // Simulate GetAccountsUseCase creating a local cash wallet on empty Room DB before remote snapshot arrives
         val localAutoCreated = Account.defaultCashWallet(currency = "LKR", isDefault = true)
         repository.createAccount(localAutoCreated).getOrThrow()
+        assertEquals(Account.cashWalletId("user-a"), dao.getAllForUser("user-a").single().id)
         assertTrue(remote.batches.isEmpty())
 
         // Existing Firebase cash_wallet arrives
@@ -663,9 +664,9 @@ class AccountRepositoryTest {
 
         val savedAccounts = dao.getAllForUser("user-a")
         assertEquals(listOf(existingFirebaseCash.id), savedAccounts.map { it.id })
-        assertNull(dao.getById(localAutoCreated.id))
+        assertNull(dao.getById(Account.cashWalletId("user-a")))
         assertDefault(existingFirebaseCash.id)
-        assertTrue(remote.batches.flatten().none { it.id == localAutoCreated.id })
+        assertTrue(remote.batches.flatten().none { it.id == Account.cashWalletId("user-a") })
     }
 
     // Primitive storage is faked; repository validation and reconciliation run unchanged.
@@ -676,6 +677,14 @@ class AccountRepositoryTest {
         val retainedWarnings = mutableListOf<String>()
         val committedRows = mutableListOf<List<AccountEntity>>()
         override suspend fun hasTransactionReferences(accountId: String) = transactions.any { it.accountId == accountId }
+        override suspend fun migrateCashWalletTransactions(userId: String, targetCashId: String) {
+            for (i in transactions.indices) {
+                val tx = transactions[i]
+                if (tx.userId == userId && tx.accountId?.startsWith(Account.CASH_WALLET_PREFIX) == true && tx.accountId != targetCashId) {
+                    transactions[i] = tx.copy(accountId = targetCashId, pendingSync = true)
+                }
+            }
+        }
         override fun observeAll(userId: String) = rows.map { it.values.filter { row -> row.userId == userId } }.distinctUntilChanged()
         override suspend fun getAllForUser(userId: String) = rows.value.values.filter { it.userId == userId }
         override suspend fun getById(id: String) = rows.value[id]

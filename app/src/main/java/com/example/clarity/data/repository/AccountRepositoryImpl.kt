@@ -94,7 +94,8 @@ class AccountRepositoryImpl internal constructor(
                         remote.observeAccounts(user.uid).map { snapshot ->
                             mutationMutex.withLock {
                                 reconcileRemote(user.uid, snapshot.accounts.map { it.toEntity() }, snapshot.authoritative, snapshot.remoteIds)
-                                syncState.value = SyncState(user.uid, warning = null, remoteLoaded = true)
+                                val loaded = syncState.value.remoteLoaded || snapshot.authoritative || snapshot.accounts.isNotEmpty()
+                                syncState.value = SyncState(user.uid, warning = null, remoteLoaded = loaded)
                             }
                             triggers.trySend(Unit)
                         }.retryWhen { error, _ ->
@@ -164,7 +165,17 @@ class AccountRepositoryImpl internal constructor(
     }.flowOn(ioDispatcher)
 
     override suspend fun createAccount(account: Account): Result<Unit> = localOperation { uid ->
-        saveAccount(validated(account.copy(userId = uid)).toEntity(), create = true)
+        val normalizedAccount = if (account.isCashWallet) {
+            account.copy(id = Account.cashWalletId(uid), userId = uid)
+        } else {
+            account.copy(userId = uid)
+        }
+        val existingCash = if (normalizedAccount.isCashWallet) {
+            dao.getAllForUser(uid).firstOrNull { it.id.startsWith(Account.CASH_WALLET_PREFIX) }
+        } else null
+        if (existingCash == null) {
+            saveAccount(validated(normalizedAccount).toEntity(), create = true)
+        }
     }
 
     override suspend fun updateAccount(account: Account): Result<Unit> = localOperation { uid ->
@@ -235,51 +246,43 @@ class AccountRepositoryImpl internal constructor(
         remoteIds: Set<String> = remote.map { it.id }.toSet()
     ) = runTransaction {
         with(dao) {
-            val rawLocal = getAllForUser(userId)
             val remoteCashWallets = remote.filter {
                 it.userId == userId && it.updatedAt < Long.MAX_VALUE && it.id.startsWith(Account.CASH_WALLET_PREFIX)
             }
-            val canonicalRemoteCash = if (remoteCashWallets.isNotEmpty()) {
-                remoteCashWallets.firstOrNull { hasTransactionReferences(it.id) }
-                    ?: remoteCashWallets.minWith(compareBy<AccountEntity> { it.createdAt }.thenBy { it.id })
-            } else null
-            val replacedLocalCash = if (canonicalRemoteCash != null) {
-                rawLocal.filter {
-                    it.id.startsWith(Account.CASH_WALLET_PREFIX) &&
-                        it.id != canonicalRemoteCash.id &&
-                        !hasTransactionReferences(it.id)
-                }
-            } else emptyList()
-            replacedLocalCash.forEach { deleteById(it.id, userId) }
-            val skippedRemoteCashIds = if (canonicalRemoteCash != null) {
-                remoteCashWallets
-                    .filter { it.id != canonicalRemoteCash.id && !hasTransactionReferences(it.id) }
-                    .map { it.id }
-                    .toSet()
+            val canonicalRemoteCash = remoteCashWallets.firstOrNull { hasTransactionReferences(it.id) }
+                ?: remoteCashWallets.firstOrNull { it.id == Account.cashWalletId(userId) }
+                ?: remoteCashWallets.minWithOrNull(compareBy<AccountEntity> { it.createdAt }.thenBy { it.id })
+            if (canonicalRemoteCash != null) {
+                migrateCashWalletTransactions(userId, canonicalRemoteCash.id)
+                getAllForUser(userId)
+                    .filter { it.id.startsWith(Account.CASH_WALLET_PREFIX) && it.id != canonicalRemoteCash.id }
+                    .forEach { deleteById(it.id, userId) }
+            }
+            val skippedCashIds = if (canonicalRemoteCash != null) {
+                remoteCashWallets.filter { it.id != canonicalRemoteCash.id }.map { it.id }.toSet()
             } else emptySet()
-            val local = if (replacedLocalCash.isEmpty()) rawLocal else rawLocal - replacedLocalCash.toSet()
-            val effectiveRemote = if (skippedRemoteCashIds.isEmpty()) remote else remote.filter { it.id !in skippedRemoteCashIds }
-            val effectiveRemoteIds = remoteIds - skippedRemoteCashIds
-            val pending = local.any { it.pendingSync }
-            val invalidTimestampIds = effectiveRemote.filter { it.userId == userId && it.updatedAt >= Long.MAX_VALUE }.map { it.id }
+            val local = getAllForUser(userId)
+            val pending = local.any { it.pendingSync && it.id != canonicalRemoteCash?.id }
+            val invalidTimestampIds = remote.filter { it.userId == userId && it.updatedAt >= Long.MAX_VALUE }.map { it.id }
             if (invalidTimestampIds.isNotEmpty()) warnInvalidTimestamps(invalidTimestampIds)
             val merged = local.associateBy { it.id }.toMutableMap()
-            effectiveRemote.filter { it.userId == userId && it.updatedAt < Long.MAX_VALUE }.forEach { incoming ->
+            remote.filter { it.userId == userId && it.updatedAt < Long.MAX_VALUE && it.id !in skippedCashIds }.forEach { incoming ->
                 val existing = getById(incoming.id)
                 if (existing != null && existing.userId != userId) return@forEach
+                val resetLocalCash = incoming.id == canonicalRemoteCash?.id && existing != null && existing.createdAt != incoming.createdAt
                 // A pending default switch is an indivisible group. Cache cannot confirm it.
-                if (existing?.pendingSync == true || (pending && !authoritative)) return@forEach
+                if (!resetLocalCash && (existing?.pendingSync == true || (pending && !authoritative))) return@forEach
                 // A remote rename must not make Room's REPLACE delete a different local account.
                 val incomingName = incoming.name.lowercase(java.util.Locale.ROOT)
                 if (existing != null && existing.name.lowercase(java.util.Locale.ROOT) != incomingName &&
                     local.any { other -> other.id != incoming.id &&
                         (other.name.lowercase(java.util.Locale.ROOT) == incomingName ||
                             merged[other.id]?.name?.lowercase(java.util.Locale.ROOT) == incomingName) &&
-                        (!authoritative || other.pendingSync || other.id in effectiveRemoteIds || hasTransactionReferences(other.id)) }) {
+                        (!authoritative || other.pendingSync || other.id in remoteIds || hasTransactionReferences(other.id)) }) {
                     warnSkippedAccounts(listOf(incoming.id))
                     return@forEach
                 }
-                if (existing != null && existing.updatedAt > incoming.updatedAt) {
+                if (!resetLocalCash && existing != null && existing.updatedAt > incoming.updatedAt) {
                     if (authoritative) merged[incoming.id] = existing.copy(pendingSync = true)
                 } else {
                     merged[incoming.id] = incoming.copy(
@@ -289,7 +292,7 @@ class AccountRepositoryImpl internal constructor(
                 }
             }
             if (authoritative) {
-                local.filter { !it.pendingSync && it.id !in effectiveRemoteIds }.forEach {
+                local.filter { !it.pendingSync && it.id !in (remoteIds - skippedCashIds) }.forEach {
                     if (hasTransactionReferences(it.id)) {
                         warnRetainedAccount(it.id)
                     } else {

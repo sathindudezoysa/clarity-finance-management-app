@@ -124,6 +124,20 @@ service cloud.firestore {
         && request.resource.data.createdAt == resource.data.createdAt;
     }
 
+    function isCashWalletAccount(accountId, data) {
+      return accountId.matches('cash_wallet_.*')
+        || ('accountType' in data && data.accountType == 'CASH')
+        || data.name.lower() == 'cash wallet';
+    }
+
+    function isValidCashWallet(userId, accountId, data) {
+      return !isCashWalletAccount(accountId, data)
+        || ((accountId == 'cash_wallet_' + userId || (resource != null && accountId == resource.data.id))
+          && data.name == 'Cash Wallet'
+          && data.bankName == 'Cash'
+          && 'accountType' in data && data.accountType == 'CASH');
+    }
+
     function isValidAccount(data, accountId) {
       let fields = ['id', 'userId', 'name', 'bankName', 'currency', 'isDefault', 'createdAt', 'updatedAt'];
       return data.keys().hasAll(fields) && data.keys().hasOnly(fields.concat(['accountType']))
@@ -135,6 +149,7 @@ service cloud.firestore {
         && data.bankName is string && data.bankName.size() <= 100
         && (!('accountType' in data) || data.accountType == null
           || (data.accountType is string && data.accountType.size() <= 100))
+        && isValidCashWallet(data.userId, accountId, data)
         && data.currency is string && data.currency.matches('[A-Z]{3}')
         && data.isDefault is bool
         && data.createdAt is int && data.createdAt >= 0
@@ -172,6 +187,7 @@ service cloud.firestore {
       allow create: if isOwner(userId) && isValidDefault(userId, request.resource.data);
       allow update: if isOwner(userId) && isValidDefault(userId, request.resource.data)
         && (resource.data.accountId == request.resource.data.accountId
+          || !exists(/databases/$(database)/documents/users/$(userId)/accounts/$(resource.data.accountId))
           || getAfter(/databases/$(database)/documents/users/$(userId)/accounts/$(resource.data.accountId)).data.isDefault == false);
     }
 
