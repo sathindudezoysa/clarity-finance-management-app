@@ -85,7 +85,14 @@ fun TransactionProofContent(
                             Text("Remove missing proof")
                         }
                     } else {
-                        Text(if (proof.pendingUpload) "Saved on this device · upload pending" else "Uploaded securely", style = MaterialTheme.typography.bodySmall)
+                        Text(
+                            if (proof.pendingUpload) {
+                                "Saved on this device · Not synced with cloud (upgrade Firebase plan to enable Firebase Storage)"
+                            } else {
+                                "Uploaded securely"
+                            },
+                            style = MaterialTheme.typography.bodySmall
+                        )
                         if (proof.verifies(amountMinor)) ReceiptVerifiedIcon()
                         TextButton(onClick = { onOpen(proof.id) }, enabled = canAct) { Text("Open proof") }
                         TextButton(onClick = { onVerify(proof.id, !proof.verifies(amountMinor)) }, enabled = canAct) {

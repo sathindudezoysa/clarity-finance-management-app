@@ -1,8 +1,15 @@
 package com.example.clarity.presentation.transactions.edit
 
 import com.example.clarity.domain.model.Transaction
+import com.example.clarity.domain.model.TransactionProof
 import com.example.clarity.domain.model.TransactionTags
 import com.example.clarity.domain.model.Account
+
+data class PendingProofDraft(
+    val uri: String,
+    val displayName: String,
+    val verified: Boolean = false
+)
 
 data class TransactionEditState(
     val isEditMode: Boolean = false,
@@ -24,7 +31,11 @@ data class TransactionEditState(
     val targetCurrency: String = "LKR",
     val preview: com.example.clarity.domain.model.ConversionSnapshot? = null,
     val previewLoading: Boolean = false,
-    val previewError: Boolean = false
+    val previewError: Boolean = false,
+    val proofs: List<TransactionProof> = emptyList(),
+    val pendingProofs: List<PendingProofDraft> = emptyList(),
+    val isProofBusy: Boolean = false,
+    val proofError: String? = null
 ) {
     val canSaveWithAccount: Boolean get() = !isAccountsLoading && accounts.any { it.id == selectedAccountId }
 }

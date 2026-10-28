@@ -16,6 +16,16 @@ data class TransactionProof(
 
 data class ProofOpenFile(val uri: String, val mimeType: String)
 
+class ProofStoragePlanException(
+    message: String = MESSAGE,
+    cause: Throwable? = null
+) : Exception(message, cause) {
+    companion object {
+        const val MESSAGE =
+            "Proof is not synced with the cloud because you need to upgrade the Firebase plan to enable Firebase Storage. Saved locally on this device."
+    }
+}
+
 object ProofPolicy {
     const val MAX_BYTES = 10L * 1024 * 1024
     const val MAX_ATTACHMENTS = 10

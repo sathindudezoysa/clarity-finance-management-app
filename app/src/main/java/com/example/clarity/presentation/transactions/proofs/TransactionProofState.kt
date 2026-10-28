@@ -15,6 +15,7 @@ object ProofMessages {
     const val OPEN_ERROR = "Could not open this proof. Check your connection and try again."
     const val VERIFY_ERROR = "Could not update verification. Review the current amount and try again."
     const val SYNC_ERROR = "Could not sync proofs. Local copies are safe. Check your connection and try again."
+    const val STORAGE_PLAN_REQUIRED = "Proof is not synced with the cloud because you need to upgrade the Firebase plan to enable Firebase Storage. Saved locally on this device."
     const val VIEWER_ERROR = "No app could open this proof. Install a photo or PDF viewer and try again."
     const val REMOVE_ERROR = "Could not remove this missing proof. Please try again."
 }
