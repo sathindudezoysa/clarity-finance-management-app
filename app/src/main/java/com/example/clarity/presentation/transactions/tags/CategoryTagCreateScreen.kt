@@ -13,8 +13,6 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowBack
-import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -29,7 +27,6 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -40,8 +37,6 @@ import com.example.clarity.presentation.common.AppIcons
 private val TagBg = Color(0xFFF8FAFA)
 private val TagTealDark = Color(0xFF006B5E)
 private val TagTealPrimary = Color(0xFF006D43)
-private val TagTealLightBg = Color(0xFFE6F4F1)
-private val TagTealBadgeText = Color(0xFF004D40)
 private val TagSurfaceMuted = Color(0xFFECF2F2)
 private val TagCardSubtle = Color(0xFFF2F6F6)
 private val TagBorder = Color(0xFFD9E2E2)
@@ -141,100 +136,90 @@ fun CategoryTagCreateScreen(
                 .padding(horizontal = 16.dp, vertical = 10.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            // 1. Slide Selector: Expense vs Income (automatically selected from current slide)
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(
-                    text = "CATEGORY TYPE SLIDE",
-                    style = MaterialTheme.typography.labelSmall.copy(
-                        fontWeight = FontWeight.Bold,
-                        letterSpacing = 0.8.sp,
-                        color = TagTextSecondary
-                    )
-                )
-                Surface(
-                    color = TagSurfaceMuted,
-                    shape = RoundedCornerShape(12.dp),
-                    modifier = Modifier.fillMaxWidth()
+            // 1. Slide Selector: Expense vs Income
+            Surface(
+                color = TagSurfaceMuted,
+                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
-                    Row(
+                    val isExpense = state.selectedType == TransactionType.EXPENSE
+                    val isIncome = state.selectedType == TransactionType.INCOME
+
+                    Surface(
+                        color = if (isExpense) Color.White else Color.Transparent,
+                        shape = RoundedCornerShape(9.dp),
+                        shadowElevation = if (isExpense) 1.dp else 0.dp,
                         modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(4.dp),
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            .weight(1f)
+                            .clip(RoundedCornerShape(9.dp))
+                            .clickable(enabled = !state.isSaving, role = Role.Tab) {
+                                viewModel.onTypeSelected(TransactionType.EXPENSE)
+                            }
                     ) {
-                        val isExpense = state.selectedType == TransactionType.EXPENSE
-                        val isIncome = state.selectedType == TransactionType.INCOME
-
-                        Surface(
-                            color = if (isExpense) Color.White else Color.Transparent,
-                            shape = RoundedCornerShape(9.dp),
-                            shadowElevation = if (isExpense) 1.dp else 0.dp,
-                            modifier = Modifier
-                                .weight(1f)
-                                .clip(RoundedCornerShape(9.dp))
-                                .clickable(enabled = !state.isSaving, role = Role.Tab) {
-                                    viewModel.onTypeSelected(TransactionType.EXPENSE)
-                                }
+                        Row(
+                            modifier = Modifier.padding(vertical = 10.dp),
+                            horizontalArrangement = Arrangement.Center,
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Row(
-                                modifier = Modifier.padding(vertical = 10.dp),
-                                horizontalArrangement = Arrangement.Center,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Icon(
-                                    imageVector = AppIcons.ArrowDownward,
-                                    contentDescription = null,
-                                    tint = if (isExpense) TagTealDark else TagTextSecondary,
-                                    modifier = Modifier.size(16.dp)
+                            Icon(
+                                imageVector = AppIcons.ArrowDownward,
+                                contentDescription = null,
+                                tint = if (isExpense) TagTealDark else TagTextSecondary,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(Modifier.width(6.dp))
+                            Text(
+                                text = "Expense",
+                                style = MaterialTheme.typography.labelLarge.copy(
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = if (isExpense) TagTealDark else TagTextSecondary
                                 )
-                                Spacer(Modifier.width(6.dp))
-                                Text(
-                                    text = "Expense Categories",
-                                    style = MaterialTheme.typography.labelLarge.copy(
-                                        fontWeight = FontWeight.SemiBold,
-                                        color = if (isExpense) TagTealDark else TagTextSecondary
-                                    )
-                                )
-                            }
+                            )
                         }
+                    }
 
-                        Surface(
-                            color = if (isIncome) Color.White else Color.Transparent,
-                            shape = RoundedCornerShape(9.dp),
-                            shadowElevation = if (isIncome) 1.dp else 0.dp,
-                            modifier = Modifier
-                                .weight(1f)
-                                .clip(RoundedCornerShape(9.dp))
-                                .clickable(enabled = !state.isSaving, role = Role.Tab) {
-                                    viewModel.onTypeSelected(TransactionType.INCOME)
-                                }
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(vertical = 10.dp),
-                                horizontalArrangement = Arrangement.Center,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Icon(
-                                    imageVector = AppIcons.ArrowUpward,
-                                    contentDescription = null,
-                                    tint = if (isIncome) TagTealDark else TagTextSecondary,
-                                    modifier = Modifier.size(16.dp)
-                                )
-                                Spacer(Modifier.width(6.dp))
-                                Text(
-                                    text = "Income Categories",
-                                    style = MaterialTheme.typography.labelLarge.copy(
-                                        fontWeight = FontWeight.SemiBold,
-                                        color = if (isIncome) TagTealDark else TagTextSecondary
-                                    )
-                                )
+                    Surface(
+                        color = if (isIncome) Color.White else Color.Transparent,
+                        shape = RoundedCornerShape(9.dp),
+                        shadowElevation = if (isIncome) 1.dp else 0.dp,
+                        modifier = Modifier
+                            .weight(1f)
+                            .clip(RoundedCornerShape(9.dp))
+                            .clickable(enabled = !state.isSaving, role = Role.Tab) {
+                                viewModel.onTypeSelected(TransactionType.INCOME)
                             }
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(vertical = 10.dp),
+                            horizontalArrangement = Arrangement.Center,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = AppIcons.ArrowUpward,
+                                contentDescription = null,
+                                tint = if (isIncome) TagTealDark else TagTextSecondary,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(Modifier.width(6.dp))
+                            Text(
+                                text = "Income",
+                                style = MaterialTheme.typography.labelLarge.copy(
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = if (isIncome) TagTealDark else TagTextSecondary
+                                )
+                            )
                         }
                     }
                 }
             }
 
-            // 2. New Category Tag Name Card
+            // 2. Category Tag Name Input Card
             Surface(
                 color = Color.White,
                 shape = RoundedCornerShape(16.dp),
@@ -247,44 +232,20 @@ fun CategoryTagCreateScreen(
             ) {
                 Column(
                     modifier = Modifier.padding(18.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = if (state.selectedType == TransactionType.INCOME) {
-                                "NEW INCOME CATEGORY TAG"
-                            } else {
-                                "NEW EXPENSE CATEGORY TAG"
-                            },
-                            style = MaterialTheme.typography.labelSmall.copy(
-                                fontWeight = FontWeight.Bold,
-                                letterSpacing = 0.8.sp,
-                                color = TagTextSecondary
-                            )
+                    Text(
+                        text = if (state.selectedType == TransactionType.INCOME) {
+                            "NEW INCOME TAG"
+                        } else {
+                            "NEW EXPENSE TAG"
+                        },
+                        style = MaterialTheme.typography.labelSmall.copy(
+                            fontWeight = FontWeight.Bold,
+                            letterSpacing = 0.8.sp,
+                            color = TagTextSecondary
                         )
-                        Surface(
-                            color = TagTealLightBg,
-                            shape = CircleShape
-                        ) {
-                            Text(
-                                text = if (state.selectedType == TransactionType.INCOME) {
-                                    "categories / income"
-                                } else {
-                                    "categories / expenses"
-                                },
-                                style = MaterialTheme.typography.labelSmall.copy(
-                                    fontSize = 10.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = TagTealBadgeText
-                                ),
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
-                            )
-                        }
-                    }
+                    )
 
                     OutlinedTextField(
                         value = tagName,
@@ -292,32 +253,19 @@ fun CategoryTagCreateScreen(
                             tagName = it
                             if (state.error != null) viewModel.onClearError()
                         },
-                        label = {
-                            Text(
-                                if (state.selectedType == TransactionType.INCOME) {
-                                    "Income category name"
-                                } else {
-                                    "Expense category name"
-                                }
-                            )
-                        },
+                        label = { Text("Category name") },
                         placeholder = {
                             Text(
                                 if (state.selectedType == TransactionType.INCOME) {
-                                    "e.g. Rental Income, Dividends, Consulting"
+                                    "e.g. Rental, Dividends"
                                 } else {
-                                    "e.g. Dining Out, Subscriptions, Fuel"
+                                    "e.g. Dining, Fuel"
                                 }
                             )
                         },
                         isError = state.error != null,
-                        supportingText = {
-                            val err = state.error
-                            if (err != null) {
-                                Text(err, color = MaterialTheme.colorScheme.error)
-                            } else {
-                                Text("${tagName.trim().length}/100 characters · Saved to local Room DB & synced to Cloud Firestore")
-                            }
+                        supportingText = state.error?.let { err ->
+                            { Text(err, color = MaterialTheme.colorScheme.error) }
                         },
                         enabled = !state.isSaving,
                         singleLine = true,
@@ -337,125 +285,10 @@ fun CategoryTagCreateScreen(
                             .fillMaxWidth()
                             .focusRequester(nameFocusRequester)
                     )
-
-                    Surface(
-                        color = TagCardSubtle,
-                        shape = RoundedCornerShape(10.dp),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Outlined.Info,
-                                contentDescription = null,
-                                tint = TagTealDark,
-                                modifier = Modifier.size(16.dp)
-                            )
-                            Text(
-                                text = if (state.selectedType == TransactionType.INCOME) {
-                                    "This tag will appear under the Income slide and sync to your Firebase categories/income collection."
-                                } else {
-                                    "This tag will appear under the Expense slide and sync to your Firebase categories/expenses collection."
-                                },
-                                style = MaterialTheme.typography.bodySmall.copy(
-                                    color = TagTextSecondary,
-                                    fontSize = 12.sp
-                                )
-                            )
-                        }
-                    }
                 }
             }
 
-            // 3. Custom Categories Section for the Active Slide
-            Surface(
-                color = Color.White,
-                shape = RoundedCornerShape(16.dp),
-                border = BorderStroke(1.dp, TagBorder),
-                shadowElevation = 1.dp,
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Column(
-                    modifier = Modifier.padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = if (state.selectedType == TransactionType.INCOME) {
-                                "YOUR CUSTOM INCOME TAGS"
-                            } else {
-                                "YOUR CUSTOM EXPENSE TAGS"
-                            },
-                            style = MaterialTheme.typography.labelSmall.copy(
-                                fontWeight = FontWeight.Bold,
-                                letterSpacing = 0.8.sp,
-                                color = TagTextSecondary
-                            )
-                        )
-                        Text(
-                            text = "${state.customTags.size} Synced",
-                            style = MaterialTheme.typography.labelSmall.copy(
-                                fontWeight = FontWeight.Bold,
-                                color = TagTealDark
-                            )
-                        )
-                    }
-
-                    if (state.customTags.isEmpty()) {
-                        Text(
-                            text = "No custom ${state.selectedType.name.lowercase()} categories created yet. Add your first custom tag above.",
-                            style = MaterialTheme.typography.bodySmall.copy(color = TagTextSecondary)
-                        )
-                    } else {
-                        FlowRow(
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            verticalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            state.customTags.forEach { item ->
-                                Surface(
-                                    color = TagTealLightBg,
-                                    shape = CircleShape,
-                                    border = BorderStroke(1.dp, TagTealDark.copy(alpha = 0.35f)),
-                                    modifier = Modifier
-                                        .clip(CircleShape)
-                                        .clickable(enabled = !state.isSaving) {
-                                            onTagCreated(item, state.selectedType)
-                                        }
-                                ) {
-                                    Row(
-                                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp),
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                                    ) {
-                                        Text(
-                                            text = item,
-                                            style = MaterialTheme.typography.labelMedium.copy(
-                                                fontWeight = FontWeight.SemiBold,
-                                                color = TagTealBadgeText
-                                            )
-                                        )
-                                        Icon(
-                                            imageVector = Icons.Default.Check,
-                                            contentDescription = null,
-                                            tint = TagTealBadgeText,
-                                            modifier = Modifier.size(13.dp)
-                                        )
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
-            // 4. Default Categories Section for the Active Slide
+            // 3. All Tags for Selected Type (Expense or Income)
             Surface(
                 color = Color.White,
                 shape = RoundedCornerShape(16.dp),
@@ -469,9 +302,9 @@ fun CategoryTagCreateScreen(
                 ) {
                     Text(
                         text = if (state.selectedType == TransactionType.INCOME) {
-                            "DEFAULT INCOME CATEGORIES"
+                            "INCOME TAGS"
                         } else {
-                            "DEFAULT EXPENSE CATEGORIES"
+                            "EXPENSE TAGS"
                         },
                         style = MaterialTheme.typography.labelSmall.copy(
                             fontWeight = FontWeight.Bold,
@@ -484,7 +317,7 @@ fun CategoryTagCreateScreen(
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                         verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        state.defaultTags.forEach { item ->
+                        state.activeTags.forEach { item ->
                             Surface(
                                 color = TagCardSubtle,
                                 shape = CircleShape,
@@ -501,7 +334,7 @@ fun CategoryTagCreateScreen(
                                         fontWeight = FontWeight.Medium,
                                         color = TagTextPrimary
                                     ),
-                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp)
+                                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp)
                                 )
                             }
                         }
@@ -509,60 +342,41 @@ fun CategoryTagCreateScreen(
                 }
             }
 
-            // 5. Primary Action Button
-            Column(
+            // 4. Save Button
+            Button(
+                onClick = triggerSave,
+                enabled = !state.isSaving && tagName.isNotBlank(),
+                shape = RoundedCornerShape(12.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = TagTealPrimary,
+                    contentColor = Color.White
+                ),
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(top = 4.dp, bottom = 16.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(8.dp)
+                    .padding(top = 4.dp, bottom = 16.dp)
+                    .height(52.dp)
             ) {
-                Button(
-                    onClick = triggerSave,
-                    enabled = !state.isSaving && tagName.isNotBlank(),
-                    shape = RoundedCornerShape(12.dp),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = TagTealPrimary,
-                        contentColor = Color.White
-                    ),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(52.dp)
-                ) {
-                    if (state.isSaving) {
-                        CircularProgressIndicator(
-                            color = Color.White,
-                            strokeWidth = 2.dp,
-                            modifier = Modifier.size(20.dp)
-                        )
-                        Spacer(Modifier.width(10.dp))
-                    } else {
-                        Icon(
-                            imageVector = Icons.Default.Add,
-                            contentDescription = null,
-                            modifier = Modifier.size(18.dp)
-                        )
-                        Spacer(Modifier.width(8.dp))
-                    }
-                    Text(
-                        text = if (state.selectedType == TransactionType.INCOME) {
-                            "Save Income Category Tag"
-                        } else {
-                            "Save Expense Category Tag"
-                        },
-                        style = MaterialTheme.typography.titleSmall.copy(
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 15.sp
-                        )
+                if (state.isSaving) {
+                    CircularProgressIndicator(
+                        color = Color.White,
+                        strokeWidth = 2.dp,
+                        modifier = Modifier.size(20.dp)
                     )
+                    Spacer(Modifier.width(10.dp))
+                } else {
+                    Icon(
+                        imageVector = Icons.Default.Add,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(Modifier.width(8.dp))
                 }
                 Text(
-                    text = "Synced with Firebase categories/${if (state.selectedType == TransactionType.INCOME) "income" else "expenses"}",
-                    style = MaterialTheme.typography.labelSmall.copy(
-                        color = TagTextSecondary,
-                        fontSize = 11.sp
-                    ),
-                    textAlign = TextAlign.Center
+                    text = "Save Category Tag",
+                    style = MaterialTheme.typography.titleSmall.copy(
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 15.sp
+                    )
                 )
             }
         }

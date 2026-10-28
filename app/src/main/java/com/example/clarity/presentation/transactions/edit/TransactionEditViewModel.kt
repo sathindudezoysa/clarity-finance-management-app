@@ -331,7 +331,7 @@ class TransactionEditViewModel @Inject constructor(
                     val cleanName = displayName.trim().ifBlank { "Receipt_${state.pendingProofs.size + 1}.jpg" }
                     state.copy(
                         pendingProofs = state.pendingProofs + PendingProofDraft(uri = uri, displayName = cleanName, verified = true),
-                        proofError = ProofMessages.STORAGE_PLAN_REQUIRED
+                        proofError = null
                     )
                 }
             }

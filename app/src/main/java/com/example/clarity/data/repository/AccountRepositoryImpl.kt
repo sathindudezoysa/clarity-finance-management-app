@@ -70,7 +70,7 @@ class AccountRepositoryImpl internal constructor(
     private val syncScope = CoroutineScope(applicationScope.coroutineContext + SupervisorJob(applicationScope.coroutineContext[Job]))
     private val users = authRepository.currentUser.distinctUntilChangedBy { it?.uid }
         .shareIn(syncScope, SharingStarted.Eagerly, replay = 1)
-    private data class SyncState(val uid: String?, val warning: String? = null)
+    private data class SyncState(val uid: String?, val warning: String? = null, val remoteLoaded: Boolean = false)
     private val syncState = MutableStateFlow(SyncState(null))
     // Survives auth collector restarts so an old batch cannot overtake a newer one after sign-in.
     private val uploadMutex = Mutex()
@@ -94,11 +94,12 @@ class AccountRepositoryImpl internal constructor(
                         remote.observeAccounts(user.uid).map { snapshot ->
                             mutationMutex.withLock {
                                 reconcileRemote(user.uid, snapshot.accounts.map { it.toEntity() }, snapshot.authoritative, snapshot.remoteIds)
+                                syncState.value = SyncState(user.uid, warning = null, remoteLoaded = true)
                             }
                             triggers.trySend(Unit)
                         }.retryWhen { error, _ ->
                             if (error is CancellationException) throw error
-                            syncState.value = SyncState(user.uid, "Unable to sync accounts")
+                            syncState.value = SyncState(user.uid, "Unable to sync accounts", remoteLoaded = syncState.value.remoteLoaded)
                             delay(RETRY_INTERVAL_MILLIS)
                             true
                         }.collect()
@@ -116,14 +117,21 @@ class AccountRepositoryImpl internal constructor(
             uploadMutex.withLock {
                 try {
                     if (authRepository.currentUser.first()?.uid != uid) return@withLock false
-                    val pending = mutationMutex.withLock { dao.getAllForUser(uid).filter { it.pendingSync } }
+                    val pending = mutationMutex.withLock {
+                        val remoteLoaded = syncState.value.let { it.uid == uid && it.remoteLoaded }
+                        dao.getAllForUser(uid).filter {
+                            it.pendingSync && (remoteLoaded || !it.id.startsWith(Account.CASH_WALLET_PREFIX))
+                        }
+                    }
                     if (pending.isNotEmpty()) {
                         // Only uploadMutex serializes the network phase; local operations use mutationMutex.
                         remote.writeAccounts(uid, pending.map { it.toDomain() })
                         mutationMutex.withLock {
                             // Compare each current row with the uploaded version before clearing pendingSync.
                             acknowledgeBatch(pending)
-                            if (users.replayCache.firstOrNull()?.uid == uid) syncState.value = SyncState(uid)
+                            if (users.replayCache.firstOrNull()?.uid == uid) {
+                                syncState.value = SyncState(uid, remoteLoaded = syncState.value.remoteLoaded)
+                            }
                         }
                     }
                     true
@@ -131,7 +139,7 @@ class AccountRepositoryImpl internal constructor(
                     if (error is CancellationException) throw error
                     mutationMutex.withLock {
                         if (users.replayCache.firstOrNull()?.uid == uid) {
-                            syncState.value = SyncState(uid, "Unable to sync accounts")
+                            syncState.value = SyncState(uid, "Unable to sync accounts", remoteLoaded = syncState.value.remoteLoaded)
                         }
                     }
                     false
@@ -227,12 +235,36 @@ class AccountRepositoryImpl internal constructor(
         remoteIds: Set<String> = remote.map { it.id }.toSet()
     ) = runTransaction {
         with(dao) {
-            val local = getAllForUser(userId)
+            val rawLocal = getAllForUser(userId)
+            val remoteCashWallets = remote.filter {
+                it.userId == userId && it.updatedAt < Long.MAX_VALUE && it.id.startsWith(Account.CASH_WALLET_PREFIX)
+            }
+            val canonicalRemoteCash = if (remoteCashWallets.isNotEmpty()) {
+                remoteCashWallets.firstOrNull { hasTransactionReferences(it.id) }
+                    ?: remoteCashWallets.minWith(compareBy<AccountEntity> { it.createdAt }.thenBy { it.id })
+            } else null
+            val replacedLocalCash = if (canonicalRemoteCash != null) {
+                rawLocal.filter {
+                    it.id.startsWith(Account.CASH_WALLET_PREFIX) &&
+                        it.id != canonicalRemoteCash.id &&
+                        !hasTransactionReferences(it.id)
+                }
+            } else emptyList()
+            replacedLocalCash.forEach { deleteById(it.id, userId) }
+            val skippedRemoteCashIds = if (canonicalRemoteCash != null) {
+                remoteCashWallets
+                    .filter { it.id != canonicalRemoteCash.id && !hasTransactionReferences(it.id) }
+                    .map { it.id }
+                    .toSet()
+            } else emptySet()
+            val local = if (replacedLocalCash.isEmpty()) rawLocal else rawLocal - replacedLocalCash.toSet()
+            val effectiveRemote = if (skippedRemoteCashIds.isEmpty()) remote else remote.filter { it.id !in skippedRemoteCashIds }
+            val effectiveRemoteIds = remoteIds - skippedRemoteCashIds
             val pending = local.any { it.pendingSync }
-            val invalidTimestampIds = remote.filter { it.userId == userId && it.updatedAt >= Long.MAX_VALUE }.map { it.id }
+            val invalidTimestampIds = effectiveRemote.filter { it.userId == userId && it.updatedAt >= Long.MAX_VALUE }.map { it.id }
             if (invalidTimestampIds.isNotEmpty()) warnInvalidTimestamps(invalidTimestampIds)
             val merged = local.associateBy { it.id }.toMutableMap()
-            remote.filter { it.userId == userId && it.updatedAt < Long.MAX_VALUE }.forEach { incoming ->
+            effectiveRemote.filter { it.userId == userId && it.updatedAt < Long.MAX_VALUE }.forEach { incoming ->
                 val existing = getById(incoming.id)
                 if (existing != null && existing.userId != userId) return@forEach
                 // A pending default switch is an indivisible group. Cache cannot confirm it.
@@ -243,7 +275,7 @@ class AccountRepositoryImpl internal constructor(
                     local.any { other -> other.id != incoming.id &&
                         (other.name.lowercase(java.util.Locale.ROOT) == incomingName ||
                             merged[other.id]?.name?.lowercase(java.util.Locale.ROOT) == incomingName) &&
-                        (!authoritative || other.pendingSync || other.id in remoteIds || hasTransactionReferences(other.id)) }) {
+                        (!authoritative || other.pendingSync || other.id in effectiveRemoteIds || hasTransactionReferences(other.id)) }) {
                     warnSkippedAccounts(listOf(incoming.id))
                     return@forEach
                 }
@@ -257,7 +289,7 @@ class AccountRepositoryImpl internal constructor(
                 }
             }
             if (authoritative) {
-                local.filter { !it.pendingSync && it.id !in remoteIds }.forEach {
+                local.filter { !it.pendingSync && it.id !in effectiveRemoteIds }.forEach {
                     if (hasTransactionReferences(it.id)) {
                         warnRetainedAccount(it.id)
                     } else {
