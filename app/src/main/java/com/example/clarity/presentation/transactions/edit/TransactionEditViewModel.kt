@@ -9,20 +9,37 @@ import com.example.clarity.presentation.transactions.TransactionMessages
 import com.example.clarity.domain.model.Transaction
 import com.example.clarity.domain.model.AccountError
 import com.example.clarity.domain.model.AccountException
+import com.example.clarity.domain.model.ProofOpenFile
+import com.example.clarity.domain.model.ProofPolicy
+import com.example.clarity.domain.model.ProofStoragePlanException
 import com.example.clarity.domain.model.TransactionError
 import com.example.clarity.domain.model.TransactionException
+import com.example.clarity.domain.model.TransactionTags
 import com.example.clarity.domain.model.TransactionType
+import com.example.clarity.domain.usecase.transaction.AddTransactionTagUseCase
 import com.example.clarity.domain.usecase.transaction.AddTransactionUseCase
+import com.example.clarity.domain.usecase.transaction.AttachTransactionProofUseCase
 import com.example.clarity.domain.usecase.transaction.GetTransactionUseCase
 import com.example.clarity.domain.usecase.transaction.GetTransactionTagsUseCase
+import com.example.clarity.domain.usecase.transaction.ObserveTransactionProofsUseCase
+import com.example.clarity.domain.usecase.transaction.OpenTransactionProofUseCase
+import com.example.clarity.domain.usecase.transaction.RefreshTransactionProofsUseCase
+import com.example.clarity.domain.usecase.transaction.RemoveUnavailableProofUseCase
 import com.example.clarity.domain.usecase.transaction.UpdateTransactionUseCase
+import com.example.clarity.domain.usecase.transaction.VerifyReceiptAmountUseCase
 import com.example.clarity.domain.usecase.account.GetAccountsUseCase
 import com.example.clarity.domain.util.MoneyUtils
 import com.example.clarity.domain.util.Resource
 import com.example.clarity.domain.util.isSignInRequired
+import com.example.clarity.presentation.transactions.proofs.ProofMessages
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
@@ -37,6 +54,57 @@ class TransactionEditViewModel @Inject constructor(
     private val currencyPreference: com.example.clarity.domain.usecase.currency.ObserveCurrencyPreferenceUseCase,
     private val previewConversion: com.example.clarity.domain.usecase.transaction.PreviewConversionUseCase
 ) : ViewModel() {
+
+    private var observeProofs: ObserveTransactionProofsUseCase? = null
+    private var attachProof: AttachTransactionProofUseCase? = null
+    private var openProof: OpenTransactionProofUseCase? = null
+    private var verifyProof: VerifyReceiptAmountUseCase? = null
+    private var refreshProofs: RefreshTransactionProofsUseCase? = null
+    private var removeUnavailableProof: RemoveUnavailableProofUseCase? = null
+    private var addTransactionTag: AddTransactionTagUseCase? = null
+
+    @Inject
+    internal fun injectProofUseCases(
+        observeProofs: ObserveTransactionProofsUseCase,
+        attachProof: AttachTransactionProofUseCase,
+        openProof: OpenTransactionProofUseCase,
+        verifyProof: VerifyReceiptAmountUseCase,
+        refreshProofs: RefreshTransactionProofsUseCase,
+        removeUnavailableProof: RemoveUnavailableProofUseCase,
+        addTransactionTag: AddTransactionTagUseCase
+    ) {
+        this.observeProofs = observeProofs
+        this.attachProof = attachProof
+        this.openProof = openProof
+        this.verifyProof = verifyProof
+        this.refreshProofs = refreshProofs
+        this.removeUnavailableProof = removeUnavailableProof
+        this.addTransactionTag = addTransactionTag
+        if (id != null) {
+            viewModelScope.launch {
+                observeProofs.invoke(id).catch { error ->
+                    if (error is CancellationException) throw error
+                    updateState { it.copy(proofError = ProofMessages.LOAD_ERROR) }
+                }.collect { rows ->
+                    updateState { it.copy(proofs = rows) }
+                }
+            }
+            viewModelScope.launch {
+                refreshProofs.invoke(id).onFailure { err ->
+                    updateState {
+                        it.copy(
+                            proofError = if (err is ProofStoragePlanException) {
+                                ProofMessages.STORAGE_PLAN_REQUIRED
+                            } else {
+                                ProofMessages.SYNC_ERROR
+                            }
+                        )
+                    }
+                }
+            }
+        }
+    }
+
     private val isEditMode = savedStateHandle.get<Any?>(TRANSACTION_ID_ARGUMENT) != null
     private val id = savedStateHandle.transactionIdArgument()
     private val restoredAccountId = savedStateHandle.get<Any?>("selected_account_id") as? String
@@ -47,6 +115,8 @@ class TransactionEditViewModel @Inject constructor(
         selectedAccountId = restoredAccountId,
         error = if (isEditMode && id == null) TransactionMessages.NOT_FOUND else null))
     val uiState = _uiState.asStateFlow()
+    private val _openFiles = Channel<ProofOpenFile>(Channel.BUFFERED)
+    val openFiles = _openFiles.receiveAsFlow()
     private var previewJob: kotlinx.coroutines.Job? = null
 
     init {
@@ -81,25 +151,37 @@ class TransactionEditViewModel @Inject constructor(
         viewModelScope.launch {
             getTransactionTags().collect { tags -> updateState { it.copy(tags = tags) } }
         }
-        if (id != null) viewModelScope.launch {
-            getTransaction(id).collect { result ->
-                synchronized(stateLock) {
-                    val state = _uiState.value
-                    val next = when (result) {
-                        is Resource.Loading -> state.copy(isLoading = true, error = null)
-                        is Resource.Success -> state.copy(
-                            isLoading = false, transaction = result.data,
-                            error = if (result.data == null) TransactionMessages.NOT_FOUND else null
-                        )
-                        is Resource.Error -> state.copy(
-                            isLoading = false, transaction = if (result.cause.isSignInRequired()) result.data else result.data ?: state.transaction,
-                            error = if (result.cause.isSignInRequired()) TransactionMessages.SIGN_IN
-                            else TransactionMessages.LOAD_ERROR
-                        )
+        viewModelScope.launch {
+            getTransactionTags(TransactionType.EXPENSE).collect { expenseTags ->
+                updateState { it.copy(expenseTags = expenseTags) }
+            }
+        }
+        viewModelScope.launch {
+            getTransactionTags(TransactionType.INCOME).collect { incomeTags ->
+                updateState { it.copy(incomeTags = incomeTags) }
+            }
+        }
+        if (id != null) {
+            viewModelScope.launch {
+                getTransaction(id).collect { result ->
+                    synchronized(stateLock) {
+                        val state = _uiState.value
+                        val next = when (result) {
+                            is Resource.Loading -> state.copy(isLoading = true, error = null)
+                            is Resource.Success -> state.copy(
+                                isLoading = false, transaction = result.data,
+                                error = if (result.data == null) TransactionMessages.NOT_FOUND else null
+                            )
+                            is Resource.Error -> state.copy(
+                                isLoading = false, transaction = if (result.cause.isSignInRequired()) result.data else result.data ?: state.transaction,
+                                error = if (result.cause.isSignInRequired()) TransactionMessages.SIGN_IN
+                                else TransactionMessages.LOAD_ERROR
+                            )
+                        }
+                        _uiState.value = initializeAccountSelection(next.copy(
+                            currency = savedStateHandle.get<String>("currency") ?: next.transaction?.currency ?: next.currency,
+                            targetCurrency = next.transaction?.targetCurrency ?: next.targetCurrency))
                     }
-                    _uiState.value = initializeAccountSelection(next.copy(
-                        currency = savedStateHandle.get<String>("currency") ?: next.transaction?.currency ?: next.currency,
-                        targetCurrency = next.transaction?.targetCurrency ?: next.targetCurrency))
                 }
             }
         }
@@ -178,8 +260,35 @@ class TransactionEditViewModel @Inject constructor(
         }
         viewModelScope.launch {
             val result = if (id == null) addTransaction(transaction) else updateTransaction(transaction)
-            result.onSuccess { updateState { it.copy(isSaving = false, isSuccess = true) } }
-                .onFailure { error -> updateState { it.copy(
+            result.onSuccess {
+                if (id == null) {
+                    val drafts = synchronized(stateLock) { _uiState.value.pendingProofs }
+                    val attach = attachProof
+                    val observe = observeProofs
+                    val verify = verifyProof
+                    if (drafts.isNotEmpty() && attach != null) {
+                        var attachError: String? = null
+                        for (draft in drafts) {
+                            attach.invoke(transaction.id, draft.uri).onFailure {
+                                attachError = ProofMessages.ATTACH_ERROR
+                            }
+                        }
+                        if (drafts.any { it.verified } && observe != null && verify != null) {
+                            runCatching {
+                                val attached = observe.invoke(transaction.id).first()
+                                attached.forEach { proof ->
+                                    verify.invoke(transaction.id, proof.id, transaction.amountMinor, true)
+                                }
+                            }
+                        }
+                        refreshProofs?.invoke(transaction.id)
+                        if (attachError != null) {
+                            updateState { it.copy(proofError = attachError) }
+                        }
+                    }
+                }
+                updateState { it.copy(isSaving = false, isSuccess = true) }
+            }.onFailure { error -> updateState { it.copy(
                     isSaving = false,
                     error = when {
                         error is AccountException && error.error == AccountError.SIGN_IN_REQUIRED -> TransactionMessages.SIGN_IN
@@ -195,11 +304,151 @@ class TransactionEditViewModel @Inject constructor(
         }
     }
 
+    fun onAttachProof(uri: String, displayName: String = "Receipt slip") {
+        val currentState = _uiState.value
+        if (currentState.isSaving || currentState.isProofBusy) return
+        val attach = attachProof
+        if (id != null && attach != null) {
+            runProofAction(ProofMessages.ATTACH_ERROR) {
+                attach.invoke(id, uri).getOrThrow()
+                refreshProofs?.invoke(id)?.onFailure { err ->
+                    updateState {
+                        it.copy(
+                            proofError = if (err is ProofStoragePlanException) {
+                                ProofMessages.STORAGE_PLAN_REQUIRED
+                            } else {
+                                ProofMessages.SYNC_ERROR
+                            }
+                        )
+                    }
+                }
+            }
+        } else {
+            updateState { state ->
+                if (state.pendingProofs.size >= ProofPolicy.MAX_ATTACHMENTS) {
+                    state.copy(proofError = ProofMessages.ATTACH_ERROR)
+                } else {
+                    val cleanName = displayName.trim().ifBlank { "Receipt_${state.pendingProofs.size + 1}.jpg" }
+                    state.copy(
+                        pendingProofs = state.pendingProofs + PendingProofDraft(uri = uri, displayName = cleanName, verified = true),
+                        proofError = null
+                    )
+                }
+            }
+        }
+    }
+
+    fun onRemovePendingProof(uri: String) {
+        updateState { state ->
+            state.copy(pendingProofs = state.pendingProofs.filterNot { it.uri == uri }, proofError = null)
+        }
+    }
+
+    fun onTogglePendingProofVerified(uri: String) {
+        updateState { state ->
+            state.copy(
+                pendingProofs = state.pendingProofs.map {
+                    if (it.uri == uri) it.copy(verified = !it.verified) else it
+                }
+            )
+        }
+    }
+
+    fun onOpenProof(proofId: String) {
+        val txId = id ?: return
+        val opener = openProof ?: return
+        runProofAction(ProofMessages.OPEN_ERROR) {
+            _openFiles.send(opener.invoke(txId, proofId).getOrThrow())
+        }
+    }
+
+    fun onVerifyProof(proofId: String, amountMinor: Long, verified: Boolean) {
+        val txId = id ?: return
+        val verifier = verifyProof ?: return
+        runProofAction(ProofMessages.VERIFY_ERROR) {
+            verifier.invoke(txId, proofId, amountMinor, verified).getOrThrow()
+            refreshProofs?.invoke(txId)?.onFailure { err ->
+                updateState {
+                    it.copy(
+                        proofError = if (err is ProofStoragePlanException) {
+                            ProofMessages.STORAGE_PLAN_REQUIRED
+                        } else {
+                            ProofMessages.SYNC_ERROR
+                        }
+                    )
+                }
+            }
+        }
+    }
+
+    fun onRemoveUnavailableProof(proofId: String) {
+        val txId = id ?: return
+        val remover = removeUnavailableProof ?: return
+        runProofAction(ProofMessages.REMOVE_ERROR) {
+            remover.invoke(txId, proofId).getOrThrow()
+        }
+    }
+
+    fun onRetryProofs() {
+        val txId = id ?: return
+        val refresher = refreshProofs ?: return
+        runProofAction(ProofMessages.SYNC_ERROR) {
+            refresher.invoke(txId).getOrThrow()
+        }
+    }
+
+    fun viewerUnavailable() {
+        updateState { it.copy(proofError = ProofMessages.VIEWER_ERROR) }
+    }
+
+    private fun runProofAction(errorMessage: String, block: suspend () -> Unit) {
+        if (_uiState.value.isProofBusy) return
+        updateState { it.copy(isProofBusy = true, proofError = null) }
+        viewModelScope.launch {
+            try {
+                block()
+            } catch (error: Exception) {
+                if (error is CancellationException) throw error
+                val msg = if (error is ProofStoragePlanException) ProofMessages.STORAGE_PLAN_REQUIRED else errorMessage
+                updateState { it.copy(proofError = msg) }
+            } finally {
+                updateState { it.copy(isProofBusy = false) }
+            }
+        }
+    }
+
     fun onCurrencySelected(currency: String) {
         if (currency !in com.example.clarity.domain.model.Currencies.supported || uiState.value.isSaving) return
         savedStateHandle["currency"] = currency
         previewJob?.cancel()
         updateState { it.copy(currency = currency, preview = null) }
+    }
+
+    fun onAddCustomTag(name: String, type: TransactionType) {
+        val clean = name.trim()
+        if (clean.isEmpty()) return
+        if (clean.length > 100) {
+            updateState { it.copy(categoryError = TransactionMessages.TAG_LONG) }
+            return
+        }
+        updateState { state ->
+            val updatedExpense = if (type == TransactionType.EXPENSE) {
+                (state.expenseTags + clean).distinctBy { TransactionTags.key(it) }
+            } else state.expenseTags
+            val updatedIncome = if (type == TransactionType.INCOME) {
+                (state.incomeTags + clean).distinctBy { TransactionTags.key(it) }
+            } else state.incomeTags
+            val updatedAll = (state.tags + clean).distinctBy { TransactionTags.key(it) }
+            state.copy(
+                tags = updatedAll,
+                expenseTags = updatedExpense,
+                incomeTags = updatedIncome,
+                categoryError = null
+            )
+        }
+        viewModelScope.launch {
+            addTransactionTag?.invoke(clean, type)
+        }
     }
 
     fun preview(amountText: String) {

@@ -41,30 +41,44 @@ class TransactionProofRepositoryImpl @Inject constructor(
         availableTransaction(uid, transactionId)
         val id = UUID.randomUUID().toString()
         val imported = files.import(uid, id, contentUri)
-        try {
+        val entity = try {
             database.withTransaction {
                 requireOwner(uid)
                 availableTransaction(uid, transactionId)
                 require(dao.count(uid, transactionId) < ProofPolicy.MAX_ATTACHMENTS) { "A transaction can have up to ten proofs" }
                 val now = System.currentTimeMillis()
-                dao.upsert(TransactionProofEntity(uid, transactionId, id, imported.displayName, imported.mimeType,
-                    imported.file.length(), now, null, true, now))
+                TransactionProofEntity(uid, transactionId, id, imported.displayName, imported.mimeType,
+                    imported.file.length(), now, null, true, now).also { dao.upsert(it) }
             }
         } catch (error: Exception) { imported.file.delete(); throw error }
+        try {
+            sync.withSync { sync.upload(entity) }
+        } catch (error: Exception) {
+            if (error is CancellationException) throw error
+            android.util.Log.w("ProofSync", "Immediate proof upload deferred to background sync", error)
+        }
+        Unit
     }
 
     override suspend fun setVerified(transactionId: String, proofId: String, amountMinor: Long, verified: Boolean) = operation {
         val uid = owner()
         ProofPolicy.requireId(proofId)
-        database.withTransaction {
+        val updated = database.withTransaction {
             val transaction = availableTransaction(uid, transactionId)
             require(transaction.amountMinor == amountMinor) { "The amount changed. Review it again" }
             val row = requireNotNull(dao.get(uid, transactionId, proofId)) { "Proof not found" }
             require(!row.unavailable) { "Attach the original proof again" }
             requireOwner(uid)
-            dao.upsert(row.copy(verifiedAmountMinor = if (verified) amountMinor else null, pendingUpload = true,
-                revision = maxOf(System.currentTimeMillis(), Math.addExact(row.revision, 1))))
+            row.copy(verifiedAmountMinor = if (verified) amountMinor else null, pendingUpload = true,
+                revision = maxOf(System.currentTimeMillis(), Math.addExact(row.revision, 1))).also { dao.upsert(it) }
         }
+        try {
+            sync.withSync { sync.upload(updated) }
+        } catch (error: Exception) {
+            if (error is CancellationException) throw error
+            android.util.Log.w("ProofSync", "Immediate proof verification sync deferred to background sync", error)
+        }
+        Unit
     }
 
     override suspend fun open(transactionId: String, proofId: String) = operation {

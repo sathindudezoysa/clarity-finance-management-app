@@ -44,6 +44,6 @@ abstract class ClarityDatabase : RoomDatabase() {
 
     companion object {
         const val DATABASE_NAME = "clarity_db"
-        const val SCHEMA_VERSION = 16
+        const val SCHEMA_VERSION = 17
     }
 }

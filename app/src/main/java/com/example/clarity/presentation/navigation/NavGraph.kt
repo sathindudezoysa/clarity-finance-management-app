@@ -2,8 +2,10 @@ package com.example.clarity.presentation.navigation
 
 import android.util.Log
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavHostController
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
@@ -21,6 +23,7 @@ import com.example.clarity.presentation.settings.SettingsScreen
 import com.example.clarity.presentation.transactions.detail.TransactionDetailScreen
 import com.example.clarity.presentation.transactions.edit.TransactionEditScreen
 import com.example.clarity.presentation.transactions.list.TransactionListScreen
+import com.example.clarity.presentation.transactions.tags.CategoryTagCreateScreen
 
 @Composable
 fun SetupNavGraph(
@@ -294,10 +297,44 @@ fun SetupNavGraph(
         composable(
             route = Screen.TransactionEdit.route,
             arguments = listOf(navArgument(TRANSACTION_ID_ARGUMENT) { type = NavType.StringType; nullable = true; defaultValue = null })
-        ) {
+        ) { entry ->
+            val createdCategoryName by entry.savedStateHandle
+                .getStateFlow<String?>("created_category_name", null)
+                .collectAsStateWithLifecycle()
+            val createdCategoryType by entry.savedStateHandle
+                .getStateFlow<String?>("created_category_type", null)
+                .collectAsStateWithLifecycle()
+
             TransactionEditScreen(
                 onBack = { navController.popBackStack() },
                 onCreateAccount = { navController.navigate(Screen.AccountEdit.createRoute()) },
+                onOpenCreateCategory = { type ->
+                    navController.navigate(Screen.CategoryTagCreate.createRoute(type.name)) {
+                        launchSingleTop = true
+                    }
+                },
+                createdCategoryName = createdCategoryName,
+                createdCategoryType = createdCategoryType,
+                onConsumedCreatedCategory = {
+                    entry.savedStateHandle["created_category_name"] = null
+                    entry.savedStateHandle["created_category_type"] = null
+                },
+                viewModel = hiltViewModel()
+            )
+        }
+        composable(
+            route = Screen.CategoryTagCreate.route,
+            arguments = listOf(navArgument("type") { type = NavType.StringType; defaultValue = "EXPENSE" })
+        ) {
+            CategoryTagCreateScreen(
+                onBack = { navController.popBackStack() },
+                onTagCreated = { createdName, createdType ->
+                    navController.previousBackStackEntry?.savedStateHandle?.apply {
+                        set("created_category_name", createdName)
+                        set("created_category_type", createdType.name)
+                    }
+                    navController.popBackStack()
+                },
                 viewModel = hiltViewModel()
             )
         }

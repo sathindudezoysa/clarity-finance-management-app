@@ -640,6 +640,35 @@ class AccountRepositoryTest {
         assertNull(original.toFirestoreMap().toAccount("different-id"))
     }
 
+    @Test
+    fun localDatabaseResetUpdatesWithExistingFirebaseCashWalletWithoutUploadingDuplicate() = runBlocking {
+        // Simulate GetAccountsUseCase creating a local cash wallet on empty Room DB before remote snapshot arrives
+        val localAutoCreated = Account.defaultCashWallet(currency = "LKR", isDefault = true)
+        repository.createAccount(localAutoCreated).getOrThrow()
+        assertEquals(Account.cashWalletId("user-a"), dao.getAllForUser("user-a").single().id)
+        assertTrue(remote.batches.isEmpty())
+
+        // Existing Firebase cash_wallet arrives
+        val existingFirebaseCash = Account(
+            id = "cash_wallet_13a271a0-7b7c-451b-bd2c-6bccf529d0a7",
+            userId = "user-a",
+            name = "Cash Wallet",
+            bankName = "Cash",
+            accountType = "CASH",
+            currency = "LKR",
+            isDefault = true,
+            createdAt = 1_000L,
+            updatedAt = 1_000L
+        )
+        remote.snapshots.emit(AccountSnapshot(listOf(existingFirebaseCash), authoritative = true))
+
+        val savedAccounts = dao.getAllForUser("user-a")
+        assertEquals(listOf(existingFirebaseCash.id), savedAccounts.map { it.id })
+        assertNull(dao.getById(Account.cashWalletId("user-a")))
+        assertDefault(existingFirebaseCash.id)
+        assertTrue(remote.batches.flatten().none { it.id == Account.cashWalletId("user-a") })
+    }
+
     // Primitive storage is faked; repository validation and reconciliation run unchanged.
     private class MemoryDao : AccountDao() {
         private val rows = MutableStateFlow<Map<String, AccountEntity>>(emptyMap())
@@ -648,6 +677,14 @@ class AccountRepositoryTest {
         val retainedWarnings = mutableListOf<String>()
         val committedRows = mutableListOf<List<AccountEntity>>()
         override suspend fun hasTransactionReferences(accountId: String) = transactions.any { it.accountId == accountId }
+        override suspend fun migrateCashWalletTransactions(userId: String, targetCashId: String) {
+            for (i in transactions.indices) {
+                val tx = transactions[i]
+                if (tx.userId == userId && tx.accountId?.startsWith(Account.CASH_WALLET_PREFIX) == true && tx.accountId != targetCashId) {
+                    transactions[i] = tx.copy(accountId = targetCashId, pendingSync = true)
+                }
+            }
+        }
         override fun observeAll(userId: String) = rows.map { it.values.filter { row -> row.userId == userId } }.distinctUntilChanged()
         override suspend fun getAllForUser(userId: String) = rows.value.values.filter { it.userId == userId }
         override suspend fun getById(id: String) = rows.value[id]

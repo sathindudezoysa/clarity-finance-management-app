@@ -5,7 +5,9 @@ import com.example.clarity.data.local.ClarityDatabase
 import com.example.clarity.data.local.ProofFileStore
 import com.example.clarity.data.local.entity.TransactionProofEntity
 import com.example.clarity.data.remote.ProofRemoteDataSource
+import com.example.clarity.domain.model.ProofStoragePlanException
 import com.example.clarity.domain.repository.AuthRepository
+import com.google.firebase.storage.StorageException
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.flow.first
@@ -31,6 +33,11 @@ class ProofSyncProcessor @Inject constructor(
         var complete = true
         for (row in database.transactionProofDao.pending(uid)) {
             try { withSync { upload(row) } }
+            catch (error: ProofStoragePlanException) {
+                Log.w("ProofSync", ProofStoragePlanException.MESSAGE)
+                complete = false
+                break
+            }
             catch (error: Exception) {
                 if (error is CancellationException) throw error
                 Log.w("ProofSync", "Proof remains queued for a network-constrained retry", error)
@@ -48,8 +55,17 @@ class ProofSyncProcessor @Inject constructor(
         requireOwner(row.userId)
         val transaction = database.transactionDao.getById(row.transactionId)
         if (transaction?.userId != row.userId || transaction.isDeleted) return
-        if (!remote.updateMetadata(row)) {
-            val file = files.file(row.userId, row.id)
+        val file = files.file(row.userId, row.id)
+        val updatedMetadata = if (file.isFile && row.revision == row.createdAt) {
+            false
+        } else {
+            try {
+                remote.updateMetadata(row)
+            } catch (error: StorageException) {
+                if (file.isFile && error.errorCode == StorageException.ERROR_NOT_AUTHORIZED) false else throw error
+            }
+        }
+        if (!updatedMetadata) {
             requireOwner(row.userId)
             if (!file.isFile) {
                 // Only a confirmed remote 404 plus a missing local original is terminal.

@@ -24,8 +24,7 @@ class ProofFileStore @Inject constructor(@ApplicationContext private val context
     suspend fun import(uid: String, id: String, source: String): ImportedProof {
         val uri = Uri.parse(source)
         require(uri.scheme == "content") { "Choose a document using the file picker" }
-        val mime = context.contentResolver.getType(uri)?.lowercase().orEmpty()
-        require(mime in ProofPolicy.mimeTypes) { "Choose a photo or PDF" }
+        var mime = context.contentResolver.getType(uri)?.lowercase().orEmpty()
         var name = if (mime == "application/pdf") "Proof.pdf" else "Receipt photo"
         context.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use {
             val index = it.getColumnIndex(OpenableColumns.DISPLAY_NAME)
@@ -48,9 +47,14 @@ class ProofFileStore @Inject constructor(@ApplicationContext private val context
                     }
                 }
             }
-            ProofPolicy.validate(mime, target.length())
             val header = target.inputStream().use(ProofFileSignature::readHeader)
+            if (mime == "image/jpg") mime = "image/jpeg"
+            if (mime !in ProofPolicy.mimeTypes) {
+                mime = ProofPolicy.mimeTypes.firstOrNull { ProofFileSignature.matches(it, header) }.orEmpty()
+            }
+            ProofPolicy.validate(mime, target.length())
             require(ProofFileSignature.matches(mime, header)) { "The file contents do not match its photo or PDF type" }
+            if (name == "Receipt photo" && mime == "application/pdf") name = "Proof.pdf"
             return ImportedProof(target, name, mime)
         } catch (error: Exception) { target.delete(); throw error }
     }

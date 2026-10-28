@@ -34,7 +34,21 @@ abstract class TransactionDao {
     @Transaction
     open suspend fun upsertWithTag(entity: TransactionEntity) {
         upsert(entity)
-        insertTag(TransactionTagEntity(entity.userId, entity.category))
+        val tag = entity.category.trim().ifBlank { "General" }
+        val txType = runCatching { com.example.clarity.domain.model.TransactionType.valueOf(entity.type) }
+            .getOrDefault(com.example.clarity.domain.model.TransactionType.EXPENSE)
+        val isDefault = com.example.clarity.domain.model.TransactionTags.isDefault(txType, tag)
+        insertTag(
+            TransactionTagEntity(
+                userId = entity.userId,
+                name = tag,
+                type = txType.name,
+                isDefault = isDefault,
+                createdAt = entity.createdAt,
+                updatedAt = entity.updatedAt,
+                pendingSync = !isDefault
+            )
+        )
     }
 
     @Query("DELETE FROM transactions WHERE id = :id AND userId = :userId")
@@ -112,7 +126,20 @@ abstract class TransactionDao {
         insertTags(
             replacements.mapNotNull {
                 val tag = it.category.trim()
-                if (!it.isDeleted && tag.length in 1..100) TransactionTagEntity(it.userId, tag) else null
+                if (!it.isDeleted && tag.length in 1..100) {
+                    val txType = runCatching { com.example.clarity.domain.model.TransactionType.valueOf(it.type) }
+                        .getOrDefault(com.example.clarity.domain.model.TransactionType.EXPENSE)
+                    val isDefault = com.example.clarity.domain.model.TransactionTags.isDefault(txType, tag)
+                    TransactionTagEntity(
+                        userId = it.userId,
+                        name = tag,
+                        type = txType.name,
+                        isDefault = isDefault,
+                        createdAt = it.createdAt,
+                        updatedAt = it.updatedAt,
+                        pendingSync = false
+                    )
+                } else null
             }.distinct()
         )
         // An incomplete cache snapshot is never evidence of a remote deletion.

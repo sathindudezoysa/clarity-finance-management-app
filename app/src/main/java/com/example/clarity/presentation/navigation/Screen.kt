@@ -34,4 +34,7 @@ sealed class Screen(val route: String) {
         fun createRoute(id: String? = null) = if (id == null) "transactions/edit"
             else "transactions/edit?$TRANSACTION_ID_ARGUMENT=${Uri.encode(id)}"
     }
+    object CategoryTagCreate : Screen("transactions/categories/create?type={type}") {
+        fun createRoute(type: String = "EXPENSE") = "transactions/categories/create?type=${Uri.encode(type)}"
+    }
 }

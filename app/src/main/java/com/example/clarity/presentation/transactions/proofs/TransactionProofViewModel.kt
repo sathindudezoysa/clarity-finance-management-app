@@ -6,6 +6,7 @@ import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.clarity.domain.model.ProofOpenFile
+import com.example.clarity.domain.model.ProofStoragePlanException
 import com.example.clarity.domain.usecase.transaction.*
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CancellationException
@@ -40,14 +41,52 @@ class TransactionProofViewModel @Inject constructor(
                 }.collect { rows -> state.update { it.copy(proofs = rows, isLoading = false) } }
             }
             // Network failure never hides locally saved proofs; retry is available below the list.
-            viewModelScope.launch { refresh(id).onFailure { state.update { it.copy(error = ProofMessages.SYNC_ERROR) } } }
+            viewModelScope.launch {
+                refresh(id).onFailure { err ->
+                    state.update {
+                        it.copy(
+                            error = if (err is ProofStoragePlanException) {
+                                ProofMessages.STORAGE_PLAN_REQUIRED
+                            } else {
+                                ProofMessages.SYNC_ERROR
+                            }
+                        )
+                    }
+                }
+            }
         }
     }
 
-    fun attachFile(uri: String) = action(ProofMessages.ATTACH_ERROR) { attach(checkNotNull(id), uri).getOrThrow() }
+    fun attachFile(uri: String) = action(ProofMessages.ATTACH_ERROR) {
+        val txId = checkNotNull(id)
+        attach(txId, uri).getOrThrow()
+        refresh(txId).onFailure { err ->
+            state.update {
+                it.copy(
+                    error = if (err is ProofStoragePlanException) {
+                        ProofMessages.STORAGE_PLAN_REQUIRED
+                    } else {
+                        ProofMessages.SYNC_ERROR
+                    }
+                )
+            }
+        }
+    }
     fun openFile(proofId: String) = action(ProofMessages.OPEN_ERROR) { opens.send(open(checkNotNull(id), proofId).getOrThrow()) }
     fun verifyAmount(proofId: String, amount: Long, verified: Boolean) = action(ProofMessages.VERIFY_ERROR) {
-        verify(checkNotNull(id), proofId, amount, verified).getOrThrow()
+        val txId = checkNotNull(id)
+        verify(txId, proofId, amount, verified).getOrThrow()
+        refresh(txId).onFailure { err ->
+            state.update {
+                it.copy(
+                    error = if (err is ProofStoragePlanException) {
+                        ProofMessages.STORAGE_PLAN_REQUIRED
+                    } else {
+                        ProofMessages.SYNC_ERROR
+                    }
+                )
+            }
+        }
     }
     fun removeMissing(proofId: String) = action(ProofMessages.REMOVE_ERROR) { removeUnavailable(checkNotNull(id), proofId).getOrThrow() }
     fun retry() = action(ProofMessages.SYNC_ERROR) { refresh(checkNotNull(id)).getOrThrow() }
@@ -59,7 +98,8 @@ class TransactionProofViewModel @Inject constructor(
         viewModelScope.launch {
             try { block() } catch (error: Exception) {
                 if (error is CancellationException) throw error
-                state.update { it.copy(error = errorMessage) }
+                val message = if (error is ProofStoragePlanException) ProofMessages.STORAGE_PLAN_REQUIRED else errorMessage
+                state.update { it.copy(error = message) }
             } finally { state.update { it.copy(isBusy = false) } }
         }
     }
