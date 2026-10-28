@@ -24,16 +24,13 @@ import androidx.compose.material.icons.outlined.Star
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
@@ -48,12 +45,21 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.example.clarity.presentation.navigation.BottomNavDestination
+import com.example.clarity.presentation.navigation.ClarityTopBar
 import com.example.clarity.presentation.theme.ClarityTheme
 
 @Composable
 fun GoalsScreen(
     onAddGoal: () -> Unit = {},
     onEditGoal: (String) -> Unit = {},
+    onNavigateToProfile: () -> Unit = {},
+    topBar: @Composable () -> Unit = {
+        ClarityTopBar(
+            title = BottomNavDestination.GOALS.label,
+            onProfileClick = onNavigateToProfile
+        )
+    },
     bottomBar: @Composable () -> Unit = {},
     viewModel: GoalsViewModel = hiltViewModel()
 ) {
@@ -63,32 +69,28 @@ fun GoalsScreen(
         onAddGoal = onAddGoal,
         onEditGoal = onEditGoal,
         onRetry = viewModel::retry,
+        topBar = topBar,
         bottomBar = bottomBar
     )
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun GoalsContent(
     state: GoalsState,
     onAddGoal: () -> Unit,
     onEditGoal: (String) -> Unit,
     onRetry: () -> Unit,
+    topBar: @Composable () -> Unit = {
+        ClarityTopBar(
+            title = BottomNavDestination.GOALS.label,
+            onProfileClick = {}
+        )
+    },
     bottomBar: @Composable () -> Unit = {}
 ) {
     val canCreate = state.ownerId != null && !state.isLoading
     Scaffold(
-        topBar = {
-            TopAppBar(
-                title = {
-                    Text(
-                        text = "Goals",
-                        style = MaterialTheme.typography.titleLarge,
-                        fontWeight = FontWeight.SemiBold
-                    )
-                }
-            )
-        },
+        topBar = topBar,
         bottomBar = bottomBar,
         floatingActionButton = {
             if (canCreate) {
@@ -102,16 +104,19 @@ internal fun GoalsContent(
         }
     ) { padding ->
         Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding),
+            modifier = Modifier.fillMaxSize(),
             contentAlignment = Alignment.TopCenter
         ) {
             LazyColumn(
                 modifier = Modifier
                     .widthIn(max = 600.dp)
                     .fillMaxSize(),
-                contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 96.dp),
+                contentPadding = PaddingValues(
+                    start = 16.dp,
+                    end = 16.dp,
+                    top = padding.calculateTopPadding() + 16.dp,
+                    bottom = padding.calculateBottomPadding() + 96.dp
+                ),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 state.error?.let { errorMessage ->

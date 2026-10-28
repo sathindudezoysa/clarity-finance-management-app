@@ -9,7 +9,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -28,44 +27,49 @@ import com.example.clarity.domain.model.Transaction
 import com.example.clarity.domain.model.TransactionType
 import com.example.clarity.domain.util.MoneyUtils
 import com.example.clarity.presentation.common.AppIcons
+import com.example.clarity.presentation.navigation.BottomNavDestination
+import com.example.clarity.presentation.navigation.ClarityTopBar
 import com.example.clarity.presentation.theme.ClarityTheme
 import com.example.clarity.presentation.transactions.TransactionMessages
 import com.example.clarity.presentation.transactions.formatTransactionDate
 
 @Composable
 fun TransactionListScreen(
-    onBack: () -> Unit,
+    onBack: () -> Unit = {},
     onAdd: () -> Unit,
     onOpen: (String) -> Unit,
+    onNavigateToProfile: () -> Unit = {},
+    topBar: @Composable () -> Unit = {
+        ClarityTopBar(
+            title = BottomNavDestination.TRANSACTIONS.label,
+            onProfileClick = onNavigateToProfile
+        )
+    },
     bottomBar: @Composable () -> Unit = {},
     viewModel: TransactionListViewModel = hiltViewModel()
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
-    TransactionListContent(state, onBack, onAdd, onOpen, bottomBar)
+    TransactionListContent(state, onBack, onAdd, onOpen, topBar, bottomBar)
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun TransactionListContent(
     state: TransactionListState,
     onBack: () -> Unit,
     onAdd: () -> Unit,
     onOpen: (String) -> Unit,
+    topBar: @Composable () -> Unit = {
+        ClarityTopBar(
+            title = BottomNavDestination.TRANSACTIONS.label,
+            onProfileClick = {}
+        )
+    },
     bottomBar: @Composable () -> Unit = {}
 ) {
     val addDescription = "Add transaction"
     val colors = MaterialTheme.colorScheme
     Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text("Transactions") },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.Default.ArrowBack, contentDescription = "Back")
-                    }
-                }
-            )
-        },
+        topBar = topBar,
         bottomBar = bottomBar,
         floatingActionButton = {
             FloatingActionButton(
@@ -77,8 +81,13 @@ private fun TransactionListContent(
         }
     ) { padding ->
         LazyColumn(
-            modifier = Modifier.fillMaxSize().padding(padding),
-            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 88.dp),
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(
+                start = 16.dp,
+                end = 16.dp,
+                top = padding.calculateTopPadding() + 16.dp,
+                bottom = padding.calculateBottomPadding() + 88.dp
+            ),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             item {

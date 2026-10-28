@@ -17,7 +17,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Warning
@@ -43,6 +42,7 @@ import com.example.clarity.domain.model.Budget
 import com.example.clarity.domain.model.BudgetPeriod
 import com.example.clarity.domain.model.BudgetStatus
 import com.example.clarity.domain.repository.BudgetOverview
+import com.example.clarity.presentation.navigation.ClarityTopBar
 import com.example.clarity.presentation.theme.ClarityTheme
 
 private fun isLivePeriod(status: BudgetStatus, state: BudgetsState): Boolean = when (status.budget.period) {
@@ -52,9 +52,16 @@ private fun isLivePeriod(status: BudgetStatus, state: BudgetsState): Boolean = w
 
 @Composable
 fun BudgetsScreen(
-    onBack: () -> Unit,
+    onBack: () -> Unit = {},
     selectedId: String? = null,
     onOpenEditor: (String?) -> Unit = {},
+    onNavigateToProfile: () -> Unit = {},
+    topBar: @Composable () -> Unit = {
+        ClarityTopBar(
+            title = BudgetUiText.TITLE,
+            onProfileClick = onNavigateToProfile
+        )
+    },
     bottomBar: @Composable () -> Unit = {},
     viewModel: BudgetsViewModel = hiltViewModel()
 ) {
@@ -71,16 +78,22 @@ fun BudgetsScreen(
         },
         onDisable = viewModel::disable, onRetry = viewModel::retryCurrency,
         notificationPermission = { BudgetNotificationPermission() },
+        topBar = topBar,
         bottomBar = bottomBar
     )
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun BudgetsContent(
-    state: BudgetsState, selectedId: String?, onBack: () -> Unit, onCreate: () -> Unit,
+    state: BudgetsState, selectedId: String?, onBack: () -> Unit = {}, onCreate: () -> Unit,
     onEdit: (Budget) -> Unit, onDisable: (String) -> Unit, onRetry: (String) -> Unit,
     notificationPermission: @Composable () -> Unit = {},
+    topBar: @Composable () -> Unit = {
+        ClarityTopBar(
+            title = BudgetUiText.TITLE,
+            onProfileClick = {}
+        )
+    },
     bottomBar: @Composable () -> Unit = {}
 ) {
     val listState = rememberLazyListState()
@@ -92,14 +105,7 @@ fun BudgetsContent(
         if (index >= 0) listState.animateScrollToItem(index + 1)
     }
     Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text(BudgetUiText.TITLE) },
-                navigationIcon = {
-                    IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, contentDescription = BudgetUiText.BACK) }
-                }
-            )
-        },
+        topBar = topBar,
         bottomBar = bottomBar,
         floatingActionButton = {
             if (state.overview.ownerId != null) {
@@ -112,8 +118,15 @@ fun BudgetsContent(
             }
         }
     ) { padding ->
-        LazyColumn(state = listState, modifier = Modifier.fillMaxSize().padding(padding).padding(horizontal = 16.dp),
-            contentPadding = PaddingValues(top = 8.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        LazyColumn(
+            state = listState,
+            modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp),
+            contentPadding = PaddingValues(
+                top = padding.calculateTopPadding() + 8.dp,
+                bottom = padding.calculateBottomPadding()
+            ),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
             item { BudgetsHeader(state, rows.isEmpty(), notificationPermission) }
             items(rows, key = { it.budget.id }) { status ->
                 BudgetCard(status, selected = status.budget.id == selectedId,

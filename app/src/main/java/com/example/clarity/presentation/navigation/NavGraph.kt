@@ -81,7 +81,17 @@ fun SetupNavGraph(
                 },
                 onNavigateToIncome = { navController.navigate(Screen.IncomeSources.route) },
                 onNavigateToCashWallet = { navController.navigate(Screen.CashWallet.route) },
-                onNavigateToSettings = { navController.navigate(Screen.Settings.route) },
+                onNavigateToSettings = {
+                    navController.navigate(Screen.Settings.route) {
+                        launchSingleTop = true
+                    }
+                },
+                topBar = {
+                    ClarityTopBar(
+                        navController = navController,
+                        currentDestination = BottomNavDestination.HOME
+                    )
+                },
                 bottomBar = {
                     ClarityBottomNavBar(
                         navController = navController,
@@ -104,6 +114,17 @@ fun SetupNavGraph(
                     navController.navigate(Screen.BudgetEdit.createRoute(id)) {
                         launchSingleTop = true
                     }
+                },
+                onNavigateToProfile = {
+                    navController.navigate(Screen.Settings.route) {
+                        launchSingleTop = true
+                    }
+                },
+                topBar = {
+                    ClarityTopBar(
+                        navController = navController,
+                        currentDestination = BottomNavDestination.BUDGETS
+                    )
                 },
                 bottomBar = {
                     ClarityBottomNavBar(
@@ -133,6 +154,17 @@ fun SetupNavGraph(
         }
         composable(route = Screen.Goals.route) {
             GoalsScreen(
+                onNavigateToProfile = {
+                    navController.navigate(Screen.Settings.route) {
+                        launchSingleTop = true
+                    }
+                },
+                topBar = {
+                    ClarityTopBar(
+                        navController = navController,
+                        currentDestination = BottomNavDestination.GOALS
+                    )
+                },
                 bottomBar = {
                     ClarityBottomNavBar(
                         navController = navController,
@@ -194,6 +226,17 @@ fun SetupNavGraph(
                 },
                 onAdd = { navController.navigate(Screen.AccountEdit.createRoute()) },
                 onEdit = { id -> navController.navigate(Screen.AccountEdit.createRoute(id)) },
+                onNavigateToProfile = {
+                    navController.navigate(Screen.Settings.route) {
+                        launchSingleTop = true
+                    }
+                },
+                topBar = {
+                    ClarityTopBar(
+                        navController = navController,
+                        currentDestination = BottomNavDestination.ACCOUNTS
+                    )
+                },
                 bottomBar = {
                     ClarityBottomNavBar(
                         navController = navController,
@@ -214,6 +257,17 @@ fun SetupNavGraph(
                 onBack = { navController.popBackStack() },
                 onAdd = { navController.navigate(Screen.TransactionEdit.createRoute()) },
                 onOpen = { id -> navController.navigate(Screen.TransactionDetail.createRoute(id)) },
+                onNavigateToProfile = {
+                    navController.navigate(Screen.Settings.route) {
+                        launchSingleTop = true
+                    }
+                },
+                topBar = {
+                    ClarityTopBar(
+                        navController = navController,
+                        currentDestination = BottomNavDestination.TRANSACTIONS
+                    )
+                },
                 bottomBar = {
                     ClarityBottomNavBar(
                         navController = navController,
