@@ -89,6 +89,10 @@ private val StitchTextSecondary = Color(0xFF5C6B6B)
 fun TransactionEditScreen(
     onBack: () -> Unit,
     onCreateAccount: () -> Unit = {},
+    onOpenCreateCategory: (TransactionType) -> Unit = {},
+    createdCategoryName: String? = null,
+    createdCategoryType: String? = null,
+    onConsumedCreatedCategory: () -> Unit = {},
     viewModel: TransactionEditViewModel = hiltViewModel()
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
@@ -178,7 +182,12 @@ fun TransactionEditScreen(
         onRemoveUnavailableProof = viewModel::onRemoveUnavailableProof,
         onRetryProofs = viewModel::onRetryProofs,
         onRemovePendingProof = viewModel::onRemovePendingProof,
-        onTogglePendingProofVerified = viewModel::onTogglePendingProofVerified
+        onTogglePendingProofVerified = viewModel::onTogglePendingProofVerified,
+        onAddCustomTag = viewModel::onAddCustomTag,
+        onOpenCreateCategory = onOpenCreateCategory,
+        createdCategoryName = createdCategoryName,
+        createdCategoryType = createdCategoryType,
+        onConsumedCreatedCategory = onConsumedCreatedCategory
     )
 }
 
@@ -199,22 +208,38 @@ internal fun TransactionEditContent(
     onRemoveUnavailableProof: (String) -> Unit = {},
     onRetryProofs: () -> Unit = {},
     onRemovePendingProof: (String) -> Unit = {},
-    onTogglePendingProofVerified: (String) -> Unit = {}
+    onTogglePendingProofVerified: (String) -> Unit = {},
+    onAddCustomTag: (String, TransactionType) -> Unit = { _, _ -> },
+    onOpenCreateCategory: (TransactionType) -> Unit = {},
+    createdCategoryName: String? = null,
+    createdCategoryType: String? = null,
+    onConsumedCreatedCategory: () -> Unit = {}
 ) {
     var typeName by rememberSaveable { mutableStateOf(TransactionType.EXPENSE.name) }
     var amount by rememberSaveable { mutableStateOf("") }
-    var category by rememberSaveable { mutableStateOf("") }
+    var category by rememberSaveable { mutableStateOf("General") }
     var note by rememberSaveable { mutableStateOf("") }
     var dateEpochMillis by rememberSaveable { mutableStateOf(System.currentTimeMillis()) }
     var loadedId by rememberSaveable { mutableStateOf<String?>(null) }
     var loadedOwner by rememberSaveable { mutableStateOf<String?>(null) }
     var dateDialogVisible by rememberSaveable { mutableStateOf(false) }
-    var showCustomCategoryInput by rememberSaveable { mutableStateOf(false) }
     var showConversionDetails by rememberSaveable { mutableStateOf(false) }
 
     val amountFocus = remember { FocusRequester() }
     val focusManager = LocalFocusManager.current
     val context = LocalContext.current
+
+    LaunchedEffect(createdCategoryName, createdCategoryType) {
+        if (!createdCategoryName.isNullOrBlank()) {
+            val targetType = createdCategoryType
+                ?.let { runCatching { TransactionType.valueOf(it.uppercase()) }.getOrNull() }
+            if (targetType != null) {
+                typeName = targetType.name
+            }
+            category = createdCategoryName.trim()
+            onConsumedCreatedCategory()
+        }
+    }
 
     LaunchedEffect(state.transaction?.id, state.transaction?.userId) {
         state.transaction?.let { transaction ->
@@ -373,10 +398,20 @@ internal fun TransactionEditContent(
                 }
 
                 // 1. Segmented Control (Expense / Income)
+                val currentType = runCatching { TransactionType.valueOf(typeName) }.getOrDefault(TransactionType.EXPENSE)
+                val activeTypeTags = if (currentType == TransactionType.INCOME) state.incomeTags else state.expenseTags
+
                 StitchTransactionTypeSelector(
                     selectedType = typeName,
                     enabled = !state.isSaving,
-                    onTypeSelected = { typeName = it }
+                    onTypeSelected = { newType ->
+                        if (newType != typeName) {
+                            typeName = newType
+                            val nextTags = if (newType == TransactionType.INCOME.name) state.incomeTags else state.expenseTags
+                            val defaultForSlide = if (newType == TransactionType.INCOME.name) "Salary" else "General"
+                            category = nextTags.firstOrNull() ?: defaultForSlide
+                        }
+                    }
                 )
 
                 // 2. Hero Amount Card with Currency Switcher & Conversion Tag
@@ -397,13 +432,13 @@ internal fun TransactionEditContent(
                     amountFocus = amountFocus
                 )
 
-                // 3. Category Pills Section
+                // 3. Category Pills Section (Database-backed & Cloud-synced, sorted by Expense/Income slide)
                 StitchCategorySection(
+                    transactionType = currentType,
                     category = category,
-                    tags = state.tags,
+                    tags = activeTypeTags,
                     categoryError = state.categoryError,
-                    showCustomInput = showCustomCategoryInput,
-                    onToggleCustomInput = { showCustomCategoryInput = !showCustomCategoryInput },
+                    onOpenCreateCategory = { onOpenCreateCategory(currentType) },
                     onCategoryChange = { category = it },
                     enabled = !state.isSaving
                 )
@@ -790,19 +825,23 @@ private fun StitchHeroAmountCard(
 
 @Composable
 private fun StitchCategorySection(
+    transactionType: TransactionType,
     category: String,
     tags: List<String>,
     categoryError: String?,
-    showCustomInput: Boolean,
-    onToggleCustomInput: () -> Unit,
+    onOpenCreateCategory: () -> Unit,
     onCategoryChange: (String) -> Unit,
     enabled: Boolean
 ) {
-    val defaultCategories = remember(tags) {
-        val presets = listOf("Groceries", "Food", "Travel", "Savings", "Bills", "Health", "General")
-        (presets + tags).distinctBy { it.lowercase() }
+    val defaultFallback = if (transactionType == TransactionType.INCOME) "Salary" else "General"
+    val effectiveSelected = category.trim().ifBlank { tags.firstOrNull() ?: defaultFallback }
+    val displayTags = remember(tags, effectiveSelected) {
+        if (effectiveSelected.isNotBlank() && tags.none { it.equals(effectiveSelected, ignoreCase = true) }) {
+            listOf(effectiveSelected) + tags
+        } else {
+            tags
+        }
     }
-    val effectiveSelected = category.trim().ifBlank { "General" }
     val focusManager = LocalFocusManager.current
 
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -814,7 +853,7 @@ private fun StitchCategorySection(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
-                text = "CATEGORY",
+                text = if (transactionType == TransactionType.INCOME) "INCOME CATEGORY" else "EXPENSE CATEGORY",
                 style = MaterialTheme.typography.labelSmall.copy(
                     fontWeight = FontWeight.Bold,
                     letterSpacing = 0.8.sp,
@@ -822,14 +861,17 @@ private fun StitchCategorySection(
                 )
             )
             Text(
-                text = if (showCustomInput) "Hide Custom Tag" else "+ Custom Tag",
+                text = "+ Custom Tag",
                 style = MaterialTheme.typography.labelSmall.copy(
                     fontWeight = FontWeight.Bold,
                     color = StitchTealDark
                 ),
                 modifier = Modifier
                     .clip(RoundedCornerShape(6.dp))
-                    .clickable(enabled = enabled) { onToggleCustomInput() }
+                    .clickable(enabled = enabled) {
+                        focusManager.clearFocus()
+                        onOpenCreateCategory()
+                    }
                     .padding(horizontal = 4.dp, vertical = 2.dp)
             )
         }
@@ -840,7 +882,7 @@ private fun StitchCategorySection(
                 .horizontalScroll(rememberScrollState()),
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            defaultCategories.forEach { item ->
+            displayTags.forEach { item ->
                 val isSelected = effectiveSelected.equals(item, ignoreCase = true)
                 Surface(
                     color = if (isSelected) StitchTealDark else Color.White,
@@ -859,7 +901,6 @@ private fun StitchCategorySection(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
-                        Text(text = categoryEmoji(item), fontSize = 13.sp)
                         Text(
                             text = item,
                             style = MaterialTheme.typography.labelMedium.copy(
@@ -878,28 +919,45 @@ private fun StitchCategorySection(
                     }
                 }
             }
+
+            Surface(
+                color = StitchTealLightBg,
+                shape = CircleShape,
+                border = BorderStroke(1.dp, StitchTealDark.copy(alpha = 0.35f)),
+                modifier = Modifier
+                    .clip(CircleShape)
+                    .clickable(enabled = enabled) {
+                        focusManager.clearFocus()
+                        onOpenCreateCategory()
+                    }
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Add,
+                        contentDescription = null,
+                        tint = StitchTealBadgeText,
+                        modifier = Modifier.size(14.dp)
+                    )
+                    Text(
+                        text = "New Tag",
+                        style = MaterialTheme.typography.labelMedium.copy(
+                            fontWeight = FontWeight.SemiBold,
+                            color = StitchTealBadgeText
+                        )
+                    )
+                }
+            }
         }
 
-        if (showCustomInput || categoryError != null || (category.isNotBlank() && defaultCategories.none { it.equals(category.trim(), ignoreCase = true) })) {
-            OutlinedTextField(
-                value = category,
-                onValueChange = onCategoryChange,
-                label = { Text("Tag or custom category (optional)") },
-                placeholder = { Text("General") },
-                isError = categoryError != null,
-                supportingText = {
-                    Text(categoryError ?: "Tap a category pill above or enter a custom tag.")
-                },
-                enabled = enabled,
-                singleLine = true,
-                shape = RoundedCornerShape(12.dp),
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedContainerColor = Color.White,
-                    unfocusedContainerColor = Color.White,
-                    focusedBorderColor = StitchTealDark,
-                    unfocusedBorderColor = StitchBorder
-                ),
-                modifier = Modifier.fillMaxWidth()
+        categoryError?.let { err ->
+            Text(
+                text = err,
+                color = MaterialTheme.colorScheme.error,
+                style = MaterialTheme.typography.bodySmall
             )
         }
     }
@@ -1713,17 +1771,6 @@ private fun currencySymbol(code: String): String = when (code.uppercase()) {
     "SGD" -> "S$"
     "KWD" -> "KD"
     else -> code
-}
-
-private fun categoryEmoji(category: String): String = when (category.trim().lowercase()) {
-    "groceries", "grocery" -> "🥑"
-    "food", "dining", "coffee", "restaurant" -> "☕"
-    "travel", "transport", "fuel", "commute" -> "🚗"
-    "savings", "salary", "income", "investment" -> "💰"
-    "bills", "utilities", "rent" -> "🧾"
-    "health", "medical", "clinic" -> "🏥"
-    "shopping" -> "🛍️"
-    else -> "🏷️"
 }
 
 private fun resolveDisplayName(context: Context, uri: Uri): String {

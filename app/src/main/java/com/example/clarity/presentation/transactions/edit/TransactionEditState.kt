@@ -22,6 +22,8 @@ data class TransactionEditState(
     val categoryError: String? = null,
     val noteError: String? = null,
     val tags: List<String> = TransactionTags.predefined,
+    val expenseTags: List<String> = TransactionTags.defaultExpenseCategories,
+    val incomeTags: List<String> = TransactionTags.defaultIncomeCategories,
     val accounts: List<Account> = emptyList(),
     val selectedAccountId: String? = null,
     val isAccountsLoading: Boolean = true,

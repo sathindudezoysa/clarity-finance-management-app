@@ -14,7 +14,9 @@ import com.example.clarity.domain.model.ProofPolicy
 import com.example.clarity.domain.model.ProofStoragePlanException
 import com.example.clarity.domain.model.TransactionError
 import com.example.clarity.domain.model.TransactionException
+import com.example.clarity.domain.model.TransactionTags
 import com.example.clarity.domain.model.TransactionType
+import com.example.clarity.domain.usecase.transaction.AddTransactionTagUseCase
 import com.example.clarity.domain.usecase.transaction.AddTransactionUseCase
 import com.example.clarity.domain.usecase.transaction.AttachTransactionProofUseCase
 import com.example.clarity.domain.usecase.transaction.GetTransactionUseCase
@@ -59,6 +61,7 @@ class TransactionEditViewModel @Inject constructor(
     private var verifyProof: VerifyReceiptAmountUseCase? = null
     private var refreshProofs: RefreshTransactionProofsUseCase? = null
     private var removeUnavailableProof: RemoveUnavailableProofUseCase? = null
+    private var addTransactionTag: AddTransactionTagUseCase? = null
 
     @Inject
     internal fun injectProofUseCases(
@@ -67,7 +70,8 @@ class TransactionEditViewModel @Inject constructor(
         openProof: OpenTransactionProofUseCase,
         verifyProof: VerifyReceiptAmountUseCase,
         refreshProofs: RefreshTransactionProofsUseCase,
-        removeUnavailableProof: RemoveUnavailableProofUseCase
+        removeUnavailableProof: RemoveUnavailableProofUseCase,
+        addTransactionTag: AddTransactionTagUseCase
     ) {
         this.observeProofs = observeProofs
         this.attachProof = attachProof
@@ -75,6 +79,7 @@ class TransactionEditViewModel @Inject constructor(
         this.verifyProof = verifyProof
         this.refreshProofs = refreshProofs
         this.removeUnavailableProof = removeUnavailableProof
+        this.addTransactionTag = addTransactionTag
         if (id != null) {
             viewModelScope.launch {
                 observeProofs.invoke(id).catch { error ->
@@ -145,6 +150,16 @@ class TransactionEditViewModel @Inject constructor(
         }
         viewModelScope.launch {
             getTransactionTags().collect { tags -> updateState { it.copy(tags = tags) } }
+        }
+        viewModelScope.launch {
+            getTransactionTags(TransactionType.EXPENSE).collect { expenseTags ->
+                updateState { it.copy(expenseTags = expenseTags) }
+            }
+        }
+        viewModelScope.launch {
+            getTransactionTags(TransactionType.INCOME).collect { incomeTags ->
+                updateState { it.copy(incomeTags = incomeTags) }
+            }
         }
         if (id != null) {
             viewModelScope.launch {
@@ -407,6 +422,33 @@ class TransactionEditViewModel @Inject constructor(
         savedStateHandle["currency"] = currency
         previewJob?.cancel()
         updateState { it.copy(currency = currency, preview = null) }
+    }
+
+    fun onAddCustomTag(name: String, type: TransactionType) {
+        val clean = name.trim()
+        if (clean.isEmpty()) return
+        if (clean.length > 100) {
+            updateState { it.copy(categoryError = TransactionMessages.TAG_LONG) }
+            return
+        }
+        updateState { state ->
+            val updatedExpense = if (type == TransactionType.EXPENSE) {
+                (state.expenseTags + clean).distinctBy { TransactionTags.key(it) }
+            } else state.expenseTags
+            val updatedIncome = if (type == TransactionType.INCOME) {
+                (state.incomeTags + clean).distinctBy { TransactionTags.key(it) }
+            } else state.incomeTags
+            val updatedAll = (state.tags + clean).distinctBy { TransactionTags.key(it) }
+            state.copy(
+                tags = updatedAll,
+                expenseTags = updatedExpense,
+                incomeTags = updatedIncome,
+                categoryError = null
+            )
+        }
+        viewModelScope.launch {
+            addTransactionTag?.invoke(clean, type)
+        }
     }
 
     fun preview(amountText: String) {

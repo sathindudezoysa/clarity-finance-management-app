@@ -273,6 +273,52 @@ service cloud.firestore {
       allow delete: if false;
     }
 
+    function validCategoryBucket(data, bucketId, userId) {
+      let fields = ['userId', 'type', 'updatedAt'];
+      let expectedType = bucketId == 'income' ? 'INCOME' : 'EXPENSE';
+      return bucketId in ['income', 'expenses']
+        && data.keys().hasAll(fields) && data.keys().hasOnly(fields)
+        && data.userId is string && data.userId == userId && uidUnchanged(data)
+        && data.type is string && data.type == expectedType
+        && data.updatedAt is int && data.updatedAt >= 0;
+    }
+
+    function validCategoryTag(data, tagId, bucketId, userId) {
+      let fields = ['id', 'userId', 'name', 'type', 'createdAt', 'updatedAt'];
+      let expectedType = bucketId == 'income' ? 'INCOME' : 'EXPENSE';
+      return bucketId in ['income', 'expenses']
+        && data.keys().hasAll(fields) && data.keys().hasOnly(fields)
+        && data.id is string && data.id == tagId && tagId.size() > 0 && tagId.size() <= 128
+        && tagId != '.' && tagId != '..'
+        && data.userId is string && data.userId == userId && uidUnchanged(data)
+        && data.name is string && data.name.size() > 0 && data.name.size() <= 100
+        && data.name == data.name.trim()
+        && data.type is string && data.type == expectedType
+        && data.createdAt is int && data.createdAt >= 0
+        && data.updatedAt is int && data.updatedAt >= data.createdAt;
+    }
+
+    match /users/{userId}/categories/{bucketId} {
+      allow read: if isOwner(userId) && bucketId in ['income', 'expenses'];
+      allow create, update: if isOwner(userId) && validCategoryBucket(request.resource.data, bucketId, userId);
+
+      match /{subcollection}/{tagId} {
+        allow read: if isOwner(userId) && bucketId in ['income', 'expenses'] && subcollection == bucketId;
+        allow create: if isOwner(userId)
+          && subcollection == bucketId
+          && validCategoryTag(request.resource.data, tagId, bucketId, userId);
+        allow update: if isOwner(userId)
+          && subcollection == bucketId
+          && validCategoryTag(request.resource.data, tagId, bucketId, userId)
+          && uidNotModified(request.resource.data)
+          && request.resource.data.id == resource.data.id
+          && request.resource.data.type == resource.data.type
+          && request.resource.data.createdAt == resource.data.createdAt
+          && request.resource.data.updatedAt >= resource.data.updatedAt;
+        allow delete: if isOwner(userId) && bucketId in ['income', 'expenses'] && subcollection == bucketId;
+      }
+    }
+
     match /{document=**} {
       allow read, write: if false;
     }
