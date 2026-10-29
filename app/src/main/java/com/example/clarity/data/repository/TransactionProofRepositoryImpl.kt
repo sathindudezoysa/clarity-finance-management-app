@@ -36,6 +36,12 @@ class TransactionProofRepositoryImpl @Inject constructor(
             }
         }.flowOn(ioDispatcher)
 
+    override fun observeAttachedTransactionIds(): Flow<Set<String>> =
+        auth.currentUser.distinctUntilChangedBy { it?.uid }.flatMapLatest { user ->
+            if (user == null) flowOf(emptySet())
+            else dao.observeAttachedTransactionIds(user.uid).map { it.toSet() }
+        }.flowOn(ioDispatcher)
+
     override suspend fun attach(transactionId: String, contentUri: String) = operation {
         val uid = owner()
         availableTransaction(uid, transactionId)

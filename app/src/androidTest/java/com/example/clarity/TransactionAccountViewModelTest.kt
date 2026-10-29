@@ -15,17 +15,21 @@ import com.example.clarity.domain.model.Account
 import com.example.clarity.domain.model.AccountError
 import com.example.clarity.domain.model.AccountException
 import com.example.clarity.domain.model.ExchangeRate
+import com.example.clarity.domain.model.ProofOpenFile
 import com.example.clarity.domain.model.Transaction
 import com.example.clarity.domain.model.TransactionError
 import com.example.clarity.domain.model.TransactionException
+import com.example.clarity.domain.model.TransactionProof
 import com.example.clarity.domain.model.TransactionType
 import com.example.clarity.domain.repository.AccountRepository
 import com.example.clarity.domain.repository.CurrencyPreference
 import com.example.clarity.domain.repository.CurrencyPreferenceRepository
 import com.example.clarity.domain.repository.ExchangeRateRepository
+import com.example.clarity.domain.repository.TransactionProofRepository
 import com.example.clarity.domain.repository.TransactionRepository
 import com.example.clarity.domain.repository.TransactionTagRepository
 import com.example.clarity.domain.usecase.account.GetAccountsUseCase
+import com.example.clarity.domain.usecase.currency.ObserveCurrencyPreferenceUseCase
 import com.example.clarity.domain.usecase.transaction.*
 import com.example.clarity.domain.util.Resource
 import com.example.clarity.presentation.transactions.detail.TransactionDetailViewModel
@@ -59,6 +63,14 @@ class TransactionAccountViewModelTest {
     private val rates = object : ExchangeRateRepository {
         override suspend fun cached(source: String, target: String) = ExchangeRate(source, target, "1", "ExchangeRate-API", 100, 100, 86_500_000)
         override suspend fun latest(source: String, target: String) = cached(source, target)!!
+    }
+    private val proofs = object : TransactionProofRepository {
+        override fun observeProofs(transactionId: String) = flowOf(emptyList<TransactionProof>())
+        override suspend fun attach(transactionId: String, contentUri: String) = Result.success(Unit)
+        override suspend fun open(transactionId: String, proofId: String): Result<ProofOpenFile> = error("Unused")
+        override suspend fun setVerified(transactionId: String, proofId: String, amountMinor: Long, verified: Boolean) = Result.success(Unit)
+        override suspend fun removeUnavailable(transactionId: String, proofId: String) = Result.success(Unit)
+        override suspend fun refresh(transactionId: String) = Result.success(Unit)
     }
     private val getAccounts = GetAccountsUseCase(accounts, preferences)
 
@@ -280,7 +292,13 @@ class TransactionAccountViewModelTest {
                 DeleteTransactionUseCase(transactions), getAccounts, RetryConversionUseCase(transactions))
         }
         val list = model(TransactionListViewModel::class.java) {
-            TransactionListViewModel(GetTransactionsUseCase(transactions), getAccounts)
+            TransactionListViewModel(
+                GetTransactionsUseCase(transactions),
+                getAccounts,
+                ObserveCurrencyPreferenceUseCase(preferences),
+                ObserveTransactionProofsUseCase(proofs),
+                rates
+            )
         }
         val editor = editor(SavedStateHandle(mapOf("id" to transaction.id)))
         ready(editor)
@@ -321,7 +339,13 @@ class TransactionAccountViewModelTest {
                 DeleteTransactionUseCase(transactions), getAccounts, RetryConversionUseCase(transactions))
         }
         val list = model(TransactionListViewModel::class.java) {
-            TransactionListViewModel(GetTransactionsUseCase(transactions), getAccounts)
+            TransactionListViewModel(
+                GetTransactionsUseCase(transactions),
+                getAccounts,
+                ObserveCurrencyPreferenceUseCase(preferences),
+                ObserveTransactionProofsUseCase(proofs),
+                rates
+            )
         }
         withTimeout(10_000) { detail.uiState.first { it.transaction != null } }
         withTimeout(10_000) { list.uiState.first { it.transactions.isNotEmpty() } }
@@ -357,7 +381,13 @@ class TransactionAccountViewModelTest {
                 DeleteTransactionUseCase(transactions), getAccounts, RetryConversionUseCase(transactions))
         }
         val list = model(TransactionListViewModel::class.java) {
-            TransactionListViewModel(GetTransactionsUseCase(transactions), getAccounts)
+            TransactionListViewModel(
+                GetTransactionsUseCase(transactions),
+                getAccounts,
+                ObserveCurrencyPreferenceUseCase(preferences),
+                ObserveTransactionProofsUseCase(proofs),
+                rates
+            )
         }
         withTimeout(10_000) { detail.uiState.first { it.accountName == "Savings" } }
         withTimeout(10_000) { list.uiState.first { it.accountNames[saved.accountId] == "Savings" } }
@@ -376,7 +406,13 @@ class TransactionAccountViewModelTest {
                 DeleteTransactionUseCase(transactions), getAccounts, RetryConversionUseCase(transactions))
         }
         val list = model(TransactionListViewModel::class.java) {
-            TransactionListViewModel(GetTransactionsUseCase(transactions), getAccounts)
+            TransactionListViewModel(
+                GetTransactionsUseCase(transactions),
+                getAccounts,
+                ObserveCurrencyPreferenceUseCase(preferences),
+                ObserveTransactionProofsUseCase(proofs),
+                rates
+            )
         }
         withTimeout(10_000) { detail.uiState.first { it.accountName == "Daily" } }
         withTimeout(10_000) { list.uiState.first { it.accountNames["daily"] == "Daily" } }

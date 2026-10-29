@@ -6,6 +6,7 @@ import kotlinx.coroutines.flow.Flow
 
 interface TransactionProofRepository {
     fun observeProofs(transactionId: String): Flow<List<TransactionProof>>
+    fun observeAttachedTransactionIds(): Flow<Set<String>> = kotlinx.coroutines.flow.flowOf(emptySet())
     suspend fun attach(transactionId: String, contentUri: String): Result<Unit>
     suspend fun open(transactionId: String, proofId: String): Result<ProofOpenFile>
     suspend fun setVerified(transactionId: String, proofId: String, amountMinor: Long, verified: Boolean): Result<Unit>

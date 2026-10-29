@@ -29,12 +29,6 @@ enum class BottomNavDestination(
         routePattern = Screen.Main.route,
         navigateRoute = Screen.Main.route
     ),
-    TRANSACTIONS(
-        label = "Transactions",
-        icon = AppIcons.Transactions,
-        routePattern = Screen.TransactionList.route,
-        navigateRoute = Screen.TransactionList.route
-    ),
     ACCOUNTS(
         label = "Accounts",
         icon = Icons.Outlined.AccountBox,
@@ -58,7 +52,7 @@ enum class BottomNavDestination(
 @Composable
 fun ClarityBottomNavBar(
     navController: NavHostController,
-    currentDestination: BottomNavDestination
+    currentDestination: BottomNavDestination?
 ) {
     val colors = MaterialTheme.colorScheme
 
