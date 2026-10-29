@@ -14,6 +14,7 @@ import com.example.clarity.domain.util.Resource
 import com.example.clarity.domain.util.isSignInRequired
 import com.example.clarity.presentation.transactions.TransactionMessages
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
@@ -27,7 +28,10 @@ import javax.inject.Inject
 @HiltViewModel
 class TransactionListViewModel @Inject constructor(
     private val getTransactions: GetTransactionsUseCase,
-    private val getAccounts: GetAccountsUseCase
+    private val getAccounts: GetAccountsUseCase,
+    private val observeCurrency: ObserveCurrencyPreferenceUseCase,
+    private val observeProofs: ObserveTransactionProofsUseCase,
+    private val exchangeRates: ExchangeRateRepository
 ) : ViewModel() {
     private val _uiState = MutableStateFlow(TransactionListState())
     val uiState = _uiState.asStateFlow()
@@ -44,15 +48,9 @@ class TransactionListViewModel @Inject constructor(
     private val _convertedAmountsMinor = MutableStateFlow<Map<String, BigInteger>>(emptyMap())
     val convertedAmountsMinor = _convertedAmountsMinor.asStateFlow()
 
-    private var exchangeRates: ExchangeRateRepository? = null
+    private var conversionJob: Job? = null
 
-    @Inject
-    internal fun injectExtras(
-        observeCurrency: ObserveCurrencyPreferenceUseCase,
-        observeProofs: ObserveTransactionProofsUseCase,
-        rates: ExchangeRateRepository
-    ) {
-        this.exchangeRates = rates
+    init {
         viewModelScope.launch {
             observeCurrency().collect { pref ->
                 _preferredCurrency.value = pref.currency
@@ -64,9 +62,6 @@ class TransactionListViewModel @Inject constructor(
                 _receiptTransactionIds.value = ids
             }
         }
-    }
-
-    init {
         viewModelScope.launch {
             combine(getTransactions(), getAccounts()) { transactions, accounts -> transactions to accounts }.collect { (result, accounts) ->
                 accounts.data?.let { _accountsList.value = it }
@@ -96,8 +91,8 @@ class TransactionListViewModel @Inject constructor(
     }
 
     private fun recomputeConversions(transactions: List<Transaction>, targetCurrency: String) {
-        val ratesRepo = exchangeRates ?: return
-        viewModelScope.launch {
+        conversionJob?.cancel()
+        conversionJob = viewModelScope.launch {
             val rateCache = mutableMapOf<String, BigDecimal?>()
             val mapped = mutableMapOf<String, BigInteger>()
             for (tx in transactions) {
@@ -108,7 +103,7 @@ class TransactionListViewModel @Inject constructor(
                     else -> {
                         val rate = rateCache.getOrPut(tx.currency) {
                             val quote = runCatching {
-                                ratesRepo.cached(tx.currency, targetCurrency) ?: ratesRepo.latest(tx.currency, targetCurrency)
+                                exchangeRates.cached(tx.currency, targetCurrency) ?: exchangeRates.latest(tx.currency, targetCurrency)
                             }.getOrNull()
                             quote?.let { runCatching { CurrencyConversion.rate(it.rate) }.getOrNull() }
                         }
