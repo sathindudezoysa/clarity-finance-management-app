@@ -19,24 +19,36 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.example.clarity.presentation.budgets.BudgetDashboardSummary
+import com.example.clarity.R
+import com.example.clarity.domain.model.Transaction
+import com.example.clarity.domain.model.TransactionType
+import com.example.clarity.domain.util.MoneyUtils
 import com.example.clarity.presentation.common.AppIcons
 import com.example.clarity.presentation.income.IncomeMonthlyPrompt
 import com.example.clarity.presentation.navigation.BottomNavDestination
 import com.example.clarity.presentation.navigation.ClarityTopBar
+import com.example.clarity.presentation.transactions.TransactionMessages
+import com.example.clarity.presentation.transactions.formatTransactionDate
+import com.example.clarity.presentation.transactions.list.categoryIconFor
 
 @Composable
 fun MainScreen(
     onNavigateToTransactions: () -> Unit = {},
+    onAddTransaction: () -> Unit = onNavigateToTransactions,
+    onOpenTransaction: (String) -> Unit = { onNavigateToTransactions() },
     onNavigateToCashWallet: () -> Unit = {},
     onNavigateToSettings: () -> Unit = {},
     onNavigateToIncome: () -> Unit = {},
+    @Suppress("UNUSED_PARAMETER")
     onNavigateToBudgets: (String?) -> Unit = {},
     topBar: @Composable () -> Unit = {
         ClarityTopBar(
@@ -55,7 +67,7 @@ fun MainScreen(
         bottomBar = bottomBar,
         floatingActionButton = {
             FloatingActionButton(
-                onClick = onNavigateToTransactions,
+                onClick = onAddTransaction,
                 modifier = Modifier.semantics { contentDescription = "Add transaction" }
             ) {
                 Text("+", style = MaterialTheme.typography.headlineMedium)
@@ -226,9 +238,236 @@ fun MainScreen(
                 }
             }
 
-            BudgetDashboardSummary(onOpen = onNavigateToBudgets)
+            // Recent Transactions Section (replaces Budget section)
+            RecentTransactionsDashboardSection(
+                transactions = state.recentTransactions,
+                accountNames = state.accountNames,
+                receiptTransactionIds = state.receiptTransactionIds,
+                isHidden = state.isHidden,
+                onViewHistory = onNavigateToTransactions,
+                onOpenTransaction = onOpenTransaction
+            )
 
             Spacer(Modifier.height(88.dp))
+        }
+    }
+}
+
+@Composable
+private fun RecentTransactionsDashboardSection(
+    transactions: List<Transaction>,
+    accountNames: Map<String, String>,
+    receiptTransactionIds: Set<String>,
+    isHidden: Boolean,
+    onViewHistory: () -> Unit,
+    onOpenTransaction: (String) -> Unit
+) {
+    val colors = MaterialTheme.colorScheme
+
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        Text(
+            text = "Recent Transactions",
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.Bold,
+            color = colors.onSurface
+        )
+
+        Surface(
+            shape = RoundedCornerShape(18.dp),
+            color = colors.surface,
+            border = BorderStroke(1.dp, colors.outlineVariant),
+            shadowElevation = 1.dp,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            if (transactions.isEmpty()) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(20.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Text(
+                        text = "No recent transactions yet.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = colors.onSurfaceVariant,
+                        textAlign = TextAlign.Center
+                    )
+                    OutlinedButton(
+                        onClick = onViewHistory,
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Icon(
+                            imageVector = AppIcons.Transactions,
+                            contentDescription = null,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(Modifier.width(6.dp))
+                        Text("Open Transaction History")
+                    }
+                }
+            } else {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 4.dp)
+                ) {
+                    transactions.forEachIndexed { index, tx ->
+                        if (index > 0) {
+                            Divider(
+                                color = colors.outlineVariant.copy(alpha = 0.5f),
+                                modifier = Modifier.padding(horizontal = 14.dp)
+                            )
+                        }
+                        RecentTransactionRow(
+                            transaction = tx,
+                            accountNames = accountNames,
+                            hasReceipt = tx.id in receiptTransactionIds,
+                            isHidden = isHidden,
+                            onClick = { onOpenTransaction(tx.id) }
+                        )
+                    }
+
+                    Divider(
+                        color = colors.outlineVariant.copy(alpha = 0.5f),
+                        modifier = Modifier.padding(horizontal = 14.dp)
+                    )
+
+                    TextButton(
+                        onClick = onViewHistory,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 8.dp, vertical = 2.dp)
+                    ) {
+                        Icon(
+                            imageVector = AppIcons.Transactions,
+                            contentDescription = null,
+                            tint = colors.primary,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(Modifier.width(6.dp))
+                        Text(
+                            text = "View All Transaction History",
+                            style = MaterialTheme.typography.labelLarge,
+                            fontWeight = FontWeight.SemiBold,
+                            color = colors.primary
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun RecentTransactionRow(
+    transaction: Transaction,
+    accountNames: Map<String, String>,
+    hasReceipt: Boolean,
+    isHidden: Boolean,
+    onClick: () -> Unit
+) {
+    val colors = MaterialTheme.colorScheme
+    val isIncome = transaction.type == TransactionType.INCOME
+    val title = transaction.category
+    val accountLabel = when {
+        transaction.isCash -> "Cash Wallet"
+        transaction.accountId == null -> TransactionMessages.ACCOUNT_UNASSIGNED
+        else -> accountNames[transaction.accountId] ?: TransactionMessages.ACCOUNT_UNAVAILABLE
+    }
+    val formattedAmount = if (isHidden) {
+        "••••"
+    } else {
+        val sign = if (isIncome) "+" else "-"
+        "$sign${transaction.currency} ${MoneyUtils.formatMinor(transaction.amountMinor, transaction.currency)}"
+    }
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(horizontal = 14.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween
+    ) {
+        Row(
+            modifier = Modifier
+                .weight(1f)
+                .padding(end = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(44.dp)
+                    .clip(CircleShape)
+                    .background(if (isIncome) colors.tertiary.copy(alpha = 0.16f) else colors.secondaryContainer),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = categoryIconFor(transaction.category, isIncome),
+                    contentDescription = null,
+                    tint = if (isIncome) colors.tertiary else colors.primary,
+                    modifier = Modifier.size(22.dp)
+                )
+            }
+
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(2.dp)
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Text(
+                        text = title,
+                        style = MaterialTheme.typography.bodyLarge,
+                        fontWeight = FontWeight.SemiBold,
+                        color = colors.onSurface,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false)
+                    )
+                    if (hasReceipt) {
+                        Icon(
+                            painter = painterResource(R.drawable.ic_receipt_verified),
+                            contentDescription = "Receipt Attached",
+                            tint = colors.tertiary,
+                            modifier = Modifier.size(15.dp)
+                        )
+                    }
+                }
+                Text(
+                    text = accountLabel,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = colors.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+        }
+
+        Column(
+            horizontalAlignment = Alignment.End,
+            verticalArrangement = Arrangement.spacedBy(2.dp)
+        ) {
+            Text(
+                text = formattedAmount,
+                style = MaterialTheme.typography.bodyLarge,
+                fontWeight = FontWeight.Bold,
+                color = if (isIncome) colors.tertiary else colors.onSurface,
+                textAlign = TextAlign.End
+            )
+            Text(
+                text = formatTransactionDate(transaction.dateEpochMillis),
+                style = MaterialTheme.typography.labelSmall,
+                color = colors.onSurfaceVariant,
+                textAlign = TextAlign.End
+            )
         }
     }
 }

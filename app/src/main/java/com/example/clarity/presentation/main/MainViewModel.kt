@@ -13,6 +13,7 @@ import com.example.clarity.domain.usecase.account.GetAccountsUseCase
 import com.example.clarity.domain.usecase.currency.ObserveCurrencyPreferenceUseCase
 import com.example.clarity.domain.usecase.income.ObserveIncomeSourcesUseCase
 import com.example.clarity.domain.usecase.transaction.GetTransactionsUseCase
+import com.example.clarity.domain.usecase.transaction.ObserveTransactionProofsUseCase
 import com.example.clarity.domain.util.MoneyUtils
 import com.example.clarity.domain.util.Resource
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -35,13 +36,19 @@ class MainViewModel @Inject constructor(
     getAccounts: GetAccountsUseCase,
     getTransactions: GetTransactionsUseCase,
     observeIncomeSources: ObserveIncomeSourcesUseCase,
-    observeCurrency: ObserveCurrencyPreferenceUseCase
+    observeCurrency: ObserveCurrencyPreferenceUseCase,
+    observeProofs: ObserveTransactionProofsUseCase
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(loadQuickState())
     val uiState: StateFlow<MainState> = _uiState.asStateFlow()
 
     init {
+        viewModelScope.launch {
+            observeProofs.observeAttachedTransactionIds().collect { receiptIds ->
+                _uiState.update { it.copy(receiptTransactionIds = receiptIds) }
+            }
+        }
         viewModelScope.launch {
             combine(
                 getAccounts().catch { emit(Resource.Success(emptyList())) },
@@ -52,6 +59,10 @@ class MainViewModel @Inject constructor(
                 val targetCurrency = pref.currency
                 val accounts = accountsResult.data ?: return@combine null
                 val transactions = txResult.data ?: return@combine null
+                val accountNames = accounts.associate { it.id to it.name }
+                val recentTransactions = transactions
+                    .sortedWith(compareByDescending<Transaction> { it.dateEpochMillis }.thenByDescending { it.createdAt })
+                    .take(5)
                 val rateCache = mutableMapOf<String, BigDecimal?>()
 
                 suspend fun resolveRate(source: String): BigDecimal? {
@@ -134,7 +145,10 @@ class MainViewModel @Inject constructor(
                     incomeSubtitle = incomeSubtitle,
                     expenses = "-${MoneyUtils.formatMinor(expenseMinor, targetCurrency)}",
                     expenseSubtitle = expenseSubtitle,
-                    cashBalance = MoneyUtils.formatMinor(cashBalanceMinor, targetCurrency)
+                    cashBalance = MoneyUtils.formatMinor(cashBalanceMinor, targetCurrency),
+                    recentTransactions = recentTransactions,
+                    accountNames = accountNames,
+                    receiptTransactionIds = _uiState.value.receiptTransactionIds
                 )
             }.collect { updated ->
                 if (updated != null) {

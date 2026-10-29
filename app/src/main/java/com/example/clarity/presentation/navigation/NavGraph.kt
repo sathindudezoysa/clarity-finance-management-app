@@ -75,12 +75,14 @@ fun SetupNavGraph(
                 },
                 onNavigateToTransactions = {
                     navController.navigate(Screen.TransactionList.route) {
-                        popUpTo(Screen.Main.route) {
-                            saveState = true
-                        }
                         launchSingleTop = true
-                        restoreState = true
                     }
+                },
+                onAddTransaction = {
+                    navController.navigate(Screen.TransactionEdit.createRoute())
+                },
+                onOpenTransaction = { id ->
+                    navController.navigate(Screen.TransactionDetail.createRoute(id))
                 },
                 onNavigateToIncome = { navController.navigate(Screen.IncomeSources.route) },
                 onNavigateToCashWallet = { navController.navigate(Screen.CashWallet.route) },
@@ -257,25 +259,19 @@ fun SetupNavGraph(
         }
         composable(route = Screen.TransactionList.route) {
             TransactionListScreen(
-                onBack = { navController.popBackStack() },
+                onBack = {
+                    if (!navController.popBackStack()) {
+                        navController.navigate(Screen.Main.route) {
+                            launchSingleTop = true
+                        }
+                    }
+                },
                 onAdd = { navController.navigate(Screen.TransactionEdit.createRoute()) },
                 onOpen = { id -> navController.navigate(Screen.TransactionDetail.createRoute(id)) },
                 onNavigateToProfile = {
                     navController.navigate(Screen.Settings.route) {
                         launchSingleTop = true
                     }
-                },
-                topBar = {
-                    ClarityTopBar(
-                        navController = navController,
-                        currentDestination = BottomNavDestination.TRANSACTIONS
-                    )
-                },
-                bottomBar = {
-                    ClarityBottomNavBar(
-                        navController = navController,
-                        currentDestination = BottomNavDestination.TRANSACTIONS
-                    )
                 },
                 viewModel = hiltViewModel()
             )
