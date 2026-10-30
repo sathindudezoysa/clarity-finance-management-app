@@ -19,6 +19,7 @@ import com.example.clarity.domain.model.TransactionType
 import com.example.clarity.domain.usecase.transaction.AddTransactionTagUseCase
 import com.example.clarity.domain.usecase.transaction.AddTransactionUseCase
 import com.example.clarity.domain.usecase.transaction.AttachTransactionProofUseCase
+import com.example.clarity.domain.usecase.transaction.DeleteTransactionUseCase
 import com.example.clarity.domain.usecase.transaction.GetTransactionUseCase
 import com.example.clarity.domain.usecase.transaction.GetTransactionTagsUseCase
 import com.example.clarity.domain.usecase.transaction.ObserveTransactionProofsUseCase
@@ -62,6 +63,15 @@ class TransactionEditViewModel @Inject constructor(
     private var refreshProofs: RefreshTransactionProofsUseCase? = null
     private var removeUnavailableProof: RemoveUnavailableProofUseCase? = null
     private var addTransactionTag: AddTransactionTagUseCase? = null
+    private var deleteTransaction: DeleteTransactionUseCase? = null
+
+    @Inject
+    internal fun injectDeleteTransaction(deleteTransaction: DeleteTransactionUseCase) {
+        this.deleteTransaction = deleteTransaction
+        if (id != null) {
+            updateState { it.copy(canDelete = true) }
+        }
+    }
 
     @Inject
     internal fun injectProofUseCases(
@@ -218,7 +228,7 @@ class TransactionEditViewModel @Inject constructor(
     fun onAccountSelected(accountId: String) {
         synchronized(stateLock) {
             val state = _uiState.value
-            if (state.isSaving || state.isSuccess || state.accounts.none { it.id == accountId }) return
+            if (state.isSaving || state.isDeleting || state.isSuccess || state.isDeleted || state.accounts.none { it.id == accountId }) return
             persistSelection(accountId)
             _uiState.value = state.copy(selectedAccountId = accountId, accountError = null)
         }
@@ -227,7 +237,7 @@ class TransactionEditViewModel @Inject constructor(
     fun save(type: TransactionType, amountText: String, category: String, note: String, dateEpochMillis: Long) {
         val transaction = synchronized(stateLock) {
             val state = _uiState.value
-            if (state.isSaving || state.isSuccess || state.isLoading || state.isAccountsLoading) return
+            if (state.isSaving || state.isDeleting || state.isSuccess || state.isDeleted || state.isLoading || state.isAccountsLoading) return
             if (state.isEditMode && state.transaction == null) {
                 updateState { it.copy(error = TransactionMessages.NOT_FOUND) }
                 return
@@ -304,9 +314,54 @@ class TransactionEditViewModel @Inject constructor(
         }
     }
 
+    fun showDeleteDialog() {
+        synchronized(stateLock) {
+            val state = _uiState.value
+            if (id == null || deleteTransaction == null || state.transaction == null ||
+                state.isSaving || state.isDeleting || state.isSuccess || state.isDeleted) return
+            _uiState.value = state.copy(isDeleteDialogVisible = true)
+        }
+    }
+
+    fun hideDeleteDialog() {
+        updateState { it.copy(isDeleteDialogVisible = false) }
+    }
+
+    fun confirmDelete() {
+        val transactionId = id ?: return
+        val deleter = deleteTransaction ?: return
+        val canProceed = synchronized(stateLock) {
+            val state = _uiState.value
+            if (state.transaction == null || state.isSaving || state.isDeleting || state.isSuccess || state.isDeleted) {
+                false
+            } else {
+                _uiState.value = state.copy(isDeleting = true, isDeleteDialogVisible = false, error = null)
+                true
+            }
+        }
+        if (!canProceed) return
+        viewModelScope.launch {
+            deleter(transactionId).onSuccess {
+                updateState { it.copy(isDeleting = false, isDeleted = true) }
+            }.onFailure { error ->
+                updateState {
+                    it.copy(
+                        isDeleting = false,
+                        error = when {
+                            error.isSignInRequired() -> TransactionMessages.SIGN_IN
+                            error is TransactionException && error.error == TransactionError.INSUFFICIENT_BALANCE ->
+                                TransactionMessages.DELETE_BLOCKED_BALANCE
+                            else -> TransactionMessages.DELETE_ERROR
+                        }
+                    )
+                }
+            }
+        }
+    }
+
     fun onAttachProof(uri: String, displayName: String = "Receipt slip") {
         val currentState = _uiState.value
-        if (currentState.isSaving || currentState.isProofBusy) return
+        if (currentState.isSaving || currentState.isDeleting || currentState.isProofBusy) return
         val attach = attachProof
         if (id != null && attach != null) {
             runProofAction(ProofMessages.ATTACH_ERROR) {
@@ -418,7 +473,8 @@ class TransactionEditViewModel @Inject constructor(
     }
 
     fun onCurrencySelected(currency: String) {
-        if (currency !in com.example.clarity.domain.model.Currencies.supported || uiState.value.isSaving) return
+        val current = uiState.value
+        if (currency !in com.example.clarity.domain.model.Currencies.supported || current.isSaving || current.isDeleting) return
         savedStateHandle["currency"] = currency
         previewJob?.cancel()
         updateState { it.copy(currency = currency, preview = null) }

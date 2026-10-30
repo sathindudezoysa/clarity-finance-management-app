@@ -259,7 +259,11 @@ class TransactionAccountViewModelTest {
             val error = TransactionMessages.NOT_FOUND
             awaitNode { it.text?.toString() == error }
             val backLabel = TransactionMessages.BACK_LABEL
-            val button = awaitNode { it.isClickable && findNode(it) { child -> child.text?.toString() == backLabel } != null }
+            val button = awaitNode {
+                it.isClickable && findNode(it) { child ->
+                    child.text?.toString() == backLabel || child.contentDescription?.toString() == backLabel
+                } != null
+            }
             assertTrue(button.performAction(AccessibilityNodeInfo.ACTION_CLICK))
             withTimeout(10_000) { back.await() }
         }
@@ -552,6 +556,63 @@ class TransactionAccountViewModelTest {
         instrumentation.runOnMainSync { handle.keys().forEach { restored[it] = handle.get<Any?>(it) } }
         accounts.values.value = accounts.values.value.map { it.copy(isDefault = it.id == "daily") }
         assertEquals("savings", ready(editor(SavedStateHandle(restored))).selectedAccountId)
+    }
+
+    @Test
+    fun detailScreenReusesEditFormToUpdateAndDeleteExistingTransactions() = runBlocking {
+        val existing = Transaction(
+            id = "tx-update",
+            type = TransactionType.EXPENSE,
+            amountMinor = 1500,
+            category = "Food",
+            note = "Coffee",
+            dateEpochMillis = 1_700_000_000_000L,
+            accountId = "daily"
+        )
+        transactions.rows.value = mapOf(existing.id to existing)
+        val editVm = editor(SavedStateHandle(mapOf("id" to existing.id))).also {
+            instrumentation.runOnMainSync { it.injectDeleteTransaction(DeleteTransactionUseCase(transactions)) }
+        }
+        val loaded = ready(editVm)
+        assertTrue(loaded.isEditMode)
+        assertTrue(loaded.canDelete)
+        assertEquals(existing, loaded.transaction)
+        assertEquals("daily", loaded.selectedAccountId)
+
+        val closed = CompletableDeferred<Unit>()
+        ActivityScenario.launch(ComponentActivity::class.java).use { scenario ->
+            scenario.onActivity { activity ->
+                activity.setContent {
+                    ClarityTheme {
+                        TransactionDetailScreen(onBack = { closed.complete(Unit) }, viewModel = editVm)
+                    }
+                }
+            }
+            awaitNode { it.text?.toString() == "Update Transaction" }
+            instrumentation.runOnMainSync {
+                editVm.onAccountSelected("savings")
+                editVm.save(TransactionType.INCOME, "45.00", "Salary", "Updated note", 1_700_100_000_000L)
+            }
+            withTimeout(10_000) { closed.await() }
+        }
+
+        val updated = checkNotNull(transactions.rows.value[existing.id])
+        assertEquals(TransactionType.INCOME, updated.type)
+        assertEquals(4500L, updated.amountMinor)
+        assertEquals("Salary", updated.category)
+        assertEquals("Updated note", updated.note)
+        assertEquals(1_700_100_000_000L, updated.dateEpochMillis)
+        assertEquals("savings", updated.accountId)
+
+        val deleteVm = editor(SavedStateHandle(mapOf("id" to existing.id))).also {
+            instrumentation.runOnMainSync { it.injectDeleteTransaction(DeleteTransactionUseCase(transactions)) }
+        }
+        ready(deleteVm)
+        instrumentation.runOnMainSync { deleteVm.showDeleteDialog() }
+        assertTrue(deleteVm.uiState.value.isDeleteDialogVisible)
+        instrumentation.runOnMainSync { deleteVm.confirmDelete() }
+        withTimeout(10_000) { deleteVm.uiState.first { it.isDeleted } }
+        assertTrue(transactions.rows.value.isEmpty())
     }
 
     private class MemoryTransactions : TransactionRepository {
