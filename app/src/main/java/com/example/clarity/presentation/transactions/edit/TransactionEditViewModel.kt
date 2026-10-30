@@ -11,7 +11,6 @@ import com.example.clarity.domain.model.AccountError
 import com.example.clarity.domain.model.AccountException
 import com.example.clarity.domain.model.ProofOpenFile
 import com.example.clarity.domain.model.ProofPolicy
-import com.example.clarity.domain.model.ProofStoragePlanException
 import com.example.clarity.domain.model.TransactionError
 import com.example.clarity.domain.model.TransactionException
 import com.example.clarity.domain.model.TransactionTags
@@ -103,11 +102,7 @@ class TransactionEditViewModel @Inject constructor(
                 refreshProofs.invoke(id).onFailure { err ->
                     updateState {
                         it.copy(
-                            proofError = if (err is ProofStoragePlanException) {
-                                ProofMessages.STORAGE_PLAN_REQUIRED
-                            } else {
-                                ProofMessages.SYNC_ERROR
-                            }
+                            proofError = ProofMessages.forFailure(err)
                         )
                     }
                 }
@@ -369,11 +364,7 @@ class TransactionEditViewModel @Inject constructor(
                 refreshProofs?.invoke(id)?.onFailure { err ->
                     updateState {
                         it.copy(
-                            proofError = if (err is ProofStoragePlanException) {
-                                ProofMessages.STORAGE_PLAN_REQUIRED
-                            } else {
-                                ProofMessages.SYNC_ERROR
-                            }
+                            proofError = ProofMessages.forFailure(err)
                         )
                     }
                 }
@@ -425,11 +416,7 @@ class TransactionEditViewModel @Inject constructor(
             refreshProofs?.invoke(txId)?.onFailure { err ->
                 updateState {
                     it.copy(
-                        proofError = if (err is ProofStoragePlanException) {
-                            ProofMessages.STORAGE_PLAN_REQUIRED
-                        } else {
-                            ProofMessages.SYNC_ERROR
-                        }
+                        proofError = ProofMessages.forFailure(err)
                     )
                 }
             }
@@ -464,7 +451,7 @@ class TransactionEditViewModel @Inject constructor(
                 block()
             } catch (error: Exception) {
                 if (error is CancellationException) throw error
-                val msg = if (error is ProofStoragePlanException) ProofMessages.STORAGE_PLAN_REQUIRED else errorMessage
+                val msg = ProofMessages.forFailure(error, errorMessage)
                 updateState { it.copy(proofError = msg) }
             } finally {
                 updateState { it.copy(isProofBusy = false) }

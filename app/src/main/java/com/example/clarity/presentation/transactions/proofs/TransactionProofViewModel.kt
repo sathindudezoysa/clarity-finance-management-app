@@ -6,7 +6,6 @@ import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.clarity.domain.model.ProofOpenFile
-import com.example.clarity.domain.model.ProofStoragePlanException
 import com.example.clarity.domain.usecase.transaction.*
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CancellationException
@@ -45,11 +44,7 @@ class TransactionProofViewModel @Inject constructor(
                 refresh(id).onFailure { err ->
                     state.update {
                         it.copy(
-                            error = if (err is ProofStoragePlanException) {
-                                ProofMessages.STORAGE_PLAN_REQUIRED
-                            } else {
-                                ProofMessages.SYNC_ERROR
-                            }
+                            error = ProofMessages.forFailure(err)
                         )
                     }
                 }
@@ -63,11 +58,7 @@ class TransactionProofViewModel @Inject constructor(
         refresh(txId).onFailure { err ->
             state.update {
                 it.copy(
-                    error = if (err is ProofStoragePlanException) {
-                        ProofMessages.STORAGE_PLAN_REQUIRED
-                    } else {
-                        ProofMessages.SYNC_ERROR
-                    }
+                    error = ProofMessages.forFailure(err)
                 )
             }
         }
@@ -79,11 +70,7 @@ class TransactionProofViewModel @Inject constructor(
         refresh(txId).onFailure { err ->
             state.update {
                 it.copy(
-                    error = if (err is ProofStoragePlanException) {
-                        ProofMessages.STORAGE_PLAN_REQUIRED
-                    } else {
-                        ProofMessages.SYNC_ERROR
-                    }
+                    error = ProofMessages.forFailure(err)
                 )
             }
         }
@@ -98,7 +85,7 @@ class TransactionProofViewModel @Inject constructor(
         viewModelScope.launch {
             try { block() } catch (error: Exception) {
                 if (error is CancellationException) throw error
-                val message = if (error is ProofStoragePlanException) ProofMessages.STORAGE_PLAN_REQUIRED else errorMessage
+                val message = ProofMessages.forFailure(error, errorMessage)
                 state.update { it.copy(error = message) }
             } finally { state.update { it.copy(isBusy = false) } }
         }

@@ -1,5 +1,6 @@
 package com.example.clarity.presentation.transactions.proofs
 
+import com.example.clarity.domain.model.ProofStoragePlanException
 import com.example.clarity.domain.model.TransactionProof
 
 data class TransactionProofState(
@@ -15,7 +16,13 @@ object ProofMessages {
     const val OPEN_ERROR = "Could not open this proof. Check your connection and try again."
     const val VERIFY_ERROR = "Could not update verification. Review the current amount and try again."
     const val SYNC_ERROR = "Could not sync proofs. Local copies are safe. Check your connection and try again."
-    const val STORAGE_PLAN_REQUIRED = "Proof is not synced with the cloud because you need to upgrade the Firebase plan to enable Firebase Storage. Saved locally on this device."
     const val VIEWER_ERROR = "No app could open this proof. Install a photo or PDF viewer and try again."
     const val REMOVE_ERROR = "Could not remove this missing proof. Please try again."
+
+    /**
+     * Firebase Storage being unavailable is an expected state: proofs stay saved on this device,
+     * so it is not surfaced to the user. Any other failure keeps [fallback].
+     */
+    fun forFailure(error: Throwable, fallback: String = SYNC_ERROR): String? =
+        if (error is ProofStoragePlanException) null else fallback
 }
