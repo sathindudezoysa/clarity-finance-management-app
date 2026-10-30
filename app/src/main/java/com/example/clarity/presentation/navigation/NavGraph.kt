@@ -279,14 +279,32 @@ fun SetupNavGraph(
         composable(
             route = Screen.TransactionDetail.route,
             arguments = listOf(navArgument(TRANSACTION_ID_ARGUMENT) { type = NavType.StringType })
-        ) {
+        ) { entry ->
+            val createdCategoryName by entry.savedStateHandle
+                .getStateFlow<String?>("created_category_name", null)
+                .collectAsStateWithLifecycle()
+            val createdCategoryType by entry.savedStateHandle
+                .getStateFlow<String?>("created_category_type", null)
+                .collectAsStateWithLifecycle()
+
             TransactionDetailScreen(
                 onBack = {
                     if (!navController.popBackStack()) navController.navigate(Screen.TransactionList.route) {
                         launchSingleTop = true
                     }
                 },
-                onEdit = { id -> navController.navigate(Screen.TransactionEdit.createRoute(id)) },
+                onCreateAccount = { navController.navigate(Screen.AccountEdit.createRoute()) },
+                onOpenCreateCategory = { type ->
+                    navController.navigate(Screen.CategoryTagCreate.createRoute(type.name)) {
+                        launchSingleTop = true
+                    }
+                },
+                createdCategoryName = createdCategoryName,
+                createdCategoryType = createdCategoryType,
+                onConsumedCreatedCategory = {
+                    entry.savedStateHandle["created_category_name"] = null
+                    entry.savedStateHandle["created_category_type"] = null
+                },
                 viewModel = hiltViewModel()
             )
         }

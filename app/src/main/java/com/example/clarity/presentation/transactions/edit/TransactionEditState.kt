@@ -37,7 +37,11 @@ data class TransactionEditState(
     val proofs: List<TransactionProof> = emptyList(),
     val pendingProofs: List<PendingProofDraft> = emptyList(),
     val isProofBusy: Boolean = false,
-    val proofError: String? = null
+    val proofError: String? = null,
+    val isDeleteDialogVisible: Boolean = false,
+    val isDeleting: Boolean = false,
+    val isDeleted: Boolean = false,
+    val canDelete: Boolean = false
 ) {
     val canSaveWithAccount: Boolean get() = !isAccountsLoading && accounts.any { it.id == selectedAccountId }
 }

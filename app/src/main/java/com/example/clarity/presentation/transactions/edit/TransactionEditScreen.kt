@@ -26,6 +26,7 @@ import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.DateRange
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
@@ -97,8 +98,8 @@ fun TransactionEditScreen(
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
 
-    LaunchedEffect(state.isSuccess) {
-        if (state.isSuccess) onBack()
+    LaunchedEffect(state.isSuccess, state.isDeleted) {
+        if (state.isSuccess || state.isDeleted) onBack()
     }
 
     LaunchedEffect(viewModel, context, lifecycleOwner) {
@@ -184,7 +185,10 @@ fun TransactionEditScreen(
         onOpenCreateCategory = onOpenCreateCategory,
         createdCategoryName = createdCategoryName,
         createdCategoryType = createdCategoryType,
-        onConsumedCreatedCategory = onConsumedCreatedCategory
+        onConsumedCreatedCategory = onConsumedCreatedCategory,
+        onRequestDelete = if (state.canDelete) viewModel::showDeleteDialog else null,
+        onConfirmDelete = viewModel::confirmDelete,
+        onDismissDelete = viewModel::hideDeleteDialog
     )
 }
 
@@ -198,6 +202,7 @@ internal fun TransactionEditContent(
     onCreateAccount: () -> Unit,
     onCurrencySelected: (String) -> Unit = {},
     onPreview: (String) -> Unit = {},
+    onRetryPreview: (() -> Unit)? = null,
     onPickProofDocument: () -> Unit = {},
     onCaptureProofPhoto: () -> Unit = {},
     onOpenProof: (String) -> Unit = {},
@@ -209,32 +214,27 @@ internal fun TransactionEditContent(
     onOpenCreateCategory: (TransactionType) -> Unit = {},
     createdCategoryName: String? = null,
     createdCategoryType: String? = null,
-    onConsumedCreatedCategory: () -> Unit = {}
+    onConsumedCreatedCategory: () -> Unit = {},
+    onRequestDelete: (() -> Unit)? = null,
+    onConfirmDelete: () -> Unit = {},
+    onDismissDelete: () -> Unit = {}
 ) {
-    var typeName by rememberSaveable { mutableStateOf(TransactionType.EXPENSE.name) }
-    var amount by rememberSaveable { mutableStateOf("") }
-    var category by rememberSaveable { mutableStateOf("General") }
-    var note by rememberSaveable { mutableStateOf("") }
-    var dateEpochMillis by rememberSaveable { mutableStateOf(System.currentTimeMillis()) }
-    var loadedId by rememberSaveable { mutableStateOf<String?>(null) }
-    var loadedOwner by rememberSaveable { mutableStateOf<String?>(null) }
+    val initialTx = state.transaction
+    var typeName by rememberSaveable { mutableStateOf(initialTx?.type?.name ?: TransactionType.EXPENSE.name) }
+    var amount by rememberSaveable {
+        mutableStateOf(initialTx?.let { MoneyUtils.formatMinor(it.amountMinor, it.currency) } ?: "")
+    }
+    var category by rememberSaveable { mutableStateOf(initialTx?.category ?: "General") }
+    var note by rememberSaveable { mutableStateOf(initialTx?.note ?: "") }
+    var dateEpochMillis by rememberSaveable { mutableStateOf(initialTx?.dateEpochMillis ?: System.currentTimeMillis()) }
+    var loadedId by rememberSaveable { mutableStateOf(initialTx?.id) }
+    var loadedOwner by rememberSaveable { mutableStateOf(initialTx?.userId) }
     var dateDialogVisible by rememberSaveable { mutableStateOf(false) }
 
     val amountFocus = remember { FocusRequester() }
     val focusManager = LocalFocusManager.current
     val context = LocalContext.current
-
-    LaunchedEffect(createdCategoryName, createdCategoryType) {
-        if (!createdCategoryName.isNullOrBlank()) {
-            val targetType = createdCategoryType
-                ?.let { runCatching { TransactionType.valueOf(it.uppercase()) }.getOrNull() }
-            if (targetType != null) {
-                typeName = targetType.name
-            }
-            category = createdCategoryName.trim()
-            onConsumedCreatedCategory()
-        }
-    }
+    val isBusy = state.isSaving || state.isDeleting
 
     LaunchedEffect(state.transaction?.id, state.transaction?.userId) {
         state.transaction?.let { transaction ->
@@ -247,6 +247,18 @@ internal fun TransactionEditContent(
                 loadedId = transaction.id
                 loadedOwner = transaction.userId
             }
+        }
+    }
+
+    LaunchedEffect(createdCategoryName, createdCategoryType) {
+        if (!createdCategoryName.isNullOrBlank()) {
+            val targetType = createdCategoryType
+                ?.let { runCatching { TransactionType.valueOf(it.uppercase()) }.getOrNull() }
+            if (targetType != null) {
+                typeName = targetType.name
+            }
+            category = createdCategoryName.trim()
+            onConsumedCreatedCategory()
         }
     }
 
@@ -286,13 +298,35 @@ internal fun TransactionEditContent(
         }
     }
 
+    if (state.isDeleteDialogVisible) {
+        AlertDialog(
+            onDismissRequest = onDismissDelete,
+            title = { Text("Delete transaction?") },
+            text = { Text("This transaction will be removed. This cannot be undone.") },
+            confirmButton = {
+                TextButton(onClick = onConfirmDelete) {
+                    Text("Delete", color = MaterialTheme.colorScheme.error, fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = onDismissDelete) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
+
     val parsedAmountMinor = remember(amount, state.currency) {
         MoneyUtils.parseMinor(amount, state.currency).getOrNull() ?: state.transaction?.amountMinor ?: 0L
     }
 
     val triggerSave = {
         focusManager.clearFocus()
-        onSave(TransactionType.valueOf(typeName), amount, category, note, dateEpochMillis)
+        val resolvedType = runCatching { TransactionType.valueOf(typeName) }.getOrDefault(TransactionType.EXPENSE)
+        val resolvedCategory = category.trim().ifBlank {
+            if (resolvedType == TransactionType.INCOME) "Salary" else "General"
+        }
+        onSave(resolvedType, amount, resolvedCategory, note, dateEpochMillis)
     }
 
     Scaffold(
@@ -316,7 +350,7 @@ internal fun TransactionEditContent(
                     ) {
                         IconButton(
                             onClick = onBack,
-                            enabled = !state.isSaving,
+                            enabled = !isBusy,
                             modifier = Modifier
                                 .size(38.dp)
                                 .clip(CircleShape)
@@ -324,12 +358,12 @@ internal fun TransactionEditContent(
                         ) {
                             Icon(
                                 imageVector = Icons.Default.ArrowBack,
-                                contentDescription = "Back",
+                                contentDescription = TransactionMessages.BACK_LABEL,
                                 tint = StitchTealDark
                             )
                         }
                         Text(
-                            text = if (state.isEditMode) "Edit Transaction" else "Transaction Entry",
+                            text = if (state.isEditMode) "Update Transaction" else "Transaction Entry",
                             style = MaterialTheme.typography.titleMedium.copy(
                                 fontWeight = FontWeight.Bold,
                                 color = StitchTextPrimary
@@ -338,7 +372,7 @@ internal fun TransactionEditContent(
                     }
                     TextButton(
                         onClick = triggerSave,
-                        enabled = !state.isSaving
+                        enabled = !isBusy
                     ) {
                         Text(
                             text = TransactionMessages.SAVE_LABEL,
@@ -398,13 +432,18 @@ internal fun TransactionEditContent(
 
                 StitchTransactionTypeSelector(
                     selectedType = typeName,
-                    enabled = !state.isSaving,
+                    enabled = !isBusy,
                     onTypeSelected = { newType ->
                         if (newType != typeName) {
                             typeName = newType
-                            val nextTags = if (newType == TransactionType.INCOME.name) state.incomeTags else state.expenseTags
-                            val defaultForSlide = if (newType == TransactionType.INCOME.name) "Salary" else "General"
-                            category = nextTags.firstOrNull() ?: defaultForSlide
+                            val originalTx = state.transaction
+                            if (originalTx != null && originalTx.type.name == newType) {
+                                category = originalTx.category
+                            } else {
+                                val nextTags = if (newType == TransactionType.INCOME.name) state.incomeTags else state.expenseTags
+                                val defaultForSlide = if (newType == TransactionType.INCOME.name) "Salary" else "General"
+                                category = nextTags.firstOrNull() ?: defaultForSlide
+                            }
                         }
                     }
                 )
@@ -420,8 +459,8 @@ internal fun TransactionEditContent(
                     previewLoading = state.previewLoading,
                     previewError = state.previewError,
                     onCurrencySelected = onCurrencySelected,
-                    onRetryPreview = { onPreview(amount) },
-                    enabled = !state.isSaving,
+                    onRetryPreview = { onRetryPreview?.invoke() ?: onPreview(amount) },
+                    enabled = !isBusy,
                     amountFocus = amountFocus
                 )
 
@@ -433,7 +472,7 @@ internal fun TransactionEditContent(
                     categoryError = state.categoryError,
                     onOpenCreateCategory = { onOpenCreateCategory(currentType) },
                     onCategoryChange = { category = it },
-                    enabled = !state.isSaving
+                    enabled = !isBusy
                 )
 
                 // 4. Payment Account Section
@@ -443,7 +482,7 @@ internal fun TransactionEditContent(
                     isAccountsLoading = state.isAccountsLoading,
                     accountsError = state.accountsError,
                     accountError = state.accountError,
-                    enabled = !state.isSaving,
+                    enabled = !isBusy,
                     onAccountSelected = onAccountSelected,
                     onCreateAccount = onCreateAccount
                 )
@@ -457,7 +496,7 @@ internal fun TransactionEditContent(
                     proofError = state.proofError,
                     amountMinor = parsedAmountMinor,
                     currency = state.currency,
-                    enabled = !state.isSaving,
+                    enabled = !isBusy,
                     onCapturePhoto = onCaptureProofPhoto,
                     onUploadSlip = onPickProofDocument,
                     onOpenProof = onOpenProof,
@@ -480,15 +519,15 @@ internal fun TransactionEditContent(
                     dateEpochMillis = dateEpochMillis,
                     note = note,
                     noteError = state.noteError,
-                    enabled = !state.isSaving,
+                    enabled = !isBusy,
                     onOpenDatePicker = { dateDialogVisible = true },
                     onNoteChange = { note = it }
                 )
 
-                // 7. Primary Bottom Action Button
+                // 7. Primary & Delete Bottom Action Buttons
                 Button(
                     onClick = triggerSave,
-                    enabled = !state.isSaving,
+                    enabled = !isBusy,
                     shape = RoundedCornerShape(12.dp),
                     colors = ButtonDefaults.buttonColors(
                         containerColor = StitchTealPrimary,
@@ -496,7 +535,7 @@ internal fun TransactionEditContent(
                     ),
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(top = 2.dp, bottom = 14.dp)
+                        .padding(top = 2.dp, bottom = if (state.isEditMode && onRequestDelete != null) 0.dp else 14.dp)
                         .height(52.dp)
                 ) {
                     if (state.isSaving) {
@@ -508,12 +547,55 @@ internal fun TransactionEditContent(
                         Spacer(Modifier.width(10.dp))
                     }
                     Text(
-                        text = if (state.isEditMode) "Save Changes" else "Add Transaction",
+                        text = if (state.isEditMode) "Update Transaction" else "Add Transaction",
                         style = MaterialTheme.typography.titleSmall.copy(
                             fontWeight = FontWeight.Bold,
                             fontSize = 15.sp
                         )
                     )
+                }
+
+                if (state.isEditMode && state.transaction != null && onRequestDelete != null) {
+                    OutlinedButton(
+                        onClick = {
+                            focusManager.clearFocus()
+                            onRequestDelete()
+                        },
+                        enabled = !isBusy,
+                        shape = RoundedCornerShape(12.dp),
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.55f)),
+                        colors = ButtonDefaults.outlinedButtonColors(
+                            containerColor = Color.White,
+                            contentColor = MaterialTheme.colorScheme.error
+                        ),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(bottom = 14.dp)
+                            .height(48.dp)
+                    ) {
+                        if (state.isDeleting) {
+                            CircularProgressIndicator(
+                                color = MaterialTheme.colorScheme.error,
+                                strokeWidth = 2.dp,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(Modifier.width(8.dp))
+                        } else {
+                            Icon(
+                                imageVector = Icons.Default.Delete,
+                                contentDescription = null,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(Modifier.width(8.dp))
+                        }
+                        Text(
+                            text = "Delete Transaction",
+                            style = MaterialTheme.typography.titleSmall.copy(
+                                fontWeight = FontWeight.SemiBold,
+                                fontSize = 14.sp
+                            )
+                        )
+                    }
                 }
             }
         }

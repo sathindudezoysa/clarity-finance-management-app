@@ -1,94 +1,90 @@
 package com.example.clarity.presentation.transactions.detail
 
-import com.example.clarity.presentation.transactions.proofs.TransactionProofSection
-import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.unit.dp
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.example.clarity.presentation.transactions.TransactionMessages
+import com.example.clarity.domain.model.Account
 import com.example.clarity.domain.model.TransactionType
-import com.example.clarity.domain.util.MoneyUtils
-import com.example.clarity.presentation.transactions.formatTransactionDate
-import com.example.clarity.presentation.transactions.formatTransactionTimestamp
+import com.example.clarity.presentation.transactions.edit.TransactionEditContent
+import com.example.clarity.presentation.transactions.edit.TransactionEditScreen
+import com.example.clarity.presentation.transactions.edit.TransactionEditState
+import com.example.clarity.presentation.transactions.edit.TransactionEditViewModel
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun TransactionDetailScreen(
     onBack: () -> Unit,
-    onEdit: (String) -> Unit,
-    viewModel: TransactionDetailViewModel = hiltViewModel()
+    onCreateAccount: () -> Unit = {},
+    onOpenCreateCategory: (TransactionType) -> Unit = {},
+    createdCategoryName: String? = null,
+    createdCategoryType: String? = null,
+    onConsumedCreatedCategory: () -> Unit = {},
+    viewModel: TransactionEditViewModel = hiltViewModel()
 ) {
-    val state by viewModel.uiState.collectAsStateWithLifecycle()
-    LaunchedEffect(state.isDeleted) { if (state.isDeleted) onBack() }
-
-    if (state.isDeleteDialogVisible) AlertDialog(
-        onDismissRequest = viewModel::hideDeleteDialog,
-        title = { Text("Delete transaction?") },
-        text = { Text("This transaction will be removed. This cannot be undone.") },
-        confirmButton = { TextButton(onClick = viewModel::confirmDelete) { Text("Delete") } },
-        dismissButton = { TextButton(onClick = viewModel::hideDeleteDialog) { Text("Cancel") } }
+    TransactionEditScreen(
+        onBack = onBack,
+        onCreateAccount = onCreateAccount,
+        onOpenCreateCategory = onOpenCreateCategory,
+        createdCategoryName = createdCategoryName,
+        createdCategoryType = createdCategoryType,
+        onConsumedCreatedCategory = onConsumedCreatedCategory,
+        viewModel = viewModel
     )
-
-    Scaffold(topBar = {
-        TopAppBar(
-            title = { Text("Transaction details") },
-            navigationIcon = { TextButton(onClick = onBack) { Text("Back") } }
-        )
-    }) { padding ->
-        Column(
-            Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState()).padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            state.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
-            if (state.isLoading) CircularProgressIndicator()
-            else {
-                val transaction = state.transaction
-                if (transaction == null) {
-                    if (state.error == null) Text("Transaction not found.")
-                }
-                else {
-                    Field("Type", if (transaction.type == TransactionType.INCOME) "Income" else "Expense")
-                    Field("Amount", transaction.currency + " " + MoneyUtils.formatMinor(transaction.amountMinor, transaction.currency))
-                    com.example.clarity.presentation.transactions.ConversionInfo(transaction.targetCurrency,
-                        transaction.conversion, transaction.pendingConversion)
-                    if (transaction.pendingConversion) {
-                        Text("Daily reference rates. A missing rate does not prevent saving offline. Amounts that overflow or round to zero require editing the original amount.")
-                        TextButton(onClick = viewModel::retry) { Text("Retry conversion") }
-                    }
-                    Field("Bank account", if (transaction.isCash) "Cash Wallet" else state.accountName ?: if (transaction.accountId == null)
-                        TransactionMessages.ACCOUNT_UNASSIGNED else TransactionMessages.ACCOUNT_UNAVAILABLE)
-                    Field("Tag", transaction.category)
-                    Field("Description (optional)", transaction.note.ifBlank { "None" })
-                    Field("Date", formatTransactionDate(transaction.dateEpochMillis))
-                    Field("Created", formatTransactionTimestamp(transaction.createdAt))
-                    Field("Updated", formatTransactionTimestamp(transaction.updatedAt))
-                    Field("Transaction ID", transaction.id)
-                    Field("User ID", transaction.userId)
-                    TransactionProofSection(transaction.amountMinor, !state.isDeleting)
-                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        Button(onClick = { onEdit(transaction.id) }, enabled = !state.isDeleting) {
-                            Text("Edit")
-                        }
-                        OutlinedButton(onClick = viewModel::showDeleteDialog, enabled = !state.isDeleting) {
-                            Text("Delete")
-                        }
-                    }
-                }
-            }
-            if (state.isDeleting) CircularProgressIndicator()
-        }
-    }
 }
 
 @Composable
-private fun Field(label: String, value: String) {
-    Column {
-        Text(label, style = MaterialTheme.typography.labelLarge)
-        Text(value, style = MaterialTheme.typography.bodyLarge)
+fun TransactionDetailScreen(
+    onBack: () -> Unit,
+    onEdit: (String) -> Unit = {},
+    viewModel: TransactionDetailViewModel
+) {
+    val detailState by viewModel.uiState.collectAsStateWithLifecycle()
+    LaunchedEffect(detailState.isDeleted) {
+        if (detailState.isDeleted) onBack()
     }
+
+    val mappedAccounts = remember(detailState.transaction?.accountId, detailState.transaction?.currency, detailState.accountName) {
+        val tx = detailState.transaction
+        val accId = tx?.accountId
+        val accName = detailState.accountName ?: if (tx?.isCash == true) "Cash Wallet" else null
+        if (accId != null && accName != null) {
+            listOf(Account(id = accId, name = accName, bankName = "", currency = tx.currency))
+        } else {
+            emptyList()
+        }
+    }
+
+    val editState = TransactionEditState(
+        isEditMode = true,
+        isLoading = detailState.isLoading,
+        transaction = detailState.transaction,
+        error = detailState.error,
+        accounts = mappedAccounts,
+        selectedAccountId = detailState.transaction?.accountId,
+        isAccountsLoading = detailState.isLoading,
+        currency = detailState.transaction?.currency ?: "LKR",
+        targetCurrency = detailState.transaction?.targetCurrency ?: "LKR",
+        preview = detailState.transaction?.conversion,
+        previewError = detailState.transaction?.pendingConversion == true,
+        isDeleteDialogVisible = detailState.isDeleteDialogVisible,
+        isDeleting = detailState.isDeleting,
+        isDeleted = detailState.isDeleted,
+        canDelete = detailState.transaction != null
+    )
+
+    TransactionEditContent(
+        state = editState,
+        onBack = onBack,
+        onSave = { _, _, _, _, _ ->
+            detailState.transaction?.id?.let(onEdit)
+        },
+        onAccountSelected = {},
+        onCreateAccount = {},
+        onRetryPreview = viewModel::retry,
+        onRequestDelete = if (editState.canDelete) viewModel::showDeleteDialog else null,
+        onConfirmDelete = viewModel::confirmDelete,
+        onDismissDelete = viewModel::hideDeleteDialog
+    )
 }
