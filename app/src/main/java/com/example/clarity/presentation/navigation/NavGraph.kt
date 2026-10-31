@@ -17,7 +17,6 @@ import com.example.clarity.presentation.auth.login.LoginScreen
 import com.example.clarity.presentation.auth.register.RegisterScreen
 import com.example.clarity.presentation.goals.GoalEditScreen
 import com.example.clarity.presentation.goals.GoalsScreen
-import com.example.clarity.presentation.income.IncomeScreen
 import com.example.clarity.presentation.main.MainScreen
 import com.example.clarity.presentation.settings.SettingsScreen
 import com.example.clarity.presentation.transactions.detail.TransactionDetailScreen
@@ -84,7 +83,11 @@ fun SetupNavGraph(
                 onOpenTransaction = { id ->
                     navController.navigate(Screen.TransactionDetail.createRoute(id))
                 },
-                onNavigateToIncome = { navController.navigate(Screen.IncomeSources.route) },
+                onNavigateToIncome = {
+                    navController.navigate(Screen.TransactionEdit.createRoute(type = "INCOME")) {
+                        launchSingleTop = true
+                    }
+                },
                 onNavigateToCashWallet = { navController.navigate(Screen.CashWallet.route) },
                 onNavigateToSettings = {
                     navController.navigate(Screen.Settings.route) {
@@ -198,11 +201,6 @@ fun SetupNavGraph(
                 viewModel = hiltViewModel()
             )
         }
-        composable(Screen.IncomeSources.route) {
-            IncomeScreen(onBack = { navController.popBackStack() },
-                onAddAccount = { navController.navigate(Screen.AccountEdit.createRoute()) },
-                onOpenTransaction = { id -> navController.navigate(Screen.TransactionDetail.createRoute(id)) })
-        }
         composable(route = Screen.CashWallet.route) {
             com.example.clarity.presentation.wallet.CashWalletScreen(
                 onBack = { navController.popBackStack() },
@@ -310,7 +308,10 @@ fun SetupNavGraph(
         }
         composable(
             route = Screen.TransactionEdit.route,
-            arguments = listOf(navArgument(TRANSACTION_ID_ARGUMENT) { type = NavType.StringType; nullable = true; defaultValue = null })
+            arguments = listOf(
+                navArgument(TRANSACTION_ID_ARGUMENT) { type = NavType.StringType; nullable = true; defaultValue = null },
+                navArgument("type") { type = NavType.StringType; nullable = true; defaultValue = null }
+            )
         ) { entry ->
             val createdCategoryName by entry.savedStateHandle
                 .getStateFlow<String?>("created_category_name", null)

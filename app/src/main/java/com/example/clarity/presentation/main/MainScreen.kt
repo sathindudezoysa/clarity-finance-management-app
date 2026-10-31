@@ -33,7 +33,6 @@ import com.example.clarity.domain.model.Transaction
 import com.example.clarity.domain.model.TransactionType
 import com.example.clarity.domain.util.MoneyUtils
 import com.example.clarity.presentation.common.AppIcons
-import com.example.clarity.presentation.income.IncomeMonthlyPrompt
 import com.example.clarity.presentation.navigation.BottomNavDestination
 import com.example.clarity.presentation.navigation.ClarityTopBar
 import com.example.clarity.presentation.transactions.TransactionMessages
@@ -158,8 +157,6 @@ fun MainScreen(
                     }
                 }
             }
-
-            IncomeMonthlyPrompt(onReview = onNavigateToIncome)
 
             // Cash Wallet Card
             Surface(

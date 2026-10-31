@@ -4,6 +4,8 @@ import com.example.clarity.domain.model.Transaction
 import com.example.clarity.domain.model.TransactionProof
 import com.example.clarity.domain.model.TransactionTags
 import com.example.clarity.domain.model.Account
+import com.example.clarity.domain.model.IncomeSource
+import com.example.clarity.domain.model.TransactionType
 
 data class PendingProofDraft(
     val uri: String,
@@ -14,6 +16,7 @@ data class PendingProofDraft(
 data class TransactionEditState(
     val isEditMode: Boolean = false,
     val isLoading: Boolean = false,
+    val initialType: TransactionType = TransactionType.EXPENSE,
     val transaction: Transaction? = null,
     val isSaving: Boolean = false,
     val isSuccess: Boolean = false,
@@ -21,6 +24,8 @@ data class TransactionEditState(
     val amountError: String? = null,
     val categoryError: String? = null,
     val noteError: String? = null,
+    val isScheduledIncome: Boolean = false,
+    val existingIncomeSources: List<IncomeSource> = emptyList(),
     val tags: List<String> = TransactionTags.predefined,
     val expenseTags: List<String> = TransactionTags.defaultExpenseCategories,
     val incomeTags: List<String> = TransactionTags.defaultIncomeCategories,

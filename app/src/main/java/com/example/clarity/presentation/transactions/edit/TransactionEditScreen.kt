@@ -62,6 +62,7 @@ import androidx.lifecycle.repeatOnLifecycle
 import com.example.clarity.R
 import com.example.clarity.domain.model.Account
 import com.example.clarity.domain.model.Currencies
+import com.example.clarity.domain.model.IncomeSource
 import com.example.clarity.domain.model.ProofPolicy
 import com.example.clarity.domain.model.TransactionProof
 import com.example.clarity.domain.model.TransactionType
@@ -197,7 +198,7 @@ fun TransactionEditScreen(
 internal fun TransactionEditContent(
     state: TransactionEditState,
     onBack: () -> Unit,
-    onSave: (TransactionType, String, String, String, Long) -> Unit,
+    onSave: (TransactionType, String, String, String, Long, Boolean, String) -> Unit,
     onAccountSelected: (String) -> Unit,
     onCreateAccount: () -> Unit,
     onCurrencySelected: (String) -> Unit = {},
@@ -220,13 +221,15 @@ internal fun TransactionEditContent(
     onDismissDelete: () -> Unit = {}
 ) {
     val initialTx = state.transaction
-    var typeName by rememberSaveable { mutableStateOf(initialTx?.type?.name ?: TransactionType.EXPENSE.name) }
+    var typeName by rememberSaveable { mutableStateOf(initialTx?.type?.name ?: state.initialType.name) }
     var amount by rememberSaveable {
         mutableStateOf(initialTx?.let { MoneyUtils.formatMinor(it.amountMinor, it.currency) } ?: "")
     }
-    var category by rememberSaveable { mutableStateOf(initialTx?.category ?: "General") }
+    var category by rememberSaveable { mutableStateOf(initialTx?.category ?: if (state.initialType == TransactionType.INCOME) "Salary" else "General") }
     var note by rememberSaveable { mutableStateOf(initialTx?.note ?: "") }
     var dateEpochMillis by rememberSaveable { mutableStateOf(initialTx?.dateEpochMillis ?: System.currentTimeMillis()) }
+    var isScheduledIncome by rememberSaveable { mutableStateOf(false) }
+    var scheduledIncomeName by rememberSaveable { mutableStateOf("") }
     var loadedId by rememberSaveable { mutableStateOf(initialTx?.id) }
     var loadedOwner by rememberSaveable { mutableStateOf(initialTx?.userId) }
     var dateDialogVisible by rememberSaveable { mutableStateOf(false) }
@@ -326,7 +329,7 @@ internal fun TransactionEditContent(
         val resolvedCategory = category.trim().ifBlank {
             if (resolvedType == TransactionType.INCOME) "Salary" else "General"
         }
-        onSave(resolvedType, amount, resolvedCategory, note, dateEpochMillis)
+        onSave(resolvedType, amount, resolvedCategory, note, dateEpochMillis, isScheduledIncome, scheduledIncomeName)
     }
 
     Scaffold(
@@ -486,6 +489,28 @@ internal fun TransactionEditContent(
                     onAccountSelected = onAccountSelected,
                     onCreateAccount = onCreateAccount
                 )
+
+                // 4.5. Scheduled Income Section (only for Income)
+                if (currentType == TransactionType.INCOME) {
+                    val selectedAccount = state.accounts.firstOrNull { it.id == state.selectedAccountId }
+                    val isLkrAccount = selectedAccount?.currency == "LKR"
+
+                    StitchScheduledIncomeCard(
+                        isScheduled = isScheduledIncome,
+                        onScheduledChange = { isScheduledIncome = it },
+                        sourceName = scheduledIncomeName,
+                        onSourceNameChange = { scheduledIncomeName = it },
+                        category = category,
+                        existingSources = state.existingIncomeSources,
+                        isLkrAccount = isLkrAccount,
+                        enabled = !isBusy,
+                        onSelectExistingSource = { source ->
+                            scheduledIncomeName = source.name
+                            category = source.name
+                            isScheduledIncome = true
+                        }
+                    )
+                }
 
                 // 5. Receipt Verification / Slip Upload Section
                 StitchReceiptVerificationCard(
@@ -1719,6 +1744,172 @@ private fun openLocalDraftUri(context: Context, rawUri: String) {
     }
 }
 
+@Composable
+private fun StitchScheduledIncomeCard(
+    isScheduled: Boolean,
+    onScheduledChange: (Boolean) -> Unit,
+    sourceName: String,
+    onSourceNameChange: (String) -> Unit,
+    category: String,
+    existingSources: List<IncomeSource>,
+    isLkrAccount: Boolean,
+    enabled: Boolean,
+    onSelectExistingSource: (IncomeSource) -> Unit
+) {
+    Surface(
+        color = Color.White,
+        shape = RoundedCornerShape(16.dp),
+        border = BorderStroke(1.dp, StitchBorder),
+        shadowElevation = 1.dp,
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(
+            modifier = Modifier.padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(36.dp)
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(if (isScheduled) StitchTealLightBg else StitchSurfaceMuted),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Refresh,
+                            contentDescription = null,
+                            tint = if (isScheduled) StitchTealDark else StitchTextSecondary,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+                    Column {
+                        Text(
+                            text = "SCHEDULED INCOME",
+                            style = MaterialTheme.typography.labelSmall.copy(
+                                fontWeight = FontWeight.Bold,
+                                letterSpacing = 0.8.sp,
+                                color = StitchTextSecondary
+                            )
+                        )
+                        Text(
+                            text = "Track as monthly recurring income",
+                            style = MaterialTheme.typography.bodySmall.copy(
+                                color = StitchTextSecondary,
+                                fontSize = 12.sp
+                            )
+                        )
+                    }
+                }
+                Switch(
+                    checked = isScheduled,
+                    onCheckedChange = onScheduledChange,
+                    enabled = enabled,
+                    colors = SwitchDefaults.colors(
+                        checkedThumbColor = Color.White,
+                        checkedTrackColor = StitchTealPrimary,
+                        uncheckedTrackColor = StitchSurfaceMuted
+                    )
+                )
+            }
+
+            if (isScheduled) {
+                if (!isLkrAccount) {
+                    Surface(
+                        color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.6f),
+                        shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Outlined.Info,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.error,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Text(
+                                text = "Scheduled income requires an LKR receiving account.",
+                                color = MaterialTheme.colorScheme.onErrorContainer,
+                                style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp)
+                            )
+                        }
+                    }
+                }
+
+                if (existingSources.isNotEmpty()) {
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text(
+                            text = "Or link to existing source:",
+                            style = MaterialTheme.typography.labelSmall.copy(
+                                color = StitchTextSecondary,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        )
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            existingSources.forEach { source ->
+                                val isSelected = sourceName.equals(source.name, ignoreCase = true) ||
+                                        (sourceName.isBlank() && category.equals(source.name, ignoreCase = true))
+                                Surface(
+                                    color = if (isSelected) StitchTealLightBg else StitchSurfaceMuted,
+                                    shape = RoundedCornerShape(8.dp),
+                                    border = BorderStroke(
+                                        1.dp,
+                                        if (isSelected) StitchTealDark else StitchBorder
+                                    ),
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .clickable(enabled = enabled) { onSelectExistingSource(source) }
+                                ) {
+                                    Text(
+                                        text = source.name,
+                                        style = MaterialTheme.typography.labelSmall.copy(
+                                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                            color = if (isSelected) StitchTealBadgeText else StitchTextPrimary
+                                        ),
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+
+                OutlinedTextField(
+                    value = sourceName,
+                    onValueChange = onSourceNameChange,
+                    label = { Text("Income Source Name") },
+                    placeholder = { Text(if (category.isNotBlank()) category else "Salary") },
+                    singleLine = true,
+                    enabled = enabled,
+                    shape = RoundedCornerShape(10.dp),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = StitchTealDark,
+                        unfocusedBorderColor = StitchBorder
+                    ),
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+        }
+    }
+}
+
 @Preview(showBackground = true)
 @Composable
 private fun TransactionEditPreview() {
@@ -1734,7 +1925,7 @@ private fun TransactionEditPreview() {
                 )
             ),
             onBack = {},
-            onSave = { _, _, _, _, _ -> },
+            onSave = { _, _, _, _, _, _, _ -> },
             onAccountSelected = {},
             onCreateAccount = {}
         )

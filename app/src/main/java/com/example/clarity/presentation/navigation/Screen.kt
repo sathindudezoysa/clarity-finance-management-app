@@ -10,7 +10,6 @@ sealed class Screen(val route: String) {
         fun createRoute(id: String? = null) = if (id == null) "budgets/edit"
             else "budgets/edit?budgetId=${Uri.encode(id)}"
     }
-    object IncomeSources : Screen("income_sources")
     object Main : Screen("main_screen")
     object CashWallet : Screen("cash_wallet")
     object Register : Screen("register_screen")
@@ -30,9 +29,13 @@ sealed class Screen(val route: String) {
     object TransactionDetail : Screen("transactions/{$TRANSACTION_ID_ARGUMENT}") {
         fun createRoute(id: String) = "transactions/${Uri.encode(id)}"
     }
-    object TransactionEdit : Screen("transactions/edit?$TRANSACTION_ID_ARGUMENT={$TRANSACTION_ID_ARGUMENT}") {
-        fun createRoute(id: String? = null) = if (id == null) "transactions/edit"
-            else "transactions/edit?$TRANSACTION_ID_ARGUMENT=${Uri.encode(id)}"
+    object TransactionEdit : Screen("transactions/edit?$TRANSACTION_ID_ARGUMENT={$TRANSACTION_ID_ARGUMENT}&type={type}") {
+        fun createRoute(id: String? = null, type: String? = null): String {
+            val params = mutableListOf<String>()
+            if (id != null) params.add("$TRANSACTION_ID_ARGUMENT=${Uri.encode(id)}")
+            if (type != null) params.add("type=${Uri.encode(type)}")
+            return if (params.isEmpty()) "transactions/edit" else "transactions/edit?${params.joinToString("&")}"
+        }
     }
     object CategoryTagCreate : Screen("transactions/categories/create?type={type}") {
         fun createRoute(type: String = "EXPENSE") = "transactions/categories/create?type=${Uri.encode(type)}"

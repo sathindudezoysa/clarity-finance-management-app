@@ -77,7 +77,7 @@ fun TransactionDetailScreen(
     TransactionEditContent(
         state = editState,
         onBack = onBack,
-        onSave = { _, _, _, _, _ ->
+        onSave = { _, _, _, _, _, _, _ ->
             detailState.transaction?.id?.let(onEdit)
         },
         onAccountSelected = {},

@@ -28,6 +28,14 @@ import com.example.clarity.domain.usecase.transaction.RemoveUnavailableProofUseC
 import com.example.clarity.domain.usecase.transaction.UpdateTransactionUseCase
 import com.example.clarity.domain.usecase.transaction.VerifyReceiptAmountUseCase
 import com.example.clarity.domain.usecase.account.GetAccountsUseCase
+import com.example.clarity.domain.usecase.income.ObserveIncomeSourcesUseCase
+import com.example.clarity.domain.usecase.income.SaveIncomeSourceUseCase
+import com.example.clarity.domain.model.IncomeSource
+import java.time.Instant
+import java.time.YearMonth
+import java.time.ZoneId
+import java.util.UUID
+import android.util.Log
 import com.example.clarity.domain.util.MoneyUtils
 import com.example.clarity.domain.util.Resource
 import com.example.clarity.domain.util.isSignInRequired
@@ -63,6 +71,25 @@ class TransactionEditViewModel @Inject constructor(
     private var removeUnavailableProof: RemoveUnavailableProofUseCase? = null
     private var addTransactionTag: AddTransactionTagUseCase? = null
     private var deleteTransaction: DeleteTransactionUseCase? = null
+    private var observeIncomeSources: ObserveIncomeSourcesUseCase? = null
+    private var saveIncomeSource: SaveIncomeSourceUseCase? = null
+
+    @Inject
+    internal fun injectIncomeUseCases(
+        observeIncomeSources: ObserveIncomeSourcesUseCase,
+        saveIncomeSource: SaveIncomeSourceUseCase
+    ) {
+        this.observeIncomeSources = observeIncomeSources
+        this.saveIncomeSource = saveIncomeSource
+        viewModelScope.launch {
+            observeIncomeSources().catch { error ->
+                if (error is CancellationException) throw error
+            }.collect { data ->
+                val active = data.sources.filter { it.active }
+                updateState { it.copy(existingIncomeSources = active) }
+            }
+        }
+    }
 
     @Inject
     internal fun injectDeleteTransaction(deleteTransaction: DeleteTransactionUseCase) {
@@ -112,11 +139,15 @@ class TransactionEditViewModel @Inject constructor(
 
     private val isEditMode = savedStateHandle.get<Any?>(TRANSACTION_ID_ARGUMENT) != null
     private val id = savedStateHandle.transactionIdArgument()
+    private val initialType = savedStateHandle.get<String>("type")
+        ?.let { runCatching { TransactionType.valueOf(it.uppercase()) }.getOrNull() }
+        ?: TransactionType.EXPENSE
     private val restoredAccountId = savedStateHandle.get<Any?>("selected_account_id") as? String
     private val stateLock = Any()
     private var hasAccountData = false
     private var selectionInitialized = savedStateHandle.get<Any?>("account_selection_initialized") == true || restoredAccountId != null
     private val _uiState = MutableStateFlow(TransactionEditState(isEditMode = isEditMode, isLoading = id != null,
+        initialType = initialType,
         selectedAccountId = restoredAccountId,
         error = if (isEditMode && id == null) TransactionMessages.NOT_FOUND else null))
     val uiState = _uiState.asStateFlow()
@@ -229,7 +260,15 @@ class TransactionEditViewModel @Inject constructor(
         }
     }
 
-    fun save(type: TransactionType, amountText: String, category: String, note: String, dateEpochMillis: Long) {
+    fun save(
+        type: TransactionType,
+        amountText: String,
+        category: String,
+        note: String,
+        dateEpochMillis: Long,
+        isScheduledIncome: Boolean = false,
+        scheduledIncomeName: String = ""
+    ) {
         val transaction = synchronized(stateLock) {
             val state = _uiState.value
             if (state.isSaving || state.isDeleting || state.isSuccess || state.isDeleted || state.isLoading || state.isAccountsLoading) return
@@ -266,6 +305,33 @@ class TransactionEditViewModel @Inject constructor(
         viewModelScope.launch {
             val result = if (id == null) addTransaction(transaction) else updateTransaction(transaction)
             result.onSuccess {
+                if (type == TransactionType.INCOME && isScheduledIncome) {
+                    val saver = saveIncomeSource
+                    if (saver != null) {
+                        val resolvedName = scheduledIncomeName.trim()
+                            .ifBlank { category.trim().ifBlank { "Salary" } }
+                        val currentMonth = runCatching {
+                            YearMonth.from(
+                                Instant.ofEpochMilli(dateEpochMillis).atZone(ZoneId.systemDefault())
+                            ).toString()
+                        }.getOrNull()
+                        val existing = synchronized(stateLock) {
+                            _uiState.value.existingIncomeSources.firstOrNull { it.name.equals(resolvedName, ignoreCase = true) }
+                        }
+                        val sourceToSave = IncomeSource(
+                            id = existing?.id ?: UUID.randomUUID().toString(),
+                            name = resolvedName,
+                            amountMinor = transaction.amountMinor,
+                            accountId = transaction.accountId.orEmpty(),
+                            recurring = true,
+                            active = true,
+                            lastConfirmedMonth = currentMonth
+                        )
+                        runCatching { saver(sourceToSave) }.onFailure { err ->
+                            Log.w("TransactionEdit", "Could not save scheduled income source", err)
+                        }
+                    }
+                }
                 if (id == null) {
                     val drafts = synchronized(stateLock) { _uiState.value.pendingProofs }
                     val attach = attachProof
