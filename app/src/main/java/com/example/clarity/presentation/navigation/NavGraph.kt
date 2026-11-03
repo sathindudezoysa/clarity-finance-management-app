@@ -22,6 +22,7 @@ import com.example.clarity.presentation.main.MainScreen
 import com.example.clarity.presentation.settings.SettingsScreen
 import com.example.clarity.presentation.transactions.detail.TransactionDetailScreen
 import com.example.clarity.presentation.transactions.edit.TransactionEditScreen
+import com.example.clarity.presentation.transactions.export.TransactionExportScreen
 import com.example.clarity.presentation.transactions.list.TransactionListScreen
 import com.example.clarity.presentation.transactions.tags.CategoryTagCreateScreen
 
@@ -213,6 +214,11 @@ fun SetupNavGraph(
             SettingsScreen(
                 onBack = { navController.popBackStack() },
                 onBankAccounts = { navController.navigate(Screen.AccountList.route) },
+                onExport = {
+                    navController.navigate(Screen.Export.route) {
+                        launchSingleTop = true
+                    }
+                },
                 onSignOut = {
                     Log.d("LogoutDebug", "3. NavGraph onSignOut, navigating to Login")
                     navController.navigate(Screen.Login.route) {
@@ -220,6 +226,11 @@ fun SetupNavGraph(
                     }
                 },
                 viewModel = hiltViewModel()
+            )
+        }
+        composable(route = Screen.Export.route) {
+            TransactionExportScreen(
+                onBack = { navController.popBackStack() }
             )
         }
         composable(route = Screen.AccountList.route) {
@@ -270,6 +281,11 @@ fun SetupNavGraph(
                 onOpen = { id -> navController.navigate(Screen.TransactionDetail.createRoute(id)) },
                 onNavigateToProfile = {
                     navController.navigate(Screen.Settings.route) {
+                        launchSingleTop = true
+                    }
+                },
+                onExport = {
+                    navController.navigate(Screen.Export.route) {
                         launchSingleTop = true
                     }
                 },

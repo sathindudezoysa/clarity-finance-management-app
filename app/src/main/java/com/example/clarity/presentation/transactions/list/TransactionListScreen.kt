@@ -65,8 +65,6 @@ import com.example.clarity.presentation.common.AppIcons
 import com.example.clarity.presentation.theme.ClarityTheme
 import com.example.clarity.presentation.transactions.TransactionMessages
 import com.example.clarity.presentation.transactions.export.ExportMessages
-import com.example.clarity.presentation.transactions.export.TransactionExportDialog
-import kotlinx.coroutines.launch
 import java.math.BigDecimal
 import java.math.BigInteger
 import java.math.RoundingMode
@@ -92,7 +90,14 @@ fun TransactionListScreen(
     onAdd: () -> Unit,
     onOpen: (String) -> Unit,
     onNavigateToProfile: () -> Unit = {},
-    topBar: (@Composable () -> Unit)? = null,
+    onExport: () -> Unit = {},
+    topBar: @Composable () -> Unit = {
+        TransactionHistoryTopBar(
+            onBack = onBack,
+            onExport = onExport,
+            onProfileClick = onNavigateToProfile
+        )
+    },
     bottomBar: @Composable () -> Unit = {},
     viewModel: TransactionListViewModel = hiltViewModel()
 ) {
@@ -101,9 +106,6 @@ fun TransactionListScreen(
     val receiptIds by viewModel.receiptTransactionIds.collectAsStateWithLifecycle()
     val accounts by viewModel.accountsList.collectAsStateWithLifecycle()
     val convertedAmounts by viewModel.convertedAmountsMinor.collectAsStateWithLifecycle()
-    var showExport by rememberSaveable { mutableStateOf(false) }
-    val snackbarHostState = remember { SnackbarHostState() }
-    val scope = rememberCoroutineScope()
 
     val resolvedCurrency = remember(preferredCurrency, state.transactions, accounts) {
         preferredCurrency
@@ -123,28 +125,10 @@ fun TransactionListScreen(
         onBack = onBack,
         onAdd = onAdd,
         onOpen = onOpen,
-        onExport = { showExport = true },
-        snackbarHostState = snackbarHostState,
-        topBar = topBar ?: {
-            TransactionHistoryTopBar(
-                onBack = onBack,
-                onExport = { showExport = true },
-                onProfileClick = onNavigateToProfile
-            )
-        },
+        onExport = onExport,
+        topBar = topBar,
         bottomBar = bottomBar
     )
-
-    if (showExport) {
-        TransactionExportDialog(
-            onDismiss = { showExport = false },
-            onResult = { msg ->
-                scope.launch {
-                    snackbarHostState.showSnackbar(msg)
-                }
-            }
-        )
-    }
 }
 
 @Composable
@@ -237,7 +221,6 @@ private fun TransactionListContent(
     onAdd: () -> Unit,
     onOpen: (String) -> Unit,
     onExport: () -> Unit = {},
-    snackbarHostState: SnackbarHostState = remember { SnackbarHostState() },
     topBar: @Composable () -> Unit = {
         TransactionHistoryTopBar(onBack = onBack, onExport = onExport, onProfileClick = {})
     },
@@ -393,8 +376,7 @@ private fun TransactionListContent(
     Scaffold(
         containerColor = colors.background,
         topBar = topBar,
-        bottomBar = bottomBar,
-        snackbarHost = { SnackbarHost(snackbarHostState) }
+        bottomBar = bottomBar
     ) { padding ->
         Box(
             modifier = Modifier
