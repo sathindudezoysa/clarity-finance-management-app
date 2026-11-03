@@ -4,7 +4,11 @@ import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.clarity.data.export.CsvFileWriter
+import com.example.clarity.data.export.PdfReportWriter
+import com.example.clarity.domain.export.ExportFormat
 import com.example.clarity.domain.export.MonthlyTransactionCsv
+import com.example.clarity.domain.export.MonthlyTransactionReport
+import com.example.clarity.domain.export.ReportModel
 import com.example.clarity.domain.model.Transaction
 import com.example.clarity.domain.usecase.account.GetAccountsUseCase
 import com.example.clarity.domain.usecase.transaction.GetTransactionsUseCase
@@ -23,6 +27,7 @@ import kotlinx.coroutines.launch
 
 data class TransactionExportState(
     val month: YearMonth = YearMonth.from(TransactionCalendar.dateAt(System.currentTimeMillis())),
+    val format: ExportFormat = ExportFormat.CSV,
     val recordCount: Int = 0,
     val loading: Boolean = true,
     val busy: Boolean = false,
@@ -33,14 +38,29 @@ data class TransactionExportState(
 class TransactionExportViewModel @Inject constructor(
     private val getTransactions: GetTransactionsUseCase,
     private val getAccounts: GetAccountsUseCase,
-    private val csvFileWriter: CsvFileWriter
+    private val csvFileWriter: CsvFileWriter,
+    private val pdfReportWriter: PdfReportWriter
 ) : ViewModel() {
+
+    private sealed interface PreparedPayload {
+        val count: Int
+        val format: ExportFormat
+
+        data class Csv(override val count: Int, val content: String) : PreparedPayload {
+            override val format: ExportFormat = ExportFormat.CSV
+        }
+
+        data class Pdf(override val count: Int, val report: ReportModel) : PreparedPayload {
+            override val format: ExportFormat = ExportFormat.PDF
+        }
+    }
 
     private val _uiState = MutableStateFlow(TransactionExportState())
     val uiState: StateFlow<TransactionExportState> = _uiState.asStateFlow()
 
     private var transactions: List<Transaction> = emptyList()
     private var accountNames: Map<String, String> = emptyMap()
+    private var preparedPayload: PreparedPayload? = null
 
     init {
         observeData()
@@ -88,34 +108,71 @@ class TransactionExportViewModel @Inject constructor(
         }
     }
 
+    fun selectFormat(format: ExportFormat) {
+        _uiState.update { current ->
+            current.copy(format = format)
+        }
+    }
+
     fun prepareExport(): String? {
         val state = _uiState.value
         if (state.recordCount == 0 || state.busy || state.loading) return null
-        return MonthlyTransactionCsv.fileName(state.month)
+        val records = MonthlyTransactionCsv.recordsFor(transactions, state.month)
+        if (records.isEmpty()) return null
+
+        val namesSnapshot = accountNames
+        val accountLabel: (String?) -> String = { accountId ->
+            if (accountId == null) {
+                TransactionMessages.ACCOUNT_UNASSIGNED
+            } else {
+                namesSnapshot[accountId] ?: TransactionMessages.ACCOUNT_UNAVAILABLE
+            }
+        }
+
+        preparedPayload = when (state.format) {
+            ExportFormat.CSV -> PreparedPayload.Csv(
+                count = records.size,
+                content = MonthlyTransactionCsv.build(
+                    records = records,
+                    accountLabel = accountLabel
+                )
+            )
+            ExportFormat.PDF -> PreparedPayload.Pdf(
+                count = records.size,
+                report = MonthlyTransactionReport.build(
+                    records = records,
+                    accountLabel = accountLabel,
+                    month = state.month,
+                    generatedAtMillis = System.currentTimeMillis()
+                )
+            )
+        }
+
+        return state.format.fileName(state.month)
     }
 
     fun onFileChosen(uri: Uri?) {
-        if (uri == null) return
+        if (uri == null) {
+            preparedPayload = null
+            return
+        }
         val state = _uiState.value
         if (state.busy) return
 
+        val payload = preparedPayload ?: run {
+            prepareExport()
+            preparedPayload
+        } ?: return
+        preparedPayload = null
+
         viewModelScope.launch {
             _uiState.update { it.copy(busy = true) }
-            val records = MonthlyTransactionCsv.recordsFor(transactions, state.month)
-            val namesSnapshot = accountNames
-            val csv = MonthlyTransactionCsv.build(
-                records = records,
-                accountLabel = { accountId ->
-                    if (accountId == null) {
-                        TransactionMessages.ACCOUNT_UNASSIGNED
-                    } else {
-                        namesSnapshot[accountId] ?: TransactionMessages.ACCOUNT_UNAVAILABLE
-                    }
-                }
-            )
-            val writeResult = csvFileWriter.write(uri, csv)
+            val writeResult = when (payload) {
+                is PreparedPayload.Csv -> csvFileWriter.write(uri, payload.content)
+                is PreparedPayload.Pdf -> pdfReportWriter.write(uri, payload.report)
+            }
             val resultMessage = writeResult.fold(
-                onSuccess = { ExportMessages.exportSuccess(records.size) },
+                onSuccess = { ExportMessages.exportSuccess(payload.count, payload.format) },
                 onFailure = { ExportMessages.EXPORT_ERROR }
             )
             _uiState.update {
@@ -131,4 +188,3 @@ class TransactionExportViewModel @Inject constructor(
     private fun currentMonth(): YearMonth =
         YearMonth.from(TransactionCalendar.dateAt(System.currentTimeMillis()))
 }
-

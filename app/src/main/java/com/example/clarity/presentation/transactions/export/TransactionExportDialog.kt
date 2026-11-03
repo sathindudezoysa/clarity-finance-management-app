@@ -12,6 +12,8 @@ import androidx.compose.material.icons.filled.KeyboardArrowLeft
 import androidx.compose.material.icons.filled.KeyboardArrowRight
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -27,11 +29,13 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.example.clarity.domain.export.ExportFormat
 import com.example.clarity.domain.util.TransactionCalendar
 import java.time.YearMonth
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun TransactionExportDialog(
     onDismiss: () -> Unit,
@@ -42,8 +46,12 @@ fun TransactionExportDialog(
     val currentMonth = remember {
         YearMonth.from(TransactionCalendar.dateAt(System.currentTimeMillis()))
     }
-    val createDocumentLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.CreateDocument("text/csv"),
+    val createCsvLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument(ExportFormat.CSV.mimeType),
+        onResult = viewModel::onFileChosen
+    )
+    val createPdfLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument(ExportFormat.PDF.mimeType),
         onResult = viewModel::onFileChosen
     )
 
@@ -110,6 +118,30 @@ fun TransactionExportDialog(
                     }
                 }
 
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally)
+                ) {
+                    Text(
+                        text = ExportMessages.FORMAT_LABEL,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    FilterChip(
+                        selected = state.format == ExportFormat.CSV,
+                        onClick = { viewModel.selectFormat(ExportFormat.CSV) },
+                        enabled = !state.busy,
+                        label = { Text(text = ExportMessages.FORMAT_CSV) }
+                    )
+                    FilterChip(
+                        selected = state.format == ExportFormat.PDF,
+                        onClick = { viewModel.selectFormat(ExportFormat.PDF) },
+                        enabled = !state.busy,
+                        label = { Text(text = ExportMessages.FORMAT_PDF) }
+                    )
+                }
+
                 if (state.loading || state.busy) {
                     CircularProgressIndicator(
                         modifier = Modifier.size(24.dp),
@@ -130,7 +162,10 @@ fun TransactionExportDialog(
                 onClick = {
                     val fileName = viewModel.prepareExport()
                     if (fileName != null) {
-                        createDocumentLauncher.launch(fileName)
+                        when (state.format) {
+                            ExportFormat.CSV -> createCsvLauncher.launch(fileName)
+                            ExportFormat.PDF -> createPdfLauncher.launch(fileName)
+                        }
                     }
                 },
                 enabled = state.recordCount > 0 && !state.busy && !state.loading
@@ -148,4 +183,3 @@ fun TransactionExportDialog(
         }
     )
 }
-
