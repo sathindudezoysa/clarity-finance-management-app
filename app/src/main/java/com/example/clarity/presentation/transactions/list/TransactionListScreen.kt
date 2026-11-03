@@ -64,6 +64,9 @@ import com.example.clarity.domain.util.TransactionCalendar
 import com.example.clarity.presentation.common.AppIcons
 import com.example.clarity.presentation.theme.ClarityTheme
 import com.example.clarity.presentation.transactions.TransactionMessages
+import com.example.clarity.presentation.transactions.export.ExportMessages
+import com.example.clarity.presentation.transactions.export.TransactionExportDialog
+import kotlinx.coroutines.launch
 import java.math.BigDecimal
 import java.math.BigInteger
 import java.math.RoundingMode
@@ -89,12 +92,7 @@ fun TransactionListScreen(
     onAdd: () -> Unit,
     onOpen: (String) -> Unit,
     onNavigateToProfile: () -> Unit = {},
-    topBar: @Composable () -> Unit = {
-        TransactionHistoryTopBar(
-            onBack = onBack,
-            onProfileClick = onNavigateToProfile
-        )
-    },
+    topBar: (@Composable () -> Unit)? = null,
     bottomBar: @Composable () -> Unit = {},
     viewModel: TransactionListViewModel = hiltViewModel()
 ) {
@@ -103,6 +101,9 @@ fun TransactionListScreen(
     val receiptIds by viewModel.receiptTransactionIds.collectAsStateWithLifecycle()
     val accounts by viewModel.accountsList.collectAsStateWithLifecycle()
     val convertedAmounts by viewModel.convertedAmountsMinor.collectAsStateWithLifecycle()
+    var showExport by rememberSaveable { mutableStateOf(false) }
+    val snackbarHostState = remember { SnackbarHostState() }
+    val scope = rememberCoroutineScope()
 
     val resolvedCurrency = remember(preferredCurrency, state.transactions, accounts) {
         preferredCurrency
@@ -122,14 +123,34 @@ fun TransactionListScreen(
         onBack = onBack,
         onAdd = onAdd,
         onOpen = onOpen,
-        topBar = topBar,
+        onExport = { showExport = true },
+        snackbarHostState = snackbarHostState,
+        topBar = topBar ?: {
+            TransactionHistoryTopBar(
+                onBack = onBack,
+                onExport = { showExport = true },
+                onProfileClick = onNavigateToProfile
+            )
+        },
         bottomBar = bottomBar
     )
+
+    if (showExport) {
+        TransactionExportDialog(
+            onDismiss = { showExport = false },
+            onResult = { msg ->
+                scope.launch {
+                    snackbarHostState.showSnackbar(msg)
+                }
+            }
+        )
+    }
 }
 
 @Composable
 private fun TransactionHistoryTopBar(
     onBack: () -> Unit,
+    onExport: () -> Unit = {},
     onProfileClick: () -> Unit
 ) {
     val colors = MaterialTheme.colorScheme
@@ -173,23 +194,32 @@ private fun TransactionHistoryTopBar(
                 )
             }
 
-            IconButton(
-                onClick = onProfileClick,
-                modifier = Modifier.size(40.dp)
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp)
             ) {
-                Box(
-                    modifier = Modifier
-                        .size(32.dp)
-                        .clip(CircleShape)
-                        .background(colors.primary),
-                    contentAlignment = Alignment.Center
+                TextButton(onClick = onExport) {
+                    Text(ExportMessages.EXPORT_BUTTON)
+                }
+
+                IconButton(
+                    onClick = onProfileClick,
+                    modifier = Modifier.size(40.dp)
                 ) {
-                    Icon(
-                        imageVector = Icons.Outlined.Person,
-                        contentDescription = "Profile",
-                        tint = colors.onPrimary,
-                        modifier = Modifier.size(18.dp)
-                    )
+                    Box(
+                        modifier = Modifier
+                            .size(32.dp)
+                            .clip(CircleShape)
+                            .background(colors.primary),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Outlined.Person,
+                            contentDescription = "Profile",
+                            tint = colors.onPrimary,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
                 }
             }
         }
@@ -206,8 +236,10 @@ private fun TransactionListContent(
     onBack: () -> Unit,
     onAdd: () -> Unit,
     onOpen: (String) -> Unit,
+    onExport: () -> Unit = {},
+    snackbarHostState: SnackbarHostState = remember { SnackbarHostState() },
     topBar: @Composable () -> Unit = {
-        TransactionHistoryTopBar(onBack = onBack, onProfileClick = {})
+        TransactionHistoryTopBar(onBack = onBack, onExport = onExport, onProfileClick = {})
     },
     bottomBar: @Composable () -> Unit = {}
 ) {
@@ -361,7 +393,8 @@ private fun TransactionListContent(
     Scaffold(
         containerColor = colors.background,
         topBar = topBar,
-        bottomBar = bottomBar
+        bottomBar = bottomBar,
+        snackbarHost = { SnackbarHost(snackbarHostState) }
     ) { padding ->
         Box(
             modifier = Modifier
@@ -510,14 +543,7 @@ private fun TransactionListContent(
                     modifier = Modifier
                         .height(44.dp)
                         .clip(CircleShape)
-                        .clickable {
-                            exportTransactionsCsv(
-                                context = context,
-                                month = selectedMonth,
-                                transactions = filteredTransactions,
-                                accountNames = state.accountNames
-                            )
-                        }
+                        .clickable(onClick = onExport)
                 ) {
                     Row(
                         modifier = Modifier.padding(horizontal = 16.dp),

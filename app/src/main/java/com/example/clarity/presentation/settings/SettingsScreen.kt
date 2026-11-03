@@ -24,6 +24,7 @@ import androidx.compose.material.icons.outlined.Share
 import androidx.compose.material.icons.outlined.Star
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -34,6 +35,8 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.clarity.domain.model.Currencies
+import com.example.clarity.presentation.transactions.export.TransactionExportDialog
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -46,6 +49,9 @@ fun SettingsScreen(
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     var currencyMenuExpanded by remember { mutableStateOf(false) }
     var isEditingName by remember { mutableStateOf(false) }
+    var showExport by rememberSaveable { mutableStateOf(false) }
+    val snackbarHostState = remember { SnackbarHostState() }
+    val scope = rememberCoroutineScope()
 
     LaunchedEffect(state.destination) {
         when (state.destination) {
@@ -60,6 +66,7 @@ fun SettingsScreen(
     val colors = MaterialTheme.colorScheme
 
     Scaffold(
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             TopAppBar(
                 title = {
@@ -286,8 +293,8 @@ fun SettingsScreen(
                     SettingsRow(
                         icon = Icons.Outlined.Share,
                         title = "Export Financial Audit",
-                        subtitle = "Monthly CSV & PDF statements",
-                        onClick = {}
+                        subtitle = "Monthly transaction records (CSV)",
+                        onClick = { showExport = true }
                     )
                 }
 
@@ -386,6 +393,17 @@ fun SettingsScreen(
                 }
             }
         }
+    }
+
+    if (showExport) {
+        TransactionExportDialog(
+            onDismiss = { showExport = false },
+            onResult = { message ->
+                scope.launch {
+                    snackbarHostState.showSnackbar(message)
+                }
+            }
+        )
     }
 }
 
