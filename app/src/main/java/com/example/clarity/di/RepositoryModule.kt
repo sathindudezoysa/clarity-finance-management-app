@@ -118,4 +118,10 @@ abstract class RepositoryModule {
     @Binds
     @Singleton
     abstract fun bindAccountRemoteDataSource(impl: FirestoreAccountDataSource): AccountRemoteDataSource
+
+
+    // Inside RepositoryModule.kt
+    @Binds
+    @Singleton
+    abstract fun bindBiometricRepository(impl: BiometricRepositoryImpl): BiometricRepository
 }

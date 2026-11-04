@@ -1,5 +1,9 @@
 package com.example.clarity.presentation.settings
 
+import android.content.Context
+import android.content.Intent
+import android.os.Build
+import android.provider.Settings
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -28,12 +32,19 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.fragment.app.FragmentActivity
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.example.clarity.domain.model.BiometricAvailability
 import com.example.clarity.domain.model.Currencies
+import com.example.clarity.presentation.common.BiometricPromptManager
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -56,6 +67,17 @@ fun SettingsScreen(
             null -> return@LaunchedEffect
         }
         viewModel.onNavigationHandled()
+    }
+
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                viewModel.refreshBiometricAvailability()
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
     val colors = MaterialTheme.colorScheme
@@ -294,37 +316,41 @@ fun SettingsScreen(
 
                 // 4. Security & Biometrics
                 SettingsSection(title = "SECURITY & BIOMETRICS") {
+                    val context = LocalContext.current
+                    val activity = context as? FragmentActivity
+
                     SettingsRow(
                         icon = Icons.Outlined.Lock,
-                        title = "Face ID / Biometric Lock",
+                        title = "Biometric Lock",
                         subtitle = "Instant app protection",
                         trailingContent = {
                             Switch(
-                                checked = state.biometricEnabled ?: false,
-                                onCheckedChange = viewModel::toggleBiometric
+                                checked = state.isBiometricEnabled,
+                                enabled = (state.biometricAvailability == BiometricAvailability.AVAILABLE || state.biometricAvailability == BiometricAvailability.NONE_ENROLLED) && activity != null,
+                                onCheckedChange = { targetCheckedState ->
+                                    if (targetCheckedState && state.biometricAvailability == BiometricAvailability.NONE_ENROLLED) {
+                                        openBiometricEnrollment(context)
+                                        return@Switch
+                                    }
+
+                                    activity?.let { fragmentActivity ->
+                                        BiometricPromptManager.showBiometricPrompt(
+                                            activity = fragmentActivity,
+                                            title = if (targetCheckedState) "Enable Biometric Lock" else "Disable Biometric Lock",
+                                            subtitle = "Verify your identity to update security settings",
+                                            onSuccess = {
+                                                viewModel.toggleBiometric(targetCheckedState)
+                                            },
+                                            onError = { errorString ->
+                                                viewModel.onBiometricError(errorString)
+                                            }
+                                        )
+                                    }
+                                }
                             )
                         }
                     )
-
-                    SettingsDivider()
-
-                    SettingsRow(
-                        icon = Icons.Outlined.Lock,
-                        title = "Change Master Keypass",
-                        subtitle = "Update account password",
-                        onClick = {}
-                    )
-
-                    SettingsDivider()
-
-                    SettingsRow(
-                        icon = Icons.Outlined.Lock,
-                        title = "Two-Factor Auth (2FA)",
-                        subtitle = state.twoFactorStatus ?: "Not configured",
-                        onClick = {}
-                    )
                 }
-
                 // 5. Preferences & Support
                 SettingsSection(title = "PREFERENCES & SUPPORT") {
                     SettingsRow(
@@ -695,4 +721,16 @@ private fun currencyLabel(code: String): String = when (code) {
     "JPY" -> "JPY (¥) - Japanese Yen"
     "KWD" -> "KWD - Kuwaiti Dinar"
     else -> code
+}
+
+private fun openBiometricEnrollment(context: Context) {
+    val intent = when {
+        Build.VERSION.SDK_INT >= Build.VERSION_CODES.P -> Intent(Settings.ACTION_BIOMETRIC_ENROLL)
+        Build.VERSION.SDK_INT >= Build.VERSION_CODES.M -> Intent(Settings.ACTION_FINGERPRINT_ENROLL)
+        else -> Intent(Settings.ACTION_SECURITY_SETTINGS)
+    }
+
+    if (intent.resolveActivity(context.packageManager) != null) {
+        context.startActivity(intent)
+    }
 }
