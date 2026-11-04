@@ -3,8 +3,10 @@ package com.example.clarity.domain.util
 import com.example.clarity.domain.model.FinancialGoal
 import com.example.clarity.domain.model.GoalError
 import com.example.clarity.domain.model.GoalException
+import java.time.LocalDate
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
 import org.junit.Test
@@ -184,5 +186,85 @@ class GoalPolicyTest {
         assertGoalError(GoalError.INVALID_DATE) {
             GoalPolicy.validateStoredOrRemote(sampleGoal(createdAt = 2_000L, updatedAt = 1_000L))
         }
+    }
+
+    @Test
+    fun remainingMonths_computesSameDayExactMonthsLeftoverDaysAndFarFuture() {
+        val baseDate = LocalDate.of(2026, 3, 15)
+        val baseEpoch = baseDate.toEpochDay()
+
+        assertEquals(1L, GoalPolicy.remainingMonths(baseEpoch, baseEpoch))
+        assertEquals(1L, sampleGoal(targetDateEpochDay = baseEpoch).remainingMonths(baseEpoch))
+
+        val exactSixMonths = baseDate.plusMonths(6).toEpochDay()
+        assertEquals(6L, GoalPolicy.remainingMonths(exactSixMonths, baseEpoch))
+
+        val sixMonthsPlusOneDay = baseDate.plusMonths(6).plusDays(1).toEpochDay()
+        assertEquals(7L, GoalPolicy.remainingMonths(sixMonthsPlusOneDay, baseEpoch))
+
+        val farFuture = baseDate.plusYears(10).toEpochDay()
+        assertEquals(120L, GoalPolicy.remainingMonths(farFuture, baseEpoch))
+    }
+
+    @Test
+    fun isActive_checksTodayTomorrowAndYesterday() {
+        assertTrue(GoalPolicy.isActive(todayEpochDay, todayEpochDay))
+        assertTrue(sampleGoal(targetDateEpochDay = todayEpochDay).isActive(todayEpochDay))
+
+        assertTrue(GoalPolicy.isActive(todayEpochDay + 1L, todayEpochDay))
+        assertTrue(sampleGoal(targetDateEpochDay = todayEpochDay + 1L).isActive(todayEpochDay))
+
+        assertFalse(GoalPolicy.isActive(todayEpochDay - 1L, todayEpochDay))
+        assertFalse(sampleGoal(targetDateEpochDay = todayEpochDay - 1L).isActive(todayEpochDay))
+    }
+
+    @Test
+    fun requiredMonthlySavingsMinor_handlesExactCeilingCurrenciesLargeAmountsAndOverdue() {
+        val baseDate = LocalDate.of(2026, 1, 10)
+        val baseEpoch = baseDate.toEpochDay()
+        val threeMonthsEpoch = baseDate.plusMonths(3).toEpochDay()
+        val twelveMonthsEpoch = baseDate.plusMonths(12).toEpochDay()
+
+        val exactGoal = sampleGoal(
+            targetMinor = 300_000L,
+            currency = "LKR",
+            targetDateEpochDay = threeMonthsEpoch
+        )
+        assertEquals(100_000L, exactGoal.requiredMonthlySavingsMinor(baseEpoch))
+
+        val ceilingGoal = sampleGoal(
+            targetMinor = 50_000_000L,
+            currency = "LKR",
+            targetDateEpochDay = twelveMonthsEpoch
+        )
+        assertEquals(4_166_667L, ceilingGoal.requiredMonthlySavingsMinor(baseEpoch))
+
+        val jpyGoal = sampleGoal(
+            targetMinor = 10_000L,
+            currency = "JPY",
+            targetDateEpochDay = threeMonthsEpoch
+        )
+        assertEquals(3_334L, jpyGoal.requiredMonthlySavingsMinor(baseEpoch))
+
+        val kwdGoal = sampleGoal(
+            targetMinor = 10_000L,
+            currency = "KWD",
+            targetDateEpochDay = threeMonthsEpoch
+        )
+        assertEquals(3_334L, kwdGoal.requiredMonthlySavingsMinor(baseEpoch))
+
+        val nearMaxGoal = sampleGoal(
+            targetMinor = Long.MAX_VALUE - 1L,
+            currency = "LKR",
+            targetDateEpochDay = baseDate.plusMonths(2).toEpochDay()
+        )
+        assertEquals(4_611_686_018_427_387_903L, nearMaxGoal.requiredMonthlySavingsMinor(baseEpoch))
+
+        val overdueGoal = sampleGoal(
+            targetMinor = 100_000L,
+            currency = "LKR",
+            targetDateEpochDay = baseEpoch - 1L
+        )
+        assertNull(overdueGoal.requiredMonthlySavingsMinor(baseEpoch))
     }
 }
