@@ -1,5 +1,8 @@
 package com.example.clarity.presentation.transactions.export
 
+import android.content.Intent
+import android.net.Uri
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
@@ -33,10 +36,12 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
@@ -47,6 +52,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
@@ -55,6 +61,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.clarity.domain.export.ExportFormat
 import com.example.clarity.domain.util.TransactionCalendar
+import com.example.clarity.presentation.export.rememberDriveAuthorizer
 import com.example.clarity.presentation.theme.ClarityTheme
 import java.time.YearMonth
 import java.time.format.DateTimeFormatter
@@ -66,6 +73,7 @@ fun TransactionExportScreen(
     viewModel: TransactionExportViewModel = hiltViewModel()
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
+    val context = LocalContext.current
     val snackbarHostState = remember { SnackbarHostState() }
     val currentMonth = remember {
         YearMonth.from(TransactionCalendar.dateAt(System.currentTimeMillis()))
@@ -78,12 +86,33 @@ fun TransactionExportScreen(
         contract = ActivityResultContracts.CreateDocument(ExportFormat.PDF.mimeType),
         onResult = viewModel::onFileChosen
     )
+    val authorizeDrive = rememberDriveAuthorizer(
+        onToken = viewModel::uploadToDrive,
+        onFailure = viewModel::onDriveAuthFailed
+    )
 
-    LaunchedEffect(state.message) {
+    BackHandler(enabled = state.busy) {}
+
+    LaunchedEffect(state.message, state.webViewLink) {
         val message = state.message
+        val webViewLink = state.webViewLink
         if (message != null) {
             viewModel.clearMessage()
-            snackbarHostState.showSnackbar(message)
+            val actionLabel = if (webViewLink != null && webViewLink.startsWith("https://")) {
+                ExportMessages.OPEN_ACTION
+            } else {
+                null
+            }
+            val result = snackbarHostState.showSnackbar(
+                message = message,
+                actionLabel = actionLabel
+            )
+            if (result == SnackbarResult.ActionPerformed && actionLabel != null && webViewLink != null) {
+                runCatching {
+                    val intent = Intent(Intent.ACTION_VIEW, Uri.parse(webViewLink))
+                    context.startActivity(intent)
+                }
+            }
         }
     }
 
@@ -91,10 +120,15 @@ fun TransactionExportScreen(
         state = state,
         currentMonth = currentMonth,
         snackbarHostState = snackbarHostState,
-        onBack = onBack,
+        onBack = {
+            if (!state.busy) {
+                onBack()
+            }
+        },
         onPreviousMonth = viewModel::previousMonth,
         onNextMonth = viewModel::nextMonth,
         onSelectFormat = viewModel::selectFormat,
+        onUploadToDrive = authorizeDrive,
         onExport = {
             val fileName = viewModel.prepareExport()
             if (fileName != null) {
@@ -117,12 +151,14 @@ internal fun TransactionExportContent(
     onPreviousMonth: () -> Unit,
     onNextMonth: () -> Unit,
     onSelectFormat: (ExportFormat) -> Unit,
+    onUploadToDrive: () -> Unit = {},
     onExport: () -> Unit
 ) {
     val colors = MaterialTheme.colorScheme
     val monthFormatter = remember {
         DateTimeFormatter.ofPattern("MMMM yyyy", Locale.getDefault())
     }
+    val actionsEnabled = state.recordCount > 0 && !state.busy && !state.loading
 
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) },
@@ -136,7 +172,10 @@ internal fun TransactionExportContent(
                     )
                 },
                 navigationIcon = {
-                    IconButton(onClick = onBack) {
+                    IconButton(
+                        onClick = onBack,
+                        enabled = !state.busy
+                    ) {
                         Icon(
                             imageVector = Icons.Default.ArrowBack,
                             contentDescription = ExportMessages.BACK,
@@ -160,20 +199,40 @@ internal fun TransactionExportContent(
                         .padding(horizontal = 16.dp, vertical = 12.dp),
                     contentAlignment = Alignment.Center
                 ) {
-                    Button(
-                        onClick = onExport,
-                        enabled = state.recordCount > 0 && !state.busy && !state.loading,
-                        shape = RoundedCornerShape(12.dp),
+                    Column(
                         modifier = Modifier
                             .widthIn(max = 600.dp)
-                            .fillMaxWidth()
-                            .height(50.dp)
+                            .fillMaxWidth(),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
-                        Text(
-                            text = ExportMessages.EXPORT_BUTTON,
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.SemiBold
-                        )
+                        Button(
+                            onClick = onUploadToDrive,
+                            enabled = actionsEnabled,
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(50.dp)
+                        ) {
+                            Text(
+                                text = ExportMessages.UPLOAD_TO_DRIVE,
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        }
+                        OutlinedButton(
+                            onClick = onExport,
+                            enabled = actionsEnabled,
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(50.dp)
+                        ) {
+                            Text(
+                                text = ExportMessages.EXPORT_BUTTON,
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        }
                     }
                 }
             }
@@ -366,8 +425,8 @@ private fun TransactionExportScreenPreview() {
             onPreviousMonth = {},
             onNextMonth = {},
             onSelectFormat = {},
+            onUploadToDrive = {},
             onExport = {}
         )
     }
 }
-

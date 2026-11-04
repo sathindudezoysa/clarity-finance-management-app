@@ -287,7 +287,7 @@ fun SettingsScreen(
                     SettingsRow(
                         icon = Icons.Outlined.Share,
                         title = "Export Financial Audit",
-                        subtitle = "Monthly CSV & PDF statements",
+                        subtitle = "Transactions & budgets",
                         onClick = onExport
                     )
                 }

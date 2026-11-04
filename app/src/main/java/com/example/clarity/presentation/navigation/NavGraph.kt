@@ -15,6 +15,8 @@ import com.example.clarity.presentation.accounts.edit.AccountEditScreen
 import com.example.clarity.presentation.accounts.list.AccountListScreen
 import com.example.clarity.presentation.auth.login.LoginScreen
 import com.example.clarity.presentation.auth.register.RegisterScreen
+import com.example.clarity.presentation.budgets.export.BudgetExportScreen
+import com.example.clarity.presentation.export.ExportHubScreen
 import com.example.clarity.presentation.goals.GoalEditScreen
 import com.example.clarity.presentation.goals.GoalsScreen
 import com.example.clarity.presentation.income.IncomeScreen
@@ -140,6 +142,11 @@ fun SetupNavGraph(
                 }
             )
         }
+        composable(route = Screen.BudgetExport.route) {
+            BudgetExportScreen(
+                onBack = { navController.popBackStack() }
+            )
+        }
         composable(Screen.BudgetEdit.route, arguments = listOf(navArgument("budgetId") {
             type = NavType.StringType; nullable = true; defaultValue = null
         })) { entry ->
@@ -215,7 +222,7 @@ fun SetupNavGraph(
                 onBack = { navController.popBackStack() },
                 onBankAccounts = { navController.navigate(Screen.AccountList.route) },
                 onExport = {
-                    navController.navigate(Screen.Export.route) {
+                    navController.navigate(Screen.ExportHub.route) {
                         launchSingleTop = true
                     }
                 },
@@ -226,6 +233,21 @@ fun SetupNavGraph(
                     }
                 },
                 viewModel = hiltViewModel()
+            )
+        }
+        composable(route = Screen.ExportHub.route) {
+            ExportHubScreen(
+                onBack = { navController.popBackStack() },
+                onExportTransactions = {
+                    navController.navigate(Screen.Export.route) {
+                        launchSingleTop = true
+                    }
+                },
+                onExportBudgets = {
+                    navController.navigate(Screen.BudgetExport.route) {
+                        launchSingleTop = true
+                    }
+                }
             )
         }
         composable(route = Screen.Export.route) {

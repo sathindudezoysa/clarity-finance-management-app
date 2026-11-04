@@ -3,6 +3,7 @@ package com.example.clarity.domain.repository
 import com.example.clarity.domain.model.Budget
 import com.example.clarity.domain.model.BudgetStatus
 import kotlinx.coroutines.flow.Flow
+import java.time.YearMonth
 
 data class BudgetOverview(val ownerId: String? = null, val statuses: List<BudgetStatus> = emptyList(), val syncError: Boolean = false,
     val loading: Boolean = false)
@@ -12,4 +13,5 @@ interface BudgetRepository {
     suspend fun save(budget: Budget): Result<Unit>
     suspend fun disable(id: String): Result<Unit>
     suspend fun resolveUncounted(id: String): Result<Unit>
+    suspend fun monthlyStatuses(month: YearMonth): Result<List<BudgetStatus>>
 }

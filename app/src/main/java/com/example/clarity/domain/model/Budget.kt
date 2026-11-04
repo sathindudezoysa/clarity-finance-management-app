@@ -132,4 +132,36 @@ object BudgetPolicy {
         }
         return BudgetStatus(budget, total, uncounted, activePeriod)
     }
+
+    fun statusesForMonth(
+        budgets: List<Budget>,
+        transactions: List<Transaction>,
+        resolutions: List<BudgetResolution> = emptyList(),
+        month: YearMonth,
+        zone: ZoneId = ZoneId.systemDefault()
+    ): List<BudgetStatus> {
+        val targetPeriod = month.toString()
+        return budgets
+            .filter { it.active && it.period == BudgetPeriod.MONTHLY && YearMonth.parse(it.month) <= month }
+            .sortedWith(
+                compareBy<Budget, String>(String.CASE_INSENSITIVE_ORDER) { it.category }
+                    .thenBy { it.currency }
+                    .thenBy { it.id }
+            )
+            .map { budget ->
+                val evaluated = evaluate(
+                    budget = budget.copy(month = targetPeriod),
+                    transactions = transactions,
+                    resolutions = resolutions,
+                    zone = zone,
+                    clock = null
+                )
+                BudgetStatus(
+                    budget = budget,
+                    spent = evaluated.spent,
+                    uncounted = evaluated.uncounted,
+                    activePeriod = targetPeriod
+                )
+            }
+    }
 }

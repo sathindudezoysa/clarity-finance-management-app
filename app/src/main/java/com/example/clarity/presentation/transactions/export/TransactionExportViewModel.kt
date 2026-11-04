@@ -3,6 +3,9 @@ package com.example.clarity.presentation.transactions.export
 import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.clarity.data.drive.DriveUploadError
+import com.example.clarity.data.drive.DriveUploadException
+import com.example.clarity.data.drive.GoogleDriveUploader
 import com.example.clarity.data.export.CsvFileWriter
 import com.example.clarity.data.export.PdfReportWriter
 import com.example.clarity.domain.export.ExportFormat
@@ -14,6 +17,7 @@ import com.example.clarity.domain.usecase.account.GetAccountsUseCase
 import com.example.clarity.domain.usecase.transaction.GetTransactionsUseCase
 import com.example.clarity.domain.util.Resource
 import com.example.clarity.domain.util.TransactionCalendar
+import com.example.clarity.presentation.export.DriveAuthFailure
 import com.example.clarity.presentation.transactions.TransactionMessages
 import dagger.hilt.android.lifecycle.HiltViewModel
 import java.time.YearMonth
@@ -31,7 +35,8 @@ data class TransactionExportState(
     val recordCount: Int = 0,
     val loading: Boolean = true,
     val busy: Boolean = false,
-    val message: String? = null
+    val message: String? = null,
+    val webViewLink: String? = null
 )
 
 @HiltViewModel
@@ -39,7 +44,8 @@ class TransactionExportViewModel @Inject constructor(
     private val getTransactions: GetTransactionsUseCase,
     private val getAccounts: GetAccountsUseCase,
     private val csvFileWriter: CsvFileWriter,
-    private val pdfReportWriter: PdfReportWriter
+    private val pdfReportWriter: PdfReportWriter,
+    private val googleDriveUploader: GoogleDriveUploader
 ) : ViewModel() {
 
     private sealed interface PreparedPayload {
@@ -176,13 +182,75 @@ class TransactionExportViewModel @Inject constructor(
                 onFailure = { ExportMessages.EXPORT_ERROR }
             )
             _uiState.update {
-                it.copy(busy = false, message = resultMessage)
+                it.copy(busy = false, message = resultMessage, webViewLink = null)
             }
         }
     }
 
+    fun uploadToDrive(accessToken: String) {
+        val state = _uiState.value
+        if (state.recordCount == 0 || state.busy || state.loading) return
+        val fileName = prepareExport() ?: return
+        val payload = preparedPayload ?: return
+        preparedPayload = null
+
+        viewModelScope.launch {
+            _uiState.update { it.copy(busy = true) }
+            val bytesResult: Result<ByteArray> = when (payload) {
+                is PreparedPayload.Csv -> Result.success(csvFileWriter.toBytes(payload.content))
+                is PreparedPayload.Pdf -> pdfReportWriter.renderBytes(payload.report)
+            }
+            val bytes = bytesResult.getOrElse {
+                _uiState.update {
+                    it.copy(busy = false, message = ExportMessages.EXPORT_ERROR, webViewLink = null)
+                }
+                return@launch
+            }
+            val uploadResult = googleDriveUploader.upload(
+                accessToken = accessToken,
+                fileName = fileName,
+                mimeType = payload.format.mimeType,
+                bytes = bytes
+            )
+            uploadResult.fold(
+                onSuccess = { driveFile ->
+                    val validLink = driveFile.webViewLink?.takeIf { it.startsWith("https://") }
+                    _uiState.update {
+                        it.copy(
+                            busy = false,
+                            message = ExportMessages.driveUploadSuccess(fileName),
+                            webViewLink = validLink
+                        )
+                    }
+                },
+                onFailure = { error ->
+                    val errType = (error as? DriveUploadException)?.error ?: DriveUploadError.OTHER
+                    val errMsg = when (errType) {
+                        DriveUploadError.NETWORK -> ExportMessages.DRIVE_NETWORK_ERROR
+                        DriveUploadError.UNAUTHORIZED -> ExportMessages.DRIVE_UNAUTHORIZED_ERROR
+                        DriveUploadError.FORBIDDEN -> ExportMessages.DRIVE_FORBIDDEN_ERROR
+                        DriveUploadError.OTHER -> ExportMessages.DRIVE_GENERIC_ERROR
+                    }
+                    _uiState.update {
+                        it.copy(busy = false, message = errMsg, webViewLink = null)
+                    }
+                }
+            )
+        }
+    }
+
+    fun onDriveAuthFailed(failure: DriveAuthFailure) {
+        val errMsg = when (failure) {
+            DriveAuthFailure.NOT_CONFIGURED -> ExportMessages.DRIVE_NOT_CONFIGURED
+            DriveAuthFailure.OTHER -> ExportMessages.DRIVE_GENERIC_ERROR
+        }
+        _uiState.update {
+            it.copy(message = errMsg, webViewLink = null)
+        }
+    }
+
     fun clearMessage() {
-        _uiState.update { it.copy(message = null) }
+        _uiState.update { it.copy(message = null, webViewLink = null) }
     }
 
     private fun currentMonth(): YearMonth =

@@ -12,6 +12,7 @@ import android.text.TextPaint
 import android.text.TextUtils
 import com.example.clarity.domain.export.ReportModel
 import dagger.hilt.android.qualifiers.ApplicationContext
+import java.io.ByteArrayOutputStream
 import java.io.IOException
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -35,6 +36,20 @@ class PdfReportWriter @Inject constructor(
                 } finally {
                     document.close()
                 }
+            }
+        }
+    }
+
+    suspend fun renderBytes(report: ReportModel): Result<ByteArray> = withContext(Dispatchers.IO) {
+        runCatching {
+            val outputStream = ByteArrayOutputStream()
+            val document = PdfDocument()
+            try {
+                renderReport(document, report)
+                document.writeTo(outputStream)
+                outputStream.toByteArray()
+            } finally {
+                document.close()
             }
         }
     }

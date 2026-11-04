@@ -2,6 +2,7 @@ package com.example.clarity.domain.usecase.budget
 
 import com.example.clarity.domain.model.Budget
 import com.example.clarity.domain.repository.BudgetRepository
+import java.time.YearMonth
 import javax.inject.Inject
 
 class ObserveBudgetsUseCase @Inject constructor(private val repository: BudgetRepository) {
@@ -15,4 +16,7 @@ class DisableBudgetUseCase @Inject constructor(private val repository: BudgetRep
 }
 class ResolveBudgetCurrencyUseCase @Inject constructor(private val repository: BudgetRepository) {
     suspend operator fun invoke(id: String) = repository.resolveUncounted(id)
+}
+class GetMonthlyBudgetStatusesUseCase @Inject constructor(private val repository: BudgetRepository) {
+    suspend operator fun invoke(month: YearMonth) = repository.monthlyStatuses(month)
 }

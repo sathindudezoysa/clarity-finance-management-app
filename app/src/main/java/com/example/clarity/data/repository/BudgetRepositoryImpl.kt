@@ -11,6 +11,7 @@ import com.example.clarity.domain.repository.*
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
 import java.time.Clock
+import java.time.YearMonth
 import java.time.ZoneId
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -82,6 +83,15 @@ class BudgetRepositoryImpl @Inject constructor(
             }
         }
         check(!incomplete) { "Some conversions remain unavailable" }
+    }
+    override suspend fun monthlyStatuses(month: YearMonth): Result<List<BudgetStatus>> = operation {
+        val uid = owner()
+        val budgets = db.budgetDao.observe(uid).first().map { it.toDomain() }
+        val entries = db.transactionDao.observeAll(uid).first().filter { !it.isDeleted }.map { it.toDomain() }
+        val resolved = db.budgetDao.resolutions(uid).first().map {
+            BudgetResolution(it.transactionId, it.transactionVersion, it.currency, it.amountMinor)
+        }
+        BudgetPolicy.statusesForMonth(budgets, entries, resolved, month, ZoneId.systemDefault())
     }
     private suspend fun owner() = requireNotNull(auth.currentUser.first()?.uid) { "Sign in required" }
     private suspend fun checkOwner(uid: String) { check(owner() == uid) { "Session changed" } }

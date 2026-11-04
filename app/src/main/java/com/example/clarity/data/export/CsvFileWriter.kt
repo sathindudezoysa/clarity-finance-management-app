@@ -13,6 +13,9 @@ import kotlinx.coroutines.withContext
 class CsvFileWriter @Inject constructor(
     @ApplicationContext private val context: Context
 ) {
+    fun toBytes(content: String): ByteArray =
+        UTF8_BOM + content.toByteArray(Charsets.UTF_8)
+
     suspend fun write(uri: Uri, content: String): Result<Unit> = withContext(Dispatchers.IO) {
         runCatching {
             val stream = context.contentResolver.openOutputStream(uri, "wt")
@@ -29,4 +32,3 @@ class CsvFileWriter @Inject constructor(
         val UTF8_BOM = byteArrayOf(0xEF.toByte(), 0xBB.toByte(), 0xBF.toByte())
     }
 }
-

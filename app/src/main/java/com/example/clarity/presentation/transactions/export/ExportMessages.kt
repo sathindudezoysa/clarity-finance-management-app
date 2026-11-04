@@ -4,6 +4,8 @@ import com.example.clarity.domain.export.ExportFormat
 
 object ExportMessages {
     const val EXPORT_BUTTON = "Export"
+    const val UPLOAD_TO_DRIVE = "Upload to Google Drive"
+    const val OPEN_ACTION = "Open"
     const val CANCEL_BUTTON = "Cancel"
     const val DIALOG_TITLE = "Export monthly records"
     const val SCREEN_TITLE = "Export records"
@@ -20,6 +22,11 @@ object ExportMessages {
     const val PDF_DESCRIPTION = "Printable monthly report with a summary."
     const val NO_RECORDS = "No records for this month."
     const val EXPORT_ERROR = "Unable to export transactions. Please try again."
+    const val DRIVE_NOT_CONFIGURED = "Google Drive is not set up for this build"
+    const val DRIVE_NETWORK_ERROR = "No internet connection. Check your connection or use Export."
+    const val DRIVE_UNAUTHORIZED_ERROR = "Google Drive permission expired. Please try again."
+    const val DRIVE_FORBIDDEN_ERROR = "Google Drive access was denied or the Drive API is not enabled for this project."
+    const val DRIVE_GENERIC_ERROR = "Unable to upload to Google Drive. Please try again."
 
     fun recordCountText(count: Int): String = when {
         count <= 0 -> NO_RECORDS
@@ -33,4 +40,7 @@ object ExportMessages {
         } else {
             "Exported $count records as ${format.name}."
         }
+
+    fun driveUploadSuccess(fileName: String): String =
+        "Uploaded to Google Drive as $fileName."
 }
