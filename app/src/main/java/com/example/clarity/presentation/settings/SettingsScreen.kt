@@ -40,6 +40,7 @@ import com.example.clarity.domain.model.Currencies
 fun SettingsScreen(
     onBack: () -> Unit,
     onBankAccounts: () -> Unit,
+    onExport: () -> Unit = {},
     onSignOut: () -> Unit = {},
     viewModel: SettingsViewModel = hiltViewModel()
 ) {
@@ -287,7 +288,7 @@ fun SettingsScreen(
                         icon = Icons.Outlined.Share,
                         title = "Export Financial Audit",
                         subtitle = "Monthly CSV & PDF statements",
-                        onClick = {}
+                        onClick = onExport
                     )
                 }
 

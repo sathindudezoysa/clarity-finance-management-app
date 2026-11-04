@@ -64,6 +64,7 @@ import com.example.clarity.domain.util.TransactionCalendar
 import com.example.clarity.presentation.common.AppIcons
 import com.example.clarity.presentation.theme.ClarityTheme
 import com.example.clarity.presentation.transactions.TransactionMessages
+import com.example.clarity.presentation.transactions.export.ExportMessages
 import java.math.BigDecimal
 import java.math.BigInteger
 import java.math.RoundingMode
@@ -89,9 +90,11 @@ fun TransactionListScreen(
     onAdd: () -> Unit,
     onOpen: (String) -> Unit,
     onNavigateToProfile: () -> Unit = {},
+    onExport: () -> Unit = {},
     topBar: @Composable () -> Unit = {
         TransactionHistoryTopBar(
             onBack = onBack,
+            onExport = onExport,
             onProfileClick = onNavigateToProfile
         )
     },
@@ -122,6 +125,7 @@ fun TransactionListScreen(
         onBack = onBack,
         onAdd = onAdd,
         onOpen = onOpen,
+        onExport = onExport,
         topBar = topBar,
         bottomBar = bottomBar
     )
@@ -130,6 +134,7 @@ fun TransactionListScreen(
 @Composable
 private fun TransactionHistoryTopBar(
     onBack: () -> Unit,
+    onExport: () -> Unit = {},
     onProfileClick: () -> Unit
 ) {
     val colors = MaterialTheme.colorScheme
@@ -173,23 +178,32 @@ private fun TransactionHistoryTopBar(
                 )
             }
 
-            IconButton(
-                onClick = onProfileClick,
-                modifier = Modifier.size(40.dp)
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp)
             ) {
-                Box(
-                    modifier = Modifier
-                        .size(32.dp)
-                        .clip(CircleShape)
-                        .background(colors.primary),
-                    contentAlignment = Alignment.Center
+                TextButton(onClick = onExport) {
+                    Text(ExportMessages.EXPORT_BUTTON)
+                }
+
+                IconButton(
+                    onClick = onProfileClick,
+                    modifier = Modifier.size(40.dp)
                 ) {
-                    Icon(
-                        imageVector = Icons.Outlined.Person,
-                        contentDescription = "Profile",
-                        tint = colors.onPrimary,
-                        modifier = Modifier.size(18.dp)
-                    )
+                    Box(
+                        modifier = Modifier
+                            .size(32.dp)
+                            .clip(CircleShape)
+                            .background(colors.primary),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Outlined.Person,
+                            contentDescription = "Profile",
+                            tint = colors.onPrimary,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
                 }
             }
         }
@@ -206,8 +220,9 @@ private fun TransactionListContent(
     onBack: () -> Unit,
     onAdd: () -> Unit,
     onOpen: (String) -> Unit,
+    onExport: () -> Unit = {},
     topBar: @Composable () -> Unit = {
-        TransactionHistoryTopBar(onBack = onBack, onProfileClick = {})
+        TransactionHistoryTopBar(onBack = onBack, onExport = onExport, onProfileClick = {})
     },
     bottomBar: @Composable () -> Unit = {}
 ) {
@@ -510,14 +525,7 @@ private fun TransactionListContent(
                     modifier = Modifier
                         .height(44.dp)
                         .clip(CircleShape)
-                        .clickable {
-                            exportTransactionsCsv(
-                                context = context,
-                                month = selectedMonth,
-                                transactions = filteredTransactions,
-                                accountNames = state.accountNames
-                            )
-                        }
+                        .clickable(onClick = onExport)
                 ) {
                     Row(
                         modifier = Modifier.padding(horizontal = 16.dp),

@@ -17,6 +17,7 @@ sealed class Screen(val route: String) {
     object Login : Screen("login_screen")
     object TransactionList : Screen("transactions")
     object Settings : Screen("settings")
+    object Export : Screen("export")
     object AccountList : Screen("accounts")
     object Goals : Screen("goals")
     object GoalEdit : Screen("goals/edit?goalId={goalId}") {
