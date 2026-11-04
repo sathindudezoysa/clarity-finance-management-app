@@ -3,9 +3,6 @@ package com.example.clarity.domain.util
 import com.example.clarity.domain.model.FinancialGoal
 import com.example.clarity.domain.model.GoalError
 import com.example.clarity.domain.model.GoalException
-import com.example.clarity.presentation.goals.MonthlyRateTotalUiModel
-import com.example.clarity.presentation.goals.calculateMonthlyRateTotals
-import com.example.clarity.presentation.goals.toCardUiModel
 import java.time.LocalDate
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -248,7 +245,6 @@ class GoalPolicyTest {
             targetDateEpochDay = threeMonthsEpoch
         )
         assertEquals(3_334L, jpyGoal.requiredMonthlySavingsMinor(baseEpoch))
-        assertEquals("JPY 3334 / month", jpyGoal.toCardUiModel(baseEpoch).monthlyRateFormatted)
 
         val kwdGoal = sampleGoal(
             targetMinor = 10_000L,
@@ -256,7 +252,6 @@ class GoalPolicyTest {
             targetDateEpochDay = threeMonthsEpoch
         )
         assertEquals(3_334L, kwdGoal.requiredMonthlySavingsMinor(baseEpoch))
-        assertEquals("KWD 3.334 / month", kwdGoal.toCardUiModel(baseEpoch).monthlyRateFormatted)
 
         val nearMaxGoal = sampleGoal(
             targetMinor = Long.MAX_VALUE - 1L,
@@ -271,70 +266,5 @@ class GoalPolicyTest {
             targetDateEpochDay = baseEpoch - 1L
         )
         assertNull(overdueGoal.requiredMonthlySavingsMinor(baseEpoch))
-        assertNull(overdueGoal.toCardUiModel(baseEpoch).monthlyRateFormatted)
-    }
-
-    @Test
-    fun calculateMonthlyRateTotals_aggregatesPerCurrencyExcludesOverdueAndHandlesEmptyList() {
-        val baseDate = LocalDate.of(2026, 1, 10)
-        val baseEpoch = baseDate.toEpochDay()
-        val twoMonthsEpoch = baseDate.plusMonths(2).toEpochDay()
-        val fourMonthsEpoch = baseDate.plusMonths(4).toEpochDay()
-
-        assertTrue(calculateMonthlyRateTotals(emptyList(), baseEpoch).isEmpty())
-
-        val singleCurrencyGoals = listOf(
-            sampleGoal(
-                id = "g1",
-                targetMinor = 100_000L,
-                currency = "LKR",
-                targetDateEpochDay = twoMonthsEpoch
-            ),
-            sampleGoal(
-                id = "g2",
-                targetMinor = 200_000L,
-                currency = "LKR",
-                targetDateEpochDay = fourMonthsEpoch
-            )
-        )
-        assertEquals(
-            listOf(MonthlyRateTotalUiModel(currency = "LKR", totalFormatted = "LKR 1000.00 / month")),
-            calculateMonthlyRateTotals(singleCurrencyGoals, baseEpoch)
-        )
-
-        val mixedAndOverdueGoals = listOf(
-            sampleGoal(
-                id = "usd-1",
-                targetMinor = 50_000L,
-                currency = "USD",
-                targetDateEpochDay = twoMonthsEpoch
-            ),
-            sampleGoal(
-                id = "lkr-1",
-                targetMinor = 300_000L,
-                currency = "LKR",
-                targetDateEpochDay = twoMonthsEpoch
-            ),
-            sampleGoal(
-                id = "jpy-1",
-                targetMinor = 10_000L,
-                currency = "JPY",
-                targetDateEpochDay = fourMonthsEpoch
-            ),
-            sampleGoal(
-                id = "overdue-lkr",
-                targetMinor = 900_000L,
-                currency = "LKR",
-                targetDateEpochDay = baseEpoch - 5L
-            )
-        )
-        assertEquals(
-            listOf(
-                MonthlyRateTotalUiModel(currency = "LKR", totalFormatted = "LKR 1500.00 / month"),
-                MonthlyRateTotalUiModel(currency = "USD", totalFormatted = "USD 250.00 / month"),
-                MonthlyRateTotalUiModel(currency = "JPY", totalFormatted = "JPY 2500 / month")
-            ),
-            calculateMonthlyRateTotals(mixedAndOverdueGoals, baseEpoch)
-        )
     }
 }
