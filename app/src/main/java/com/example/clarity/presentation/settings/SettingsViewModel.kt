@@ -4,11 +4,15 @@ import android.content.SharedPreferences
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.clarity.data.repository.AuthRepositoryImpl
+import com.example.clarity.domain.model.BiometricAvailability
 import com.example.clarity.domain.usecase.account.GetAccountsUseCase
 import com.example.clarity.domain.usecase.account.SetDefaultAccountUseCase
 import com.example.clarity.domain.usecase.auth.ObserveCurrentUserUseCase
 import com.example.clarity.domain.usecase.auth.SignOutUseCase
 import com.example.clarity.domain.usecase.auth.UpdateUserProfileUseCase
+import com.example.clarity.domain.usecase.biometric.CheckBiometricAvailabilityUseCase
+import com.example.clarity.domain.usecase.biometric.ObserveBiometricPreferenceUseCase
+import com.example.clarity.domain.usecase.biometric.SetBiometricPreferenceUseCase
 import com.example.clarity.domain.usecase.currency.ObserveCurrencyPreferenceUseCase
 import com.example.clarity.domain.usecase.currency.SetCurrencyPreferenceUseCase
 import com.example.clarity.presentation.accounts.AccountMessages
@@ -31,7 +35,10 @@ class SettingsViewModel @Inject constructor(
     private val updateUserProfile: UpdateUserProfileUseCase,
     private val getAccounts: GetAccountsUseCase,
     private val setDefaultAccountUseCase: SetDefaultAccountUseCase,
-    private val signOutUseCase: SignOutUseCase
+    private val signOutUseCase: SignOutUseCase,
+    private val observeBiometricPreferenceUseCase: ObserveBiometricPreferenceUseCase,
+    private val setBiometricPreferenceUseCase: SetBiometricPreferenceUseCase,
+    private val checkBiometricAvailabilityUseCase: CheckBiometricAvailabilityUseCase
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(loadCachedState())
@@ -91,6 +98,15 @@ class SettingsViewModel @Inject constructor(
                     }
                 }
         }
+        //Checking the bio metric availability
+        val availability = checkBiometricAvailabilityUseCase()
+        _uiState.update { it.copy(biometricAvailability = availability) }
+
+        viewModelScope.launch {
+            observeBiometricPreferenceUseCase().collect { enabled ->
+                _uiState.update { it.copy(isBiometricEnabled = enabled) }
+            }
+        }
     }
 
     fun setCurrency(currency: String) {
@@ -130,11 +146,6 @@ class SettingsViewModel @Inject constructor(
                 profileError = null
             )
         }
-    }
-
-    fun toggleBiometric(enabled: Boolean) {
-        prefs.edit().putBoolean(KEY_BIOMETRIC_ENABLED, enabled).apply()
-        _uiState.update { it.copy(biometricEnabled = enabled) }
     }
 
     fun saveProfileChanges() {
@@ -197,18 +208,68 @@ class SettingsViewModel @Inject constructor(
             defaultAccountName = prefs.getString(KEY_DEFAULT_ACCOUNT, null),
             cashThreshold = prefs.getString(KEY_CASH_THRESHOLD, null),
             cloudSyncSchedule = prefs.getString(KEY_CLOUD_SYNC_SCHEDULE, null),
-            biometricEnabled = if (prefs.contains(KEY_BIOMETRIC_ENABLED)) {
-                prefs.getBoolean(KEY_BIOMETRIC_ENABLED, false)
-            } else null,
             twoFactorStatus = prefs.getString(KEY_TWO_FACTOR_STATUS, null),
-            appearanceMode = prefs.getString(KEY_APPEARANCE_MODE, null)
+            appearanceMode = prefs.getString(KEY_APPEARANCE_MODE, null),
+            isBiometricEnabled = prefs.getBoolean(KEY_BIOMETRIC_ENABLED, false)
         )
+    }
+
+    fun refreshBiometricAvailability() {
+        val availability = checkBiometricAvailabilityUseCase()
+        val isConfigured = availability == BiometricAvailability.AVAILABLE
+        val shouldBeEnabled = _uiState.value.isBiometricEnabled && isConfigured
+
+        _uiState.update {
+            it.copy(
+                biometricAvailability = availability,
+                isBiometricEnabled = shouldBeEnabled,
+                biometricErrorMessage = null
+            )
+        }
+
+        if (shouldBeEnabled != _uiState.value.isBiometricEnabled) {
+            viewModelScope.launch {
+                setBiometricPreferenceUseCase(false)
+            }
+        }
+
+        if (_uiState.value.isBiometricEnabled && availability != BiometricAvailability.AVAILABLE) {
+            viewModelScope.launch {
+                setBiometricPreferenceUseCase(false)
+                _uiState.update { it.copy(isBiometricEnabled = false, biometricErrorMessage = null) }
+            }
+        }
+    }
+
+    fun toggleBiometric(targetEnabledState: Boolean) {
+        onBiometricToggleVerified(targetEnabledState)
+    }
+
+    fun onBiometricToggleVerified(targetEnabledState: Boolean) {
+        val availability = checkBiometricAvailabilityUseCase()
+        val sanitizedState = targetEnabledState && availability == BiometricAvailability.AVAILABLE
+
+        _uiState.update {
+            it.copy(
+                biometricAvailability = availability,
+                isBiometricEnabled = sanitizedState,
+                biometricErrorMessage = null
+            )
+        }
+
+        viewModelScope.launch {
+            setBiometricPreferenceUseCase(sanitizedState)
+        }
+    }
+
+    fun onBiometricError(errorMessage: String) {
+        _uiState.update { it.copy(biometricErrorMessage = errorMessage) }
     }
 
     companion object {
         const val KEY_CURRENCY = "settings_currency"
         const val KEY_DEFAULT_ACCOUNT = "settings_default_account"
-        const val KEY_BIOMETRIC_ENABLED = "settings_biometric_enabled"
+        const val KEY_BIOMETRIC_ENABLED = "biometric_lock_enabled"
         const val KEY_TIER_LABEL = "settings_tier_label"
         const val KEY_STREAK_LABEL = "settings_streak_label"
         const val KEY_CASH_THRESHOLD = "settings_cash_threshold"

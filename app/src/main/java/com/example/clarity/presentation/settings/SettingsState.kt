@@ -1,6 +1,7 @@
 package com.example.clarity.presentation.settings
 
 import com.example.clarity.domain.model.Account
+import com.example.clarity.domain.model.BiometricAvailability
 
 enum class SettingsDestination { BACK, BANK_ACCOUNTS, LOGIN }
 
@@ -19,7 +20,6 @@ data class SettingsState(
     val defaultAccountName: String? = null,
     val cashThreshold: String? = null,
     val cloudSyncSchedule: String? = null,
-    val biometricEnabled: Boolean? = null,
     val twoFactorStatus: String? = null,
     val appearanceMode: String? = null,
     val isUpdatingProfile: Boolean = false,
@@ -27,5 +27,8 @@ data class SettingsState(
     val profileError: String? = null,
     val bankAccounts: List<Account> = emptyList(),
     val changingDefaultId: String? = null,
-    val defaultAccountError: String? = null
+    val defaultAccountError: String? = null,
+    val isBiometricEnabled: Boolean = false,
+    val biometricAvailability: BiometricAvailability = BiometricAvailability.AVAILABLE,
+    val biometricErrorMessage: String? = null
 )
