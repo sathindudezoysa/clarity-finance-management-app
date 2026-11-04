@@ -9,6 +9,7 @@ import dagger.hilt.android.HiltAndroidApp
 import com.example.clarity.domain.repository.TransactionRepository
 import com.example.clarity.domain.repository.AccountRepository
 import javax.inject.Inject
+import com.example.clarity.data.notifications.WalletReminderScheduler
 
 @HiltAndroidApp
 class ClarityApp : Application() {
@@ -27,6 +28,7 @@ class ClarityApp : Application() {
     @Inject lateinit var budgetAlertManager: com.example.clarity.data.sync.BudgetAlertManager
     @Inject lateinit var goalSyncManager: GoalSyncManager
     @Inject lateinit var goalContributionSyncManager: GoalContributionSyncManager
+    @Inject lateinit var walletReminderScheduler: WalletReminderScheduler
 
     override fun onCreate() {
         super.onCreate()
@@ -36,5 +38,6 @@ class ClarityApp : Application() {
         budgetAlertManager.start()
         goalSyncManager.start()
         goalContributionSyncManager.start()
+        walletReminderScheduler.start()
     }
 }
