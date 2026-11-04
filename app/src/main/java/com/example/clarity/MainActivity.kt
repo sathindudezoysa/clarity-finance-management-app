@@ -23,57 +23,17 @@ import androidx.compose.ui.unit.dp
 import androidx.fragment.app.FragmentActivity
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
-import androidx.lifecycle.ViewModel
-import androidx.lifecycle.viewModelScope
 import androidx.navigation.compose.rememberNavController
 import com.example.clarity.data.sync.BudgetSignals
-import com.example.clarity.domain.usecase.biometric.ObserveBiometricPreferenceUseCase
+import com.example.clarity.presentation.auth.MainAuthViewModel
 import com.example.clarity.presentation.common.BiometricPromptManager
 import com.example.clarity.presentation.navigation.Screen
 import com.example.clarity.presentation.navigation.SetupNavGraph
 import com.example.clarity.presentation.theme.ClarityTheme
 import com.google.firebase.auth.FirebaseAuth
 import dagger.hilt.android.AndroidEntryPoint
-import dagger.hilt.android.lifecycle.HiltViewModel
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.collectLatest
-import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import javax.inject.Inject
-
-@HiltViewModel
-class MainAuthViewModel @Inject constructor(
-    private val observeBiometricPreferenceUseCase: ObserveBiometricPreferenceUseCase,
-    val firebaseAuth: FirebaseAuth
-) : ViewModel() {
-
-    private val _isBiometricEnabled = MutableStateFlow(false)
-    val isBiometricEnabled: StateFlow<Boolean> = _isBiometricEnabled.asStateFlow()
-
-    private val _isUnlocked = MutableStateFlow(false)
-    val isUnlocked: StateFlow<Boolean> = _isUnlocked.asStateFlow()
-
-    init {
-        viewModelScope.launch {
-            observeBiometricPreferenceUseCase().collectLatest { enabled ->
-                _isBiometricEnabled.value = enabled
-                if (!enabled) {
-                    _isUnlocked.value = true
-                }
-            }
-        }
-    }
-
-    fun lockApp() {
-        _isUnlocked.value = !_isBiometricEnabled.value
-    }
-
-    fun unlockApp() {
-        _isUnlocked.value = true
-    }
-}
 
 @AndroidEntryPoint
 class MainActivity : FragmentActivity() {
