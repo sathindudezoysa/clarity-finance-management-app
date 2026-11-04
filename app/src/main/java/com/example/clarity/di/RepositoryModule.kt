@@ -18,6 +18,8 @@ import com.example.clarity.data.remote.GoalRemoteDataSource
 import com.example.clarity.data.repository.GoalRepositoryImpl
 import com.example.clarity.domain.repository.AccountRepository
 import com.example.clarity.domain.repository.AuthRepository
+import com.example.clarity.data.repository.BiometricRepositoryImpl
+import com.example.clarity.domain.repository.BiometricRepository
 import com.example.clarity.domain.repository.GoalRepository
 import com.example.clarity.data.repository.TransactionRepositoryImpl
 import com.example.clarity.domain.repository.TransactionRepository
@@ -108,4 +110,10 @@ abstract class RepositoryModule {
     @Binds
     @Singleton
     abstract fun bindAccountRemoteDataSource(impl: FirestoreAccountDataSource): AccountRemoteDataSource
+
+
+    // Inside RepositoryModule.kt
+    @Binds
+    @Singleton
+    abstract fun bindBiometricRepository(impl: BiometricRepositoryImpl): BiometricRepository
 }
