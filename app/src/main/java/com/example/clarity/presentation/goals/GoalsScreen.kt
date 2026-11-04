@@ -469,17 +469,20 @@ private fun GoalCard(
             }
 
             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text(
+                    text = "Saved: ${goal.savedFormatted} of ${goal.targetFormatted}",
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    color = colors.onSurface,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.fillMaxWidth()
+                )
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
+                    horizontalArrangement = Arrangement.Start,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text(
-                        text = "Saved: ${goal.savedFormatted} of ${goal.targetFormatted}",
-                        style = MaterialTheme.typography.bodyMedium,
-                        fontWeight = FontWeight.SemiBold,
-                        color = colors.onSurface
-                    )
                     Surface(
                         shape = RoundedCornerShape(50),
                         color = if (goal.isCompleted) colors.primaryContainer else colors.surfaceVariant,
@@ -489,6 +492,8 @@ private fun GoalCard(
                             text = goal.percentLabel,
                             style = MaterialTheme.typography.labelSmall,
                             fontWeight = FontWeight.SemiBold,
+                            maxLines = 1,
+                            softWrap = false,
                             modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
                         )
                     }

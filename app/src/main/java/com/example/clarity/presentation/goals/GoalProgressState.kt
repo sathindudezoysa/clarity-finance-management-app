@@ -36,9 +36,21 @@ data class GoalProgressState(
     val isCompleted: Boolean = false,
     val amountInput: String = "",
     val amountError: String? = null,
+    val availableToContributeFormatted: String = "",
+    val availabilityLimitLabel: String = "",
+    val fundingError: String? = null,
+    val isAmountValid: Boolean = false,
     val celebrationTitle: String? = null,
     val celebrationMessage: String? = null,
     val milestones: List<GoalMilestoneUiModel> = emptyList(),
     val contributions: List<GoalContributionItemUiModel> = emptyList()
-)
+) {
+    val isAddEnabled: Boolean
+        get() = !isLoading &&
+            !isSaving &&
+            fatalError == null &&
+            fundingError == null &&
+            amountError == null &&
+            isAmountValid
+}
 

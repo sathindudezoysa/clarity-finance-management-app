@@ -5,6 +5,7 @@ import com.example.clarity.data.local.ClarityDatabase
 import com.example.clarity.data.mapper.toDomain
 import com.example.clarity.data.mapper.toEntity
 import com.example.clarity.data.sync.GoalSyncProcessor
+import com.example.clarity.domain.model.Account
 import com.example.clarity.domain.model.FinancialGoal
 import com.example.clarity.domain.model.GoalError
 import com.example.clarity.domain.model.GoalException
@@ -40,6 +41,7 @@ class GoalRepositoryImpl @Inject constructor(
 ) : GoalRepository {
 
     private val goalDao get() = database.goalDao
+    private val accountDao get() = database.accountDao
 
     override fun observeGoals(): Flow<GoalsSnapshot> =
         auth.currentUser.distinctUntilChangedBy { it?.uid }.flatMapLatest { user ->
@@ -73,7 +75,14 @@ class GoalRepositoryImpl @Inject constructor(
             checkOwner(uid)
             val existing = goalDao.get(uid, goal.id)
             if (existing != null) {
-                return@withTransaction existing.toDomain()
+                val existingDomain = existing.toDomain()
+                ensureGoalAccountInTransaction(
+                    uid = uid,
+                    goalId = existingDomain.id,
+                    currency = existingDomain.currency,
+                    now = maxOf(clock.millis(), existingDomain.createdAt, 1L)
+                )
+                return@withTransaction existingDomain
             }
             val today = GoalPolicy.todayEpochDay(clock)
             val validated = GoalPolicy.validateForCreate(
@@ -88,7 +97,32 @@ class GoalRepositoryImpl @Inject constructor(
                 pendingSync = true
             )
             goalDao.upsert(created.toEntity())
+            ensureGoalAccountInTransaction(
+                uid = uid,
+                goalId = created.id,
+                currency = created.currency,
+                now = now
+            )
             created
+        }
+    }
+
+    private suspend fun ensureGoalAccountInTransaction(
+        uid: String,
+        goalId: String,
+        currency: String,
+        now: Long
+    ) {
+        val goalAccountId = Account.goalAccountId(goalId)
+        if (accountDao.getById(goalAccountId) == null) {
+            val hiddenAccount = Account.goalAccount(
+                goalId = goalId,
+                currency = currency,
+                userId = uid,
+                createdAt = now,
+                updatedAt = now
+            )
+            accountDao.upsertAll(listOf(hiddenAccount.toEntity().copy(pendingSync = true)))
         }
     }
 

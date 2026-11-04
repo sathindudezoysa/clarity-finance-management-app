@@ -155,7 +155,7 @@ class AccountRepositoryImpl internal constructor(
         if (user == null) flowOf(Resource.Error("Please sign in",
             cause = AccountException(AccountError.SIGN_IN_REQUIRED, "Please sign in")))
         else combine(dao.observeAll(user.uid), syncState.filter { it.uid == user.uid }) { local, status ->
-            val accounts = local.map { it.toDomain() }
+            val accounts = local.map { it.toDomain() }.filterNot { it.isGoalAccount }
             if (status.warning == null) Resource.Success(accounts)
             else Resource.Error(status.warning, accounts)
         }.onStart { emit(Resource.Loading()) }

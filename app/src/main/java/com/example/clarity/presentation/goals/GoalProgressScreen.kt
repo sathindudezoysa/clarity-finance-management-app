@@ -188,13 +188,56 @@ internal fun GoalProgressContent(
                                         style = MaterialTheme.typography.titleMedium,
                                         fontWeight = FontWeight.SemiBold
                                     )
+                                    if (state.availableToContributeFormatted.isNotEmpty()) {
+                                        Surface(
+                                            shape = MaterialTheme.shapes.small,
+                                            color = colors.surfaceVariant,
+                                            contentColor = colors.onSurfaceVariant,
+                                            modifier = Modifier.fillMaxWidth()
+                                        ) {
+                                            Column(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .padding(horizontal = 12.dp, vertical = 10.dp),
+                                                verticalArrangement = Arrangement.spacedBy(2.dp)
+                                            ) {
+                                                Text(
+                                                    text = "Available to add: ${state.availableToContributeFormatted}",
+                                                    style = MaterialTheme.typography.bodyMedium,
+                                                    fontWeight = FontWeight.SemiBold,
+                                                    color = colors.onSurface
+                                                )
+                                                if (state.availabilityLimitLabel.isNotEmpty()) {
+                                                    Text(
+                                                        text = state.availabilityLimitLabel,
+                                                        style = MaterialTheme.typography.bodySmall,
+                                                        color = colors.onSurfaceVariant
+                                                    )
+                                                }
+                                            }
+                                        }
+                                    }
+                                    state.fundingError?.let { fundingMsg ->
+                                        Surface(
+                                            shape = MaterialTheme.shapes.small,
+                                            color = colors.errorContainer,
+                                            contentColor = colors.onErrorContainer,
+                                            modifier = Modifier.fillMaxWidth()
+                                        ) {
+                                            Text(
+                                                text = fundingMsg,
+                                                style = MaterialTheme.typography.bodySmall,
+                                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
+                                            )
+                                        }
+                                    }
                                     OutlinedTextField(
                                         value = state.amountInput,
                                         onValueChange = onAmountChanged,
                                         label = { Text("Contribution Amount (${state.currency}) *") },
                                         prefix = { Text("${state.currency} ") },
                                         singleLine = true,
-                                        enabled = !state.isSaving,
+                                        enabled = !state.isSaving && state.fundingError == null,
                                         isError = state.amountError != null,
                                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                                         supportingText = {
@@ -202,7 +245,7 @@ internal fun GoalProgressContent(
                                             if (err != null) {
                                                 Text(err)
                                             } else {
-                                                Text("Recorded for today in ${state.currency}")
+                                                Text("Deducted from Cash Wallet today in ${state.currency}")
                                             }
                                         },
                                         modifier = Modifier.fillMaxWidth()
@@ -213,7 +256,7 @@ internal fun GoalProgressContent(
                                     ) {
                                         Button(
                                             onClick = onAddContribution,
-                                            enabled = !state.isSaving,
+                                            enabled = state.isAddEnabled,
                                             modifier = Modifier.heightIn(min = 48.dp)
                                         ) {
                                             Text("Add")
@@ -348,16 +391,17 @@ private fun GoalProgressSummaryCard(state: GoalProgressState) {
                     color = colors.onSurfaceVariant
                 )
             }
+            Text(
+                text = "Saved: ${state.savedFormatted} of ${state.targetFormatted}",
+                style = MaterialTheme.typography.bodyLarge,
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.fillMaxWidth()
+            )
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
+                horizontalArrangement = Arrangement.Start,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(
-                    text = "Saved: ${state.savedFormatted} of ${state.targetFormatted}",
-                    style = MaterialTheme.typography.bodyLarge,
-                    fontWeight = FontWeight.SemiBold
-                )
                 Surface(
                     shape = RoundedCornerShape(50),
                     color = if (state.isCompleted) colors.primaryContainer else colors.surfaceVariant,
@@ -367,6 +411,8 @@ private fun GoalProgressSummaryCard(state: GoalProgressState) {
                         text = state.percentLabel,
                         style = MaterialTheme.typography.labelMedium,
                         fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
+                        softWrap = false,
                         modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
                     )
                 }

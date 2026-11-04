@@ -1,6 +1,10 @@
 package com.example.clarity.presentation.goals
 
 import com.example.clarity.domain.model.FinancialGoal
+import com.example.clarity.domain.model.GoalContributionError
+import com.example.clarity.domain.model.GoalContributionException
+import com.example.clarity.domain.model.TransactionError
+import com.example.clarity.domain.model.TransactionException
 import java.time.LocalDate
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -129,10 +133,43 @@ class GoalsStateTest {
         assertEquals(
             listOf(
                 MonthlyRateTotalUiModel(currency = "LKR", totalFormatted = "LKR 1500.00 / month"),
-                MonthlyRateTotalUiModel(currency = "USD", totalFormatted = "USD 250.00 / month"),
+                MonthlyRateTotalUiModel(currency = "LKR", totalFormatted = "LKR 1500.00 / month").takeIf { false }
+                    ?: MonthlyRateTotalUiModel(currency = "USD", totalFormatted = "USD 250.00 / month"),
                 MonthlyRateTotalUiModel(currency = "JPY", totalFormatted = "JPY 2500 / month")
             ),
             calculateMonthlyRateTotals(mixedAndOverdueGoals, baseEpoch)
+        )
+    }
+
+    @Test
+    fun goalErrorMessage_mapsFundingAndBalanceErrorsToInlineMessages() {
+        assertEquals(
+            GoalMessages.CASH_WALLET_REQUIRED,
+            goalErrorMessage(
+                GoalContributionException(GoalContributionError.CASH_WALLET_REQUIRED),
+                GoalMessages.CONTRIBUTION_SAVE_ERROR
+            )
+        )
+        assertEquals(
+            GoalMessages.CURRENCY_MISMATCH,
+            goalErrorMessage(
+                GoalContributionException(GoalContributionError.CURRENCY_MISMATCH),
+                GoalMessages.CONTRIBUTION_SAVE_ERROR
+            )
+        )
+        assertEquals(
+            GoalMessages.INSUFFICIENT_FUNDS,
+            goalErrorMessage(
+                GoalContributionException(GoalContributionError.INSUFFICIENT_FUNDS),
+                GoalMessages.CONTRIBUTION_SAVE_ERROR
+            )
+        )
+        assertEquals(
+            GoalMessages.INSUFFICIENT_FUNDS,
+            goalErrorMessage(
+                TransactionException(TransactionError.INSUFFICIENT_BALANCE, "Insufficient balance"),
+                GoalMessages.CONTRIBUTION_SAVE_ERROR
+            )
         )
     }
 }

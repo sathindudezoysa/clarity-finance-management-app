@@ -22,7 +22,10 @@ enum class GoalContributionError {
     INVALID_CURRENCY,
     INVALID_AMOUNT,
     AMOUNT_NON_POSITIVE,
-    INVALID_DATE
+    INVALID_DATE,
+    CASH_WALLET_REQUIRED,
+    CURRENCY_MISMATCH,
+    INSUFFICIENT_FUNDS
 }
 
 class GoalContributionException(

@@ -7,6 +7,8 @@ import com.example.clarity.domain.model.GoalContributionError
 import com.example.clarity.domain.model.GoalContributionException
 import com.example.clarity.domain.model.GoalError
 import com.example.clarity.domain.model.GoalException
+import com.example.clarity.domain.model.TransactionError
+import com.example.clarity.domain.model.TransactionException
 import com.example.clarity.domain.util.GoalMilestoneThreshold
 import com.example.clarity.domain.util.GoalProgressPolicy
 import com.example.clarity.domain.util.GoalStreakSummary
@@ -62,6 +64,9 @@ object GoalMessages {
     const val SAVE_ERROR = "Could not save the financial goal. Please check your inputs and try again."
     const val CONTRIBUTION_SAVE_ERROR = "Could not record your contribution. Please check the amount and try again."
     const val CONTRIBUTION_AMOUNT_POSITIVE = "Contribution amount must be greater than zero."
+    const val CASH_WALLET_REQUIRED = "Set up your Cash Wallet first"
+    const val CURRENCY_MISMATCH = "Goal currency must match your Cash Wallet and display currency preference."
+    const val INSUFFICIENT_FUNDS = "Amount exceeds available funds in your Cash Wallet or Net Worth."
     const val NAME_BLANK = "Enter a goal name."
     const val NAME_TOO_LONG = "Goal name must be 100 characters or fewer."
     const val DESCRIPTION_TOO_LONG = "Description must be 500 characters or fewer."
@@ -132,7 +137,13 @@ fun goalErrorMessage(error: Throwable, fallback: String): String {
             GoalContributionError.INVALID_AMOUNT -> GoalMessages.INVALID_AMOUNT
             GoalContributionError.AMOUNT_NON_POSITIVE -> GoalMessages.CONTRIBUTION_AMOUNT_POSITIVE
             GoalContributionError.INVALID_DATE -> GoalMessages.INVALID_DATE
+            GoalContributionError.CASH_WALLET_REQUIRED -> GoalMessages.CASH_WALLET_REQUIRED
+            GoalContributionError.CURRENCY_MISMATCH -> GoalMessages.CURRENCY_MISMATCH
+            GoalContributionError.INSUFFICIENT_FUNDS -> GoalMessages.INSUFFICIENT_FUNDS
         }
+    }
+    if (error is TransactionException && error.error == TransactionError.INSUFFICIENT_BALANCE) {
+        return GoalMessages.INSUFFICIENT_FUNDS
     }
     val goalEx = error as? GoalException ?: return fallback
     return when (goalEx.error) {
