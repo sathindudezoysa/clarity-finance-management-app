@@ -5,6 +5,9 @@ rules_version = '2';
 // Immutable id/userId/currency/createdAt; name 1..100 (non-whitespace), description 0..500,
 // positive integer targetMinor, supported currency, targetDateEpochDay epoch-day int, updatedAt >= createdAt.
 // Delete is disabled.
+// Goal contributions: users/{uid}/goal_contributions/{id}, owner-private, create-only (update and delete disabled).
+// Required fields: id, userId, goalId, amountMinor, currency, dateEpochDay, createdAt, updatedAt.
+// id/userId/goalId 1..128, positive integer amountMinor, supported currency, dateEpochDay epoch-day int, createdAt/updatedAt ints.
 
 // Budgets: users/{uid}/budgets/{(YYYY-MM|YYYY)_sha256(normalized category)}, device-local calendar months or years.
 // Required id/userId/month/category/categoryKey/limitMinor/currency/active/createdAt/updatedAt.
@@ -287,6 +290,29 @@ service cloud.firestore {
         && request.resource.data.createdAt == resource.data.createdAt
         && request.resource.data.updatedAt >= resource.data.updatedAt;
       allow delete: if false;
+    }
+
+    function validGoalContribution(data, contributionId, userId) {
+      let fields = ['id', 'userId', 'goalId', 'amountMinor',
+                    'currency', 'dateEpochDay', 'createdAt', 'updatedAt'];
+      return data.keys().hasAll(fields) && data.keys().hasOnly(fields)
+        && data.id is string && data.id == contributionId && contributionId.size() > 0 && contributionId.size() <= 128
+        && contributionId != '.' && contributionId != '..'
+        && data.userId is string && data.userId.size() > 0 && data.userId.size() <= 128
+        && data.userId == userId && uidUnchanged(data)
+        && data.goalId is string && data.goalId.size() > 0 && data.goalId.size() <= 128
+        && !data.goalId.matches('.*[/].*') && data.goalId != '.' && data.goalId != '..'
+        && data.amountMinor is int && data.amountMinor > 0
+        && validCurrency(data.currency)
+        && data.dateEpochDay is int
+        && data.createdAt is int && data.createdAt >= 0
+        && data.updatedAt is int && data.updatedAt >= data.createdAt;
+    }
+
+    match /users/{userId}/goal_contributions/{id} {
+      allow read: if isOwner(userId);
+      allow create: if isOwner(userId) && validGoalContribution(request.resource.data, id, userId);
+      allow update, delete: if false;
     }
 
     function validCategoryBucket(data, bucketId, userId) {

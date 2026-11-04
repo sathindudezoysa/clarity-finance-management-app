@@ -1,6 +1,7 @@
 package com.example.clarity
 
 import android.app.Application
+import com.example.clarity.data.sync.GoalContributionSyncManager
 import com.example.clarity.data.sync.GoalSyncManager
 import com.example.clarity.data.sync.IncomeSyncManager
 import com.example.clarity.data.sync.ProofSyncManager
@@ -25,6 +26,7 @@ class ClarityApp : Application() {
     @Inject lateinit var budgetSyncManager: com.example.clarity.data.sync.BudgetSyncManager
     @Inject lateinit var budgetAlertManager: com.example.clarity.data.sync.BudgetAlertManager
     @Inject lateinit var goalSyncManager: GoalSyncManager
+    @Inject lateinit var goalContributionSyncManager: GoalContributionSyncManager
 
     override fun onCreate() {
         super.onCreate()
@@ -33,5 +35,6 @@ class ClarityApp : Application() {
         budgetSyncManager.start()
         budgetAlertManager.start()
         goalSyncManager.start()
+        goalContributionSyncManager.start()
     }
 }
