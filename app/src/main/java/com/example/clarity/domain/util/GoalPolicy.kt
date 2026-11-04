@@ -5,9 +5,11 @@ import com.example.clarity.domain.model.FinancialGoal
 import com.example.clarity.domain.model.GoalError
 import com.example.clarity.domain.model.GoalException
 import java.math.BigDecimal
+import java.math.RoundingMode
 import java.time.Clock
 import java.time.LocalDate
 import java.time.ZoneId
+import java.time.temporal.ChronoUnit
 
 object GoalPolicy {
     const val MAX_NAME_LENGTH = 100
@@ -34,6 +36,43 @@ object GoalPolicy {
 
     fun isOverdue(targetDateEpochDay: Long, todayEpochDay: Long): Boolean =
         targetDateEpochDay < todayEpochDay
+
+    fun isActive(targetDateEpochDay: Long, todayEpochDay: Long): Boolean =
+        !isOverdue(targetDateEpochDay, todayEpochDay)
+
+    fun remainingMonths(targetDateEpochDay: Long, todayEpochDay: Long): Long {
+        if (targetDateEpochDay <= todayEpochDay) return 1L
+        val today = LocalDate.ofEpochDay(todayEpochDay)
+        val target = LocalDate.ofEpochDay(targetDateEpochDay)
+        val wholeMonths = ChronoUnit.MONTHS.between(today, target)
+        val hasLeftoverDays = today.plusMonths(wholeMonths).isBefore(target)
+        val roundedMonths = if (hasLeftoverDays) wholeMonths + 1L else wholeMonths
+        return maxOf(1L, roundedMonths)
+    }
+
+    fun requiredMonthlySavingsMinor(
+        targetMinor: Long,
+        targetDateEpochDay: Long,
+        todayEpochDay: Long
+    ): Long? {
+        if (!isActive(targetDateEpochDay, todayEpochDay) || targetMinor <= 0L) {
+            return null
+        }
+        val months = remainingMonths(targetDateEpochDay, todayEpochDay)
+        val remainingAmountMinor = BigDecimal.valueOf(targetMinor)
+        return remainingAmountMinor
+            .divide(BigDecimal.valueOf(months), 0, RoundingMode.CEILING)
+            .longValueExact()
+    }
+
+    fun requiredMonthlySavingsMinor(
+        goal: FinancialGoal,
+        todayEpochDay: Long
+    ): Long? = requiredMonthlySavingsMinor(
+        targetMinor = goal.targetMinor,
+        targetDateEpochDay = goal.targetDateEpochDay,
+        todayEpochDay = todayEpochDay
+    )
 
     fun parseAmountMinor(text: String, currency: String): Result<Long> = runCatching {
         if (currency !in Currencies.supported) {

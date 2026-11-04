@@ -32,18 +32,22 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.clarity.presentation.navigation.BottomNavDestination
 import com.example.clarity.presentation.navigation.ClarityTopBar
@@ -64,6 +68,18 @@ fun GoalsScreen(
     viewModel: GoalsViewModel = hiltViewModel()
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner, viewModel) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                viewModel.refreshForCurrentDate()
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+        }
+    }
     GoalsContent(
         state = state,
         onAddGoal = onAddGoal,
@@ -119,6 +135,15 @@ internal fun GoalsContent(
                 ),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
+                if (!state.isLoading && state.ownerId != null && state.activeGoalCount > 0) {
+                    item(key = "goals-monthly-total") {
+                        GoalsMonthlyTotalCard(
+                            totals = state.totalMonthlyRates,
+                            activeGoalCount = state.activeGoalCount
+                        )
+                    }
+                }
+
                 state.error?.let { errorMessage ->
                     item(key = "goals-error-banner") {
                         GoalErrorBanner(
@@ -214,6 +239,59 @@ private fun GoalEmptyState() {
 }
 
 @Composable
+private fun GoalsMonthlyTotalCard(
+    totals: List<MonthlyRateTotalUiModel>,
+    activeGoalCount: Int
+) {
+    val colors = MaterialTheme.colorScheme
+    val summaryDescription = buildString {
+        append("Total required monthly savings. ")
+        if (totals.isNotEmpty()) {
+            append(totals.joinToString(", ") { it.totalFormatted })
+            append(". ")
+        }
+        append("Across $activeGoalCount active goals")
+    }
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .semantics { contentDescription = summaryDescription },
+        border = BorderStroke(1.dp, colors.outlineVariant),
+        colors = CardDefaults.cardColors(
+            containerColor = colors.surface,
+            contentColor = colors.onSurface
+        )
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Text(
+                text = "Total required monthly savings",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold,
+                color = colors.onSurface
+            )
+            totals.forEach { item ->
+                Text(
+                    text = item.totalFormatted,
+                    style = MaterialTheme.typography.bodyLarge,
+                    fontWeight = FontWeight.Bold,
+                    color = colors.primary
+                )
+            }
+            Text(
+                text = "Across $activeGoalCount active goals",
+                style = MaterialTheme.typography.bodySmall,
+                color = colors.onSurfaceVariant
+            )
+        }
+    }
+}
+
+@Composable
 private fun GoalCard(
     goal: GoalCardUiModel,
     onEdit: () -> Unit
@@ -278,6 +356,17 @@ private fun GoalCard(
                 color = colors.onSurface
             )
 
+            if (goal.isActive && goal.monthlyRateFormatted != null) {
+                val rateLabel = "Required monthly savings: ${goal.monthlyRateFormatted}"
+                Text(
+                    text = rateLabel,
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.Medium,
+                    color = colors.primary,
+                    modifier = Modifier.semantics { contentDescription = rateLabel }
+                )
+            }
+
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
@@ -338,7 +427,9 @@ private fun GoalsScreenPreview() {
                         targetDateFormatted = "15 Jun 2027",
                         daysRemainingLabel = "120 days left",
                         isOverdue = false,
-                        isSyncing = true
+                        isSyncing = true,
+                        isActive = true,
+                        monthlyRateFormatted = "LKR 125000.00 / month"
                     ),
                     GoalCardUiModel(
                         id = "2",
@@ -349,9 +440,18 @@ private fun GoalsScreenPreview() {
                         targetDateFormatted = "01 Jan 2026",
                         daysRemainingLabel = "Overdue",
                         isOverdue = true,
-                        isSyncing = false
+                        isSyncing = false,
+                        isActive = false,
+                        monthlyRateFormatted = null
                     )
-                )
+                ),
+                totalMonthlyRates = listOf(
+                    MonthlyRateTotalUiModel(
+                        currency = "LKR",
+                        totalFormatted = "LKR 125000.00 / month"
+                    )
+                ),
+                activeGoalCount = 1
             ),
             onAddGoal = {},
             onEditGoal = {},

@@ -20,6 +20,15 @@ data class FinancialGoal(
 
     fun isOverdue(todayEpochDay: Long): Boolean =
         GoalPolicy.isOverdue(targetDateEpochDay, todayEpochDay)
+
+    fun isActive(todayEpochDay: Long): Boolean =
+        GoalPolicy.isActive(targetDateEpochDay, todayEpochDay)
+
+    fun remainingMonths(todayEpochDay: Long): Long =
+        GoalPolicy.remainingMonths(targetDateEpochDay, todayEpochDay)
+
+    fun requiredMonthlySavingsMinor(todayEpochDay: Long): Long? =
+        GoalPolicy.requiredMonthlySavingsMinor(targetMinor, targetDateEpochDay, todayEpochDay)
 }
 
 enum class GoalError {

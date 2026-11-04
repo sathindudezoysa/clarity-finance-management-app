@@ -2,6 +2,7 @@ package com.example.clarity.presentation.goals
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.clarity.domain.model.FinancialGoal
 import com.example.clarity.domain.repository.GoalRepository
 import com.example.clarity.domain.usecase.goal.ObserveGoalsUseCase
 import com.example.clarity.domain.util.GoalPolicy
@@ -27,6 +28,8 @@ class GoalsViewModel @Inject constructor(
     private val _uiState = MutableStateFlow(GoalsState())
     val uiState: StateFlow<GoalsState> = _uiState.asStateFlow()
     private var observeJob: Job? = null
+    private var latestGoals: List<FinancialGoal> = emptyList()
+    private var lastEvaluatedEpochDay: Long? = null
 
     init {
         startObserving()
@@ -48,7 +51,11 @@ class GoalsViewModel @Inject constructor(
                 }
                 .collect { snapshot ->
                     val today = GoalPolicy.todayEpochDay(clock)
+                    latestGoals = snapshot.goals
+                    lastEvaluatedEpochDay = today
                     val cards = snapshot.goals.map { it.toCardUiModel(today) }
+                    val totals = calculateMonthlyRateTotals(snapshot.goals, today)
+                    val activeCount = cards.count { it.isActive }
                     _uiState.update { old ->
                         val ownerChanged = old.ownerId != snapshot.ownerId
                         val nextError = when {
@@ -60,10 +67,30 @@ class GoalsViewModel @Inject constructor(
                             isLoading = false,
                             ownerId = snapshot.ownerId,
                             goals = cards,
-                            error = nextError
+                            error = nextError,
+                            totalMonthlyRates = totals,
+                            activeGoalCount = activeCount
                         )
                     }
                 }
+        }
+    }
+
+    fun refreshForCurrentDate() {
+        val today = GoalPolicy.todayEpochDay(clock)
+        val previousDay = lastEvaluatedEpochDay ?: return
+        if (previousDay == today) return
+        lastEvaluatedEpochDay = today
+        val currentGoals = latestGoals
+        val cards = currentGoals.map { it.toCardUiModel(today) }
+        val totals = calculateMonthlyRateTotals(currentGoals, today)
+        val activeCount = cards.count { it.isActive }
+        _uiState.update { state ->
+            state.copy(
+                goals = cards,
+                totalMonthlyRates = totals,
+                activeGoalCount = activeCount
+            )
         }
     }
 

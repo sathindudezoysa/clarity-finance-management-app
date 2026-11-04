@@ -5,6 +5,7 @@ import com.example.clarity.domain.model.FinancialGoal
 import com.example.clarity.domain.model.GoalError
 import com.example.clarity.domain.model.GoalException
 import com.example.clarity.domain.util.MoneyUtils
+import java.math.BigInteger
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import java.util.Locale
@@ -18,14 +19,23 @@ data class GoalCardUiModel(
     val targetDateFormatted: String,
     val daysRemainingLabel: String,
     val isOverdue: Boolean,
-    val isSyncing: Boolean
+    val isSyncing: Boolean,
+    val isActive: Boolean = false,
+    val monthlyRateFormatted: String? = null
+)
+
+data class MonthlyRateTotalUiModel(
+    val currency: String,
+    val totalFormatted: String
 )
 
 data class GoalsState(
     val isLoading: Boolean = true,
     val ownerId: String? = null,
     val goals: List<GoalCardUiModel> = emptyList(),
-    val error: String? = null
+    val error: String? = null,
+    val totalMonthlyRates: List<MonthlyRateTotalUiModel> = emptyList(),
+    val activeGoalCount: Int = 0
 ) {
     val isEmpty: Boolean
         get() = goals.isEmpty()
@@ -51,6 +61,39 @@ object GoalMessages {
 fun formatGoalMoney(amountMinor: Long, currency: String): String {
     val safeCurrency = if (currency in Currencies.supported) currency else Currencies.supported.first()
     return "$safeCurrency ${MoneyUtils.formatMinor(amountMinor, safeCurrency)}"
+}
+
+fun formatGoalMonthlyRate(rateMinor: Long, currency: String): String =
+    "${formatGoalMoney(rateMinor, currency)} / month"
+
+fun formatGoalMonthlyRate(rateMinor: BigInteger, currency: String): String {
+    val safeCurrency = if (currency in Currencies.supported) currency else Currencies.supported.first()
+    return "$safeCurrency ${MoneyUtils.formatMinor(rateMinor, safeCurrency)} / month"
+}
+
+fun calculateMonthlyRateTotals(
+    goals: List<FinancialGoal>,
+    todayEpochDay: Long
+): List<MonthlyRateTotalUiModel> {
+    val totalsByCurrency = linkedMapOf<String, BigInteger>()
+    for (goal in goals) {
+        val rateMinor = goal.requiredMonthlySavingsMinor(todayEpochDay) ?: continue
+        val safeCurrency = if (goal.currency in Currencies.supported) {
+            goal.currency
+        } else {
+            Currencies.supported.first()
+        }
+        val current = totalsByCurrency[safeCurrency] ?: BigInteger.ZERO
+        totalsByCurrency[safeCurrency] = current.add(BigInteger.valueOf(rateMinor))
+    }
+    return Currencies.supported.mapNotNull { currency ->
+        totalsByCurrency[currency]?.let { totalMinor ->
+            MonthlyRateTotalUiModel(
+                currency = currency,
+                totalFormatted = formatGoalMonthlyRate(totalMinor, currency)
+            )
+        }
+    }
 }
 
 private val GOAL_DATE_FORMATTER: DateTimeFormatter =
@@ -80,11 +123,15 @@ fun goalErrorMessage(error: Throwable, fallback: String): String {
 
 fun FinancialGoal.toCardUiModel(todayEpochDay: Long): GoalCardUiModel {
     val overdue = isOverdue(todayEpochDay)
+    val active = isActive(todayEpochDay)
     val daysLeft = daysRemaining(todayEpochDay)
     val daysLabel = if (overdue) {
         "Overdue"
     } else {
         "$daysLeft days left"
+    }
+    val monthlyRate = requiredMonthlySavingsMinor(todayEpochDay)?.let { rateMinor ->
+        formatGoalMonthlyRate(rateMinor, currency)
     }
     return GoalCardUiModel(
         id = id,
@@ -95,6 +142,8 @@ fun FinancialGoal.toCardUiModel(todayEpochDay: Long): GoalCardUiModel {
         targetDateFormatted = formatGoalEpochDay(targetDateEpochDay),
         daysRemainingLabel = daysLabel,
         isOverdue = overdue,
-        isSyncing = pendingSync
+        isSyncing = pendingSync,
+        isActive = active,
+        monthlyRateFormatted = monthlyRate
     )
 }
