@@ -57,7 +57,6 @@ fun AccountListScreen(
         onBack = onBack,
         onAdd = onAdd,
         onEdit = onEdit,
-        onMakeDefault = { id -> viewModel.makeDefault(id) },
         topBar = topBar,
         bottomBar = bottomBar
     )
@@ -69,7 +68,7 @@ internal fun AccountListContent(
     onBack: () -> Unit,
     onAdd: () -> Unit,
     onEdit: (String) -> Unit,
-    onMakeDefault: (String) -> Unit,
+    onMakeDefault: (String) -> Unit = {},
     topBar: @Composable () -> Unit = {
         ClarityTopBar(
             title = BottomNavDestination.ACCOUNTS.label,
@@ -160,11 +159,15 @@ internal fun AccountListContent(
                     }
                 }
                 items(visibleAccounts, key = { it.id }) { account ->
+                    val balance = state.accountBalances[account.id]
+                        ?: com.example.clarity.domain.util.AccountBalancePolicy.formatAccountBalance(
+                            account,
+                            java.math.BigInteger.ZERO
+                        )
                     AccountCard(
                         account = account,
-                        changingDefaultId = state.changingDefaultId,
-                        onClick = { onEdit(account.id) },
-                        onMakeDefault = { onMakeDefault(account.id) }
+                        balance = balance,
+                        onClick = { onEdit(account.id) }
                     )
                 }
             }
@@ -204,14 +207,12 @@ private fun AccountErrorRow(message: String) {
 @Composable
 private fun AccountCard(
     account: Account,
-    changingDefaultId: String?,
-    onClick: () -> Unit,
-    onMakeDefault: () -> Unit
+    balance: String,
+    onClick: () -> Unit
 ) {
     val colors = MaterialTheme.colorScheme
     val showBankName = account.bankName.isNotBlank() && !account.bankName.equals(account.name, ignoreCase = true)
     val typeLabel = account.accountType?.takeIf { it.isNotBlank() }
-    val showSetDefault = !account.isCashWallet && !account.isDefault
 
     Card(
         shape = RoundedCornerShape(16.dp),
@@ -222,148 +223,124 @@ private fun AccountCard(
             .clip(RoundedCornerShape(16.dp))
             .clickable(role = Role.Button, onClick = onClick)
     ) {
-        Column(modifier = Modifier.fillMaxWidth()) {
-            Row(
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Box(
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(
-                        start = 16.dp,
-                        end = 16.dp,
-                        top = 16.dp,
-                        bottom = if (showSetDefault) 8.dp else 16.dp
-                    ),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    .size(40.dp)
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(colors.secondaryContainer.copy(alpha = 0.6f)),
+                contentAlignment = Alignment.Center
             ) {
-                Box(
-                    modifier = Modifier
-                        .size(40.dp)
-                        .clip(RoundedCornerShape(10.dp))
-                        .background(colors.secondaryContainer.copy(alpha = 0.6f)),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = if (account.isCashWallet) AppIcons.Wallet else Icons.Outlined.AccountBox,
-                        contentDescription = null,
-                        tint = colors.primary,
-                        modifier = Modifier.size(20.dp)
-                    )
-                }
-                Column(
-                    modifier = Modifier.weight(1f),
-                    verticalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
+                Icon(
+                    imageVector = if (account.isCashWallet) AppIcons.Wallet else Icons.Outlined.AccountBox,
+                    contentDescription = null,
+                    tint = colors.primary,
+                    modifier = Modifier.size(20.dp)
+                )
+            }
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                Text(
+                    text = account.name,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    color = colors.onSurface,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
+                if (showBankName) {
                     Text(
-                        text = account.name,
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.SemiBold,
-                        color = colors.onSurface,
-                        maxLines = 2,
+                        text = account.bankName,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = colors.onSurfaceVariant,
+                        maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
-                    if (showBankName) {
+                }
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Surface(
+                        shape = MaterialTheme.shapes.small,
+                        color = colors.surfaceVariant,
+                        contentColor = colors.onSurfaceVariant
+                    ) {
                         Text(
-                            text = account.bankName,
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = colors.onSurfaceVariant,
+                            text = account.currency,
+                            style = MaterialTheme.typography.labelMedium,
                             maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
                         )
                     }
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
+                    if (typeLabel != null) {
                         Surface(
                             shape = MaterialTheme.shapes.small,
                             color = colors.surfaceVariant,
-                            contentColor = colors.onSurfaceVariant
+                            contentColor = colors.onSurfaceVariant,
+                            modifier = Modifier.weight(1f, fill = false)
                         ) {
                             Text(
-                                text = account.currency,
+                                text = typeLabel,
                                 style = MaterialTheme.typography.labelMedium,
                                 maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
                                 modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
                             )
                         }
-                        if (typeLabel != null) {
-                            Surface(
-                                shape = MaterialTheme.shapes.small,
-                                color = colors.surfaceVariant,
-                                contentColor = colors.onSurfaceVariant,
-                                modifier = Modifier.weight(1f, fill = false)
+                    }
+                    if (account.isDefault) {
+                        Surface(
+                            shape = MaterialTheme.shapes.small,
+                            color = colors.secondaryContainer,
+                            contentColor = colors.onSecondaryContainer
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
                             ) {
+                                Icon(
+                                    imageVector = Icons.Default.Check,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(14.dp)
+                                )
                                 Text(
-                                    text = typeLabel,
+                                    text = "Default",
                                     style = MaterialTheme.typography.labelMedium,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                    maxLines = 1
                                 )
                             }
                         }
-                        if (account.isDefault) {
-                            Surface(
-                                shape = MaterialTheme.shapes.small,
-                                color = colors.secondaryContainer,
-                                contentColor = colors.onSecondaryContainer
-                            ) {
-                                Row(
-                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.Check,
-                                        contentDescription = null,
-                                        modifier = Modifier.size(14.dp)
-                                    )
-                                    Text(
-                                        text = "Default",
-                                        style = MaterialTheme.typography.labelMedium,
-                                        maxLines = 1
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
-                Icon(
-                    imageVector = Icons.Default.KeyboardArrowRight,
-                    contentDescription = null,
-                    tint = colors.onSurfaceVariant
-                )
-            }
-            if (showSetDefault) {
-                Divider(
-                    modifier = Modifier.padding(horizontal = 16.dp),
-                    color = colors.onSurface.copy(alpha = 0.08f)
-                )
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 8.dp, vertical = 4.dp)
-                        .heightIn(min = 48.dp),
-                    contentAlignment = Alignment.CenterEnd
-                ) {
-                    if (changingDefaultId == account.id) {
-                        CircularProgressIndicator(
-                            modifier = Modifier
-                                .padding(horizontal = 16.dp)
-                                .size(20.dp),
-                            strokeWidth = 2.dp
-                        )
-                    } else {
-                        TextButton(
-                            onClick = onMakeDefault,
-                            enabled = changingDefaultId == null,
-                            modifier = Modifier.heightIn(min = 48.dp)
-                        ) {
-                            Text("Set as default")
-                        }
                     }
                 }
             }
+            Column(
+                horizontalAlignment = Alignment.End,
+                verticalArrangement = Arrangement.Center
+            ) {
+                Text(
+                    text = balance,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = colors.onSurface,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+            Icon(
+                imageVector = Icons.Default.KeyboardArrowRight,
+                contentDescription = null,
+                tint = colors.onSurfaceVariant
+            )
         }
     }
 }
