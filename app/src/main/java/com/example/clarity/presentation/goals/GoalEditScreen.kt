@@ -24,7 +24,10 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DatePicker
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExposedDropdownMenuBox
+import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -40,6 +43,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
@@ -54,6 +58,7 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.example.clarity.domain.model.Currencies
 import com.example.clarity.domain.util.GoalPolicy
 import com.example.clarity.presentation.theme.ClarityTheme
 
@@ -77,6 +82,7 @@ fun GoalEditScreen(
         onNameChanged = viewModel::onNameChanged,
         onDescriptionChanged = viewModel::onDescriptionChanged,
         onTargetAmountChanged = viewModel::onTargetAmountChanged,
+        onCurrencyChanged = viewModel::onCurrencyChanged,
         onTargetDateSelected = viewModel::onTargetDateSelected,
         onSave = viewModel::save
     )
@@ -91,11 +97,15 @@ internal fun GoalEditContent(
     onNameChanged: (String) -> Unit,
     onDescriptionChanged: (String) -> Unit,
     onTargetAmountChanged: (String) -> Unit,
+    onCurrencyChanged: (String) -> Unit,
     onTargetDateSelected: (Long?) -> Unit,
     onSave: () -> Unit
 ) {
     val titleText = if (state.isEditMode) "Edit Goal" else "Create Goal"
     var showDatePicker by rememberSaveable { mutableStateOf(false) }
+    var currencyMenuExpanded by remember { mutableStateOf(false) }
+    val selectedCurrency = state.currency.ifBlank { Currencies.supported.first() }
+    val canEditCurrency = !state.isSaving && !state.isEditMode
 
     Scaffold(
         topBar = {
@@ -192,10 +202,53 @@ internal fun GoalEditContent(
                             modifier = Modifier.fillMaxWidth()
                         )
 
+                        ExposedDropdownMenuBox(
+                            expanded = currencyMenuExpanded,
+                            onExpandedChange = { if (canEditCurrency) currencyMenuExpanded = it }
+                        ) {
+                            OutlinedTextField(
+                                value = selectedCurrency,
+                                onValueChange = {},
+                                readOnly = true,
+                                label = { Text("Currency *") },
+                                trailingIcon = {
+                                    ExposedDropdownMenuDefaults.TrailingIcon(expanded = currencyMenuExpanded)
+                                },
+                                enabled = canEditCurrency,
+                                supportingText = {
+                                    Text(
+                                        if (state.isEditMode) {
+                                            "This goal’s currency is fixed after creation."
+                                        } else {
+                                            "Goal account and funding use ${selectedCurrency}."
+                                        }
+                                    )
+                                },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .menuAnchor()
+                            )
+                            ExposedDropdownMenu(
+                                expanded = currencyMenuExpanded && canEditCurrency,
+                                onDismissRequest = { currencyMenuExpanded = false }
+                            ) {
+                                Currencies.supported.forEach { code ->
+                                    DropdownMenuItem(
+                                        text = { Text(code) },
+                                        onClick = {
+                                            onCurrencyChanged(code)
+                                            currencyMenuExpanded = false
+                                        }
+                                    )
+                                }
+                            }
+                        }
+
                         OutlinedTextField(
                             value = state.targetAmount,
                             onValueChange = onTargetAmountChanged,
                             label = { Text("Target Amount (${state.currency}) *") },
+                            placeholder = { Text("Enter amount in ${state.currency}") },
                             prefix = { Text("${state.currency} ") },
                             singleLine = true,
                             enabled = !state.isSaving,
@@ -206,7 +259,7 @@ internal fun GoalEditContent(
                                 if (error != null) {
                                     Text(error)
                                 } else {
-                                    Text("Currency: ${state.currency} (read-only)")
+                                    Text("Exact precision for ${state.currency}: ${Currencies.digits(state.currency)} decimal places")
                                 }
                             },
                             modifier = Modifier.fillMaxWidth()
@@ -404,6 +457,7 @@ private fun GoalEditScreenPreview() {
             onNameChanged = {},
             onDescriptionChanged = {},
             onTargetAmountChanged = {},
+            onCurrencyChanged = {},
             onTargetDateSelected = {},
             onSave = {}
         )
