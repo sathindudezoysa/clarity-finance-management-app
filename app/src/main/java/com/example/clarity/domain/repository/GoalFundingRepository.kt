@@ -6,7 +6,7 @@ interface GoalFundingRepository {
     suspend fun contribute(
         goalId: String,
         amountMinor: Long,
+        sourceAccountId: String,
         id: String
     ): Result<GoalContribution>
 }
-

@@ -10,7 +10,6 @@ import com.example.clarity.domain.model.GoalContributionError
 import com.example.clarity.domain.model.GoalContributionException
 import com.example.clarity.domain.model.Transaction
 import com.example.clarity.domain.usecase.account.GetAccountsUseCase
-import com.example.clarity.domain.usecase.currency.ObserveCurrencyPreferenceUseCase
 import com.example.clarity.domain.usecase.goal.ContributeToGoalUseCase
 import com.example.clarity.domain.usecase.goal.GetGoalUseCase
 import com.example.clarity.domain.usecase.goal.ObserveGoalContributionsUseCase
@@ -46,7 +45,6 @@ class GoalProgressViewModel @Inject constructor(
     private val contributeToGoal: ContributeToGoalUseCase,
     private val getAccounts: GetAccountsUseCase,
     private val getTransactions: GetTransactionsUseCase,
-    private val observeCurrency: ObserveCurrencyPreferenceUseCase,
     private val clock: Clock
 ) : ViewModel() {
 
@@ -54,6 +52,8 @@ class GoalProgressViewModel @Inject constructor(
     private var observeJob: Job? = null
     private var currentGoal: FinancialGoal? = null
     private var currentSavedMinor: BigInteger = BigInteger.ZERO
+    private var latestAccounts: List<Account> = emptyList()
+    private var latestTransactions: List<Transaction> = emptyList()
     private var latestAvailability: GoalFundingAvailability? = null
     private var pendingContributionId: String = UUID.randomUUID().toString()
 
@@ -105,16 +105,14 @@ class GoalProgressViewModel @Inject constructor(
                 observeGoals(),
                 observeGoalContributions(),
                 getAccounts().catch { emit(Resource.Success(emptyList())) },
-                getTransactions().catch { emit(Resource.Success(emptyList())) },
-                observeCurrency()
-            ) { goalsSnapshot, contributionsSnapshot, accountsRes, txRes, pref ->
+                getTransactions().catch { emit(Resource.Success(emptyList())) }
+            ) { goalsSnapshot, contributionsSnapshot, accountsRes, txRes ->
                 CombinedProgressInput(
                     goalsSnapshot = goalsSnapshot,
                     contributionsSnapshot = contributionsSnapshot,
                     accounts = accountsRes.data.orEmpty(),
                     accountsLoading = accountsRes is Resource.Loading,
-                    transactions = txRes.data.orEmpty(),
-                    preferredCurrency = pref.currency
+                    transactions = txRes.data.orEmpty()
                 )
             }
                 .catch { error ->
@@ -138,6 +136,9 @@ class GoalProgressViewModel @Inject constructor(
                         return@collect
                     }
                     currentGoal = goal
+                    latestAccounts = input.accounts
+                    latestTransactions = input.transactions
+
                     val goalContributions = input.contributionsSnapshot.contributions
                         .filter { it.goalId == goal.id && it.amountMinor > 0L && it.currency == goal.currency }
                         .sortedWith(
@@ -145,18 +146,33 @@ class GoalProgressViewModel @Inject constructor(
                                 .thenByDescending { it.createdAt }
                                 .thenBy { it.id }
                         )
+
+                    val eligibleOptions = GoalFundingPolicy.filterEligibleFundingAccounts(
+                        accounts = input.accounts,
+                        transactions = input.transactions,
+                        goalCurrency = goal.currency
+                    )
+                    val currentSelectedId = _uiState.value.selectedAccountId
+                    val resolvedAccountId = currentSelectedId?.takeIf { id ->
+                        eligibleOptions.any { it.account.id == id }
+                    }
+                        ?: eligibleOptions.firstOrNull { it.account.isDefault }?.account?.id
+                        ?: eligibleOptions.firstOrNull()?.account?.id
+
                     val availability = GoalFundingPolicy.evaluate(
                         transactions = input.transactions,
                         accounts = input.accounts,
-                        currency = goal.currency
+                        currency = goal.currency,
+                        selectedAccountId = resolvedAccountId
                     )
                     latestAvailability = availability
                     applyGoalAndContributions(
                         goal = goal,
                         goalContributions = goalContributions,
                         availability = availability,
-                        accountsLoading = input.accountsLoading,
-                        preferredCurrency = input.preferredCurrency
+                        accounts = input.accounts,
+                        transactions = input.transactions,
+                        accountsLoading = input.accountsLoading
                     )
                 }
         }
@@ -166,8 +182,9 @@ class GoalProgressViewModel @Inject constructor(
         goal: FinancialGoal,
         goalContributions: List<GoalContribution>,
         availability: GoalFundingAvailability,
-        accountsLoading: Boolean,
-        preferredCurrency: String
+        accounts: List<Account>,
+        transactions: List<Transaction>,
+        accountsLoading: Boolean
     ) {
         val today = GoalPolicy.todayEpochDay(clock)
         val summary = GoalProgressPolicy.evaluateGoalProgress(goal, goalContributions)
@@ -189,41 +206,52 @@ class GoalProgressViewModel @Inject constructor(
                 isReached = m.isReached
             )
         }
+
+        val txById = transactions.associateBy { it.id }
+        val accountsById = accounts.associateBy { it.id }
         val contributionsUi = goalContributions.map { c ->
+            val sourceAccountId = txById[c.id]?.accountId
+            val sourceLabel = sourceAccountId?.let { accId ->
+                accountsById[accId]?.displayLabel
+                    ?: if (accId.startsWith(Account.CASH_WALLET_PREFIX)) "Cash Wallet" else null
+            }
             GoalContributionItemUiModel(
                 id = c.id,
                 amountFormatted = formatGoalMoney(c.amountMinor, c.currency),
                 dateFormatted = formatGoalEpochDay(c.dateEpochDay),
-                isSyncing = c.pendingSync
+                isSyncing = c.pendingSync,
+                sourceAccountLabel = sourceLabel
             )
         }
 
-        val availableFormatted = formatGoalMoney(availability.availableToContributeMinor, goal.currency)
-        val cashFormatted = formatGoalMoney(
-            availability.cashBalanceMinor.coerceAtLeast(BigInteger.ZERO),
-            goal.currency
-        )
-        val netWorthFormatted = formatGoalMoney(
-            availability.netWorthMinor.coerceAtLeast(BigInteger.ZERO),
-            goal.currency
-        )
-        val limitLabel = when (availability.limitingFactor) {
-            GoalFundingLimitFactor.CASH_WALLET ->
-                "Limited by Cash Wallet ($cashFormatted; Net Worth: $netWorthFormatted)"
-            GoalFundingLimitFactor.NET_WORTH ->
-                "Limited by Net Worth ($netWorthFormatted; Cash Wallet: $cashFormatted)"
-            GoalFundingLimitFactor.BOTH ->
-                "Limited by Cash Wallet and Net Worth ($cashFormatted)"
+        val fundingAccountsUi = availability.eligibleAccounts.map { option ->
+            GoalFundingAccountUiModel(
+                id = option.account.id,
+                label = option.account.displayLabel,
+                currency = option.account.currency,
+                balanceFormatted = formatGoalMoney(option.balanceMinor, goal.currency),
+                isDefault = option.account.isDefault
+            )
         }
 
+        val selectedAccount = availability.selectedAccount
+        val availableFormatted = if (selectedAccount != null) {
+            formatGoalMoney(availability.availableToContributeMinor, goal.currency)
+        } else {
+            ""
+        }
+        val limitLabel = buildAvailabilityLimitLabel(goal.currency, availability)
+
         val fundingError = when {
-            accountsLoading -> null
-            availability.cashWallet == null -> GoalMessages.CASH_WALLET_REQUIRED
-            !goal.currency.equals(availability.cashWallet.currency, ignoreCase = true) ||
-                !goal.currency.equals(preferredCurrency, ignoreCase = true) ->
-                GoalMessages.CURRENCY_MISMATCH
+            accountsLoading && availability.eligibleAccounts.isEmpty() -> null
+            availability.matchingCurrencyAccounts.isEmpty() ->
+                GoalMessages.noCurrencyAccounts(goal.currency)
+            availability.eligibleAccounts.isEmpty() ->
+                GoalMessages.noFundedCurrencyAccounts(goal.currency)
             else -> null
         }
+
+        val goalAccountLabel = "${goal.name} (${goal.currency})"
 
         _uiState.update { old ->
             val (revalidatedError, isValid) = validateAmountInput(
@@ -237,6 +265,7 @@ class GoalProgressViewModel @Inject constructor(
                 name = goal.name,
                 description = goal.description,
                 currency = goal.currency,
+                goalAccountLabel = goalAccountLabel,
                 savedFormatted = formatGoalMoney(summary.savedMinor, goal.currency),
                 targetFormatted = formatGoalMoney(goal.targetMinor, goal.currency),
                 targetDateFormatted = formatGoalEpochDay(goal.targetDateEpochDay),
@@ -245,6 +274,10 @@ class GoalProgressViewModel @Inject constructor(
                 progressFraction = summary.progressFraction,
                 percentLabel = percentLabel,
                 isCompleted = summary.isCompleted,
+                fundingAccounts = fundingAccountsUi,
+                selectedAccountId = selectedAccount?.id,
+                selectedAccountLabel = selectedAccount?.displayLabel,
+                accountError = if (selectedAccount != null) null else old.accountError,
                 availableToContributeFormatted = availableFormatted,
                 availabilityLimitLabel = limitLabel,
                 fundingError = fundingError,
@@ -253,6 +286,28 @@ class GoalProgressViewModel @Inject constructor(
                 milestones = milestonesUi,
                 contributions = contributionsUi
             )
+        }
+    }
+
+    private fun buildAvailabilityLimitLabel(
+        currency: String,
+        availability: GoalFundingAvailability
+    ): String {
+        val selectedAccount = availability.selectedAccount ?: return ""
+        val accountFormatted = formatGoalMoney(
+            availability.accountBalanceMinor.coerceAtLeast(BigInteger.ZERO),
+            currency
+        )
+        val netWorthFormatted = formatGoalMoney(
+            availability.netWorthMinor.coerceAtLeast(BigInteger.ZERO),
+            currency
+        )
+        return when (availability.limitingFactor) {
+            GoalFundingLimitFactor.NET_WORTH ->
+                "Limited by $currency Net Worth ($netWorthFormatted; ${selectedAccount.displayLabel}: $accountFormatted)"
+            GoalFundingLimitFactor.ACCOUNT_BALANCE,
+            GoalFundingLimitFactor.BOTH ->
+                "Available in ${selectedAccount.displayLabel}: $accountFormatted"
         }
     }
 
@@ -273,6 +328,47 @@ class GoalProgressViewModel @Inject constructor(
             return GoalMessages.INSUFFICIENT_FUNDS to false
         }
         return null to true
+    }
+
+    fun onAccountSelected(accountId: String) {
+        val state = _uiState.value
+        val goal = currentGoal ?: return
+        if (state.isLoading || state.isSaving || state.fatalError != null) return
+        val currentAvailability = latestAvailability ?: return
+        if (currentAvailability.eligibleAccounts.none { it.account.id == accountId }) return
+
+        val updatedAvailability = GoalFundingPolicy.evaluate(
+            transactions = latestTransactions,
+            accounts = latestAccounts,
+            currency = goal.currency,
+            selectedAccountId = accountId
+        )
+        latestAvailability = updatedAvailability
+        val selectedAccount = updatedAvailability.selectedAccount
+        val availableFormatted = if (selectedAccount != null) {
+            formatGoalMoney(updatedAvailability.availableToContributeMinor, goal.currency)
+        } else {
+            ""
+        }
+        val limitLabel = buildAvailabilityLimitLabel(goal.currency, updatedAvailability)
+        val (amountErr, isValid) = validateAmountInput(
+            rawInput = state.amountInput,
+            goal = goal,
+            availability = updatedAvailability
+        )
+
+        _uiState.update {
+            it.copy(
+                selectedAccountId = selectedAccount?.id,
+                selectedAccountLabel = selectedAccount?.displayLabel,
+                accountError = null,
+                availableToContributeFormatted = availableFormatted,
+                availabilityLimitLabel = limitLabel,
+                amountError = if (it.amountInput.isNotBlank()) amountErr else null,
+                isAmountValid = isValid,
+                formError = null
+            )
+        }
     }
 
     fun onAmountChanged(value: String) {
@@ -301,6 +397,12 @@ class GoalProgressViewModel @Inject constructor(
             return
         }
 
+        val sourceAccountId = state.selectedAccountId
+        if (sourceAccountId.isNullOrBlank()) {
+            _uiState.update { it.copy(accountError = GoalMessages.ACCOUNT_REQUIRED) }
+            return
+        }
+
         val (validationError, isValid) = validateAmountInput(
             rawInput = state.amountInput,
             goal = goal,
@@ -323,6 +425,7 @@ class GoalProgressViewModel @Inject constructor(
             _uiState.update {
                 it.copy(
                     isSaving = true,
+                    accountError = null,
                     amountError = null,
                     formError = null,
                     celebrationTitle = null,
@@ -332,6 +435,7 @@ class GoalProgressViewModel @Inject constructor(
             val result = contributeToGoal(
                 goalId = goal.id,
                 amountText = state.amountInput,
+                sourceAccountId = sourceAccountId,
                 id = attemptId
             )
             result.fold(
@@ -351,6 +455,7 @@ class GoalProgressViewModel @Inject constructor(
                         it.copy(
                             isSaving = false,
                             amountInput = "",
+                            accountError = null,
                             amountError = null,
                             isAmountValid = false,
                             formError = null,
@@ -368,6 +473,10 @@ class GoalProgressViewModel @Inject constructor(
                             GoalContributionError.AMOUNT_NON_POSITIVE,
                             GoalContributionError.INSUFFICIENT_FUNDS ->
                                 s.copy(isSaving = false, amountError = msg, isAmountValid = false)
+                            GoalContributionError.ACCOUNT_REQUIRED,
+                            GoalContributionError.ACCOUNT_NOT_FOUND,
+                            GoalContributionError.CURRENCY_MISMATCH ->
+                                s.copy(isSaving = false, accountError = msg)
                             GoalContributionError.GOAL_NOT_FOUND ->
                                 s.copy(isSaving = false, fatalError = msg)
                             else ->
@@ -384,7 +493,6 @@ class GoalProgressViewModel @Inject constructor(
         val contributionsSnapshot: com.example.clarity.domain.model.GoalContributionsSnapshot,
         val accounts: List<Account>,
         val accountsLoading: Boolean,
-        val transactions: List<Transaction>,
-        val preferredCurrency: String
+        val transactions: List<Transaction>
     )
 }

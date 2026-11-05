@@ -30,6 +30,24 @@ class GoalFundingPolicyTest {
         currency = "LKR",
         isDefault = false
     )
+    private val secondLkrBank = Account(
+        id = "bank-2",
+        userId = userId,
+        name = "Empty LKR Account",
+        bankName = "Sampath Bank",
+        accountType = "Checking",
+        currency = "LKR",
+        isDefault = false
+    )
+    private val usdBank = Account(
+        id = "bank-usd",
+        userId = userId,
+        name = "USD Savings",
+        bankName = "HSBC",
+        accountType = "Savings",
+        currency = "USD",
+        isDefault = false
+    )
 
     @Test
     fun `deterministic goalAccountId and isGoalAccount identify hidden goal accounts`() {
@@ -69,7 +87,62 @@ class GoalFundingPolicyTest {
     }
 
     @Test
-    fun `cash limited when cash balance is less than net worth`() {
+    fun `filterEligibleFundingAccounts keeps only accounts with matching currency and positive balance`() {
+        val goalAcc = Account.goalAccount(goalId = "g1", currency = "LKR", userId = userId)
+        val transactions = listOf(
+            Transaction(
+                id = "t-bank",
+                userId = userId,
+                type = TransactionType.INCOME,
+                amountMinor = 50_000L,
+                category = "Salary",
+                accountId = bankAccount.id,
+                currency = "LKR",
+                targetCurrency = "LKR"
+            ),
+            Transaction(
+                id = "t-usd",
+                userId = userId,
+                type = TransactionType.INCOME,
+                amountMinor = 20_000L,
+                category = "Freelance",
+                accountId = usdBank.id,
+                currency = "USD",
+                targetCurrency = "USD"
+            ),
+            Transaction(
+                id = "t-goal-hidden",
+                userId = userId,
+                type = TransactionType.INCOME,
+                amountMinor = 99_000L,
+                category = "Goal",
+                accountId = goalAcc.id,
+                currency = "LKR",
+                targetCurrency = "LKR"
+            )
+        )
+
+        val lkrEligible = GoalFundingPolicy.filterEligibleFundingAccounts(
+            accounts = listOf(cashWallet, bankAccount, secondLkrBank, usdBank, goalAcc),
+            transactions = transactions,
+            goalCurrency = "LKR"
+        )
+        assertEquals(1, lkrEligible.size)
+        assertEquals(bankAccount.id, lkrEligible.single().account.id)
+        assertEquals(BigInteger.valueOf(50_000L), lkrEligible.single().balanceMinor)
+
+        val usdEligible = GoalFundingPolicy.filterEligibleFundingAccounts(
+            accounts = listOf(cashWallet, bankAccount, secondLkrBank, usdBank, goalAcc),
+            transactions = transactions,
+            goalCurrency = "USD"
+        )
+        assertEquals(1, usdEligible.size)
+        assertEquals(usdBank.id, usdEligible.single().account.id)
+        assertEquals(BigInteger.valueOf(20_000L), usdEligible.single().balanceMinor)
+    }
+
+    @Test
+    fun `account balance limited when selected account balance is less than net worth`() {
         val transactions = listOf(
             Transaction(
                 id = "t1",
@@ -93,22 +166,39 @@ class GoalFundingPolicyTest {
             )
         )
 
-        val availability = GoalFundingPolicy.evaluate(
+        val cashAvailability = GoalFundingPolicy.evaluate(
             transactions = transactions,
             accounts = listOf(cashWallet, bankAccount),
-            currency = "LKR"
+            currency = "LKR",
+            selectedAccountId = cashWallet.id
         )
 
-        assertEquals(BigInteger.valueOf(15_000L), availability.cashBalanceMinor)
-        assertEquals(BigInteger.valueOf(65_000L), availability.netWorthMinor)
-        assertEquals(BigInteger.valueOf(15_000L), availability.availableToContributeMinor)
-        assertEquals(GoalFundingLimitFactor.CASH_WALLET, availability.limitingFactor)
-        assertTrue(availability.canAfford(15_000L))
-        assertFalse(availability.canAfford(15_001L))
+        assertEquals(cashWallet.id, cashAvailability.selectedAccount?.id)
+        assertEquals(BigInteger.valueOf(15_000L), cashAvailability.accountBalanceMinor)
+        assertEquals(BigInteger.valueOf(65_000L), cashAvailability.netWorthMinor)
+        assertEquals(BigInteger.valueOf(15_000L), cashAvailability.availableToContributeMinor)
+        assertEquals(GoalFundingLimitFactor.ACCOUNT_BALANCE, cashAvailability.limitingFactor)
+        assertTrue(cashAvailability.canAfford(15_000L))
+        assertFalse(cashAvailability.canAfford(15_001L))
+
+        val bankAvailability = GoalFundingPolicy.evaluate(
+            transactions = transactions,
+            accounts = listOf(cashWallet, bankAccount),
+            currency = "LKR",
+            selectedAccountId = bankAccount.id
+        )
+
+        assertEquals(bankAccount.id, bankAvailability.selectedAccount?.id)
+        assertEquals(BigInteger.valueOf(50_000L), bankAvailability.accountBalanceMinor)
+        assertEquals(BigInteger.valueOf(65_000L), bankAvailability.netWorthMinor)
+        assertEquals(BigInteger.valueOf(50_000L), bankAvailability.availableToContributeMinor)
+        assertEquals(GoalFundingLimitFactor.ACCOUNT_BALANCE, bankAvailability.limitingFactor)
+        assertTrue(bankAvailability.canAfford(50_000L))
+        assertFalse(bankAvailability.canAfford(50_001L))
     }
 
     @Test
-    fun `net worth limited when bank has net deficit and net worth is lower than cash balance`() {
+    fun `net worth limited when another account has net deficit and net worth is lower than selected balance`() {
         val transactions = listOf(
             Transaction(
                 id = "t1",
@@ -135,10 +225,11 @@ class GoalFundingPolicyTest {
         val availability = GoalFundingPolicy.evaluate(
             transactions = transactions,
             accounts = listOf(cashWallet, bankAccount),
-            currency = "LKR"
+            currency = "LKR",
+            selectedAccountId = cashWallet.id
         )
 
-        assertEquals(BigInteger.valueOf(30_000L), availability.cashBalanceMinor)
+        assertEquals(BigInteger.valueOf(30_000L), availability.accountBalanceMinor)
         assertEquals(BigInteger.valueOf(18_000L), availability.netWorthMinor)
         assertEquals(BigInteger.valueOf(18_000L), availability.availableToContributeMinor)
         assertEquals(GoalFundingLimitFactor.NET_WORTH, availability.limitingFactor)
@@ -147,7 +238,7 @@ class GoalFundingPolicyTest {
     }
 
     @Test
-    fun `equal cash balance and net worth reports BOTH limiting factor`() {
+    fun `equal account balance and net worth reports BOTH limiting factor`() {
         val transactions = listOf(
             Transaction(
                 id = "t1",
@@ -167,19 +258,22 @@ class GoalFundingPolicyTest {
             currency = "LKR"
         )
 
-        assertEquals(BigInteger.valueOf(25_000L), availability.cashBalanceMinor)
+        assertEquals(cashWallet.id, availability.selectedAccount?.id)
+        assertEquals(BigInteger.valueOf(25_000L), availability.accountBalanceMinor)
         assertEquals(BigInteger.valueOf(25_000L), availability.netWorthMinor)
         assertEquals(BigInteger.valueOf(25_000L), availability.availableToContributeMinor)
         assertEquals(GoalFundingLimitFactor.BOTH, availability.limitingFactor)
     }
 
     @Test
-    fun `zero and negative balances clamp availableToContributeMinor to zero`() {
+    fun `zero and negative balances clamp availableToContributeMinor to zero and exclude from eligible list`() {
         val emptyAvailability = GoalFundingPolicy.evaluate(
             transactions = emptyList(),
             accounts = listOf(cashWallet),
             currency = "LKR"
         )
+        assertTrue(emptyAvailability.eligibleAccounts.isEmpty())
+        assertNull(emptyAvailability.selectedAccount)
         assertEquals(BigInteger.ZERO, emptyAvailability.availableToContributeMinor)
         assertFalse(emptyAvailability.canAfford(1L))
 
@@ -198,9 +292,11 @@ class GoalFundingPolicyTest {
         val negativeAvailability = GoalFundingPolicy.evaluate(
             transactions = negativeTransactions,
             accounts = listOf(cashWallet),
-            currency = "LKR"
+            currency = "LKR",
+            selectedAccountId = cashWallet.id
         )
-        assertEquals(BigInteger.valueOf(-5_000L), negativeAvailability.cashBalanceMinor)
+        assertTrue(negativeAvailability.eligibleAccounts.isEmpty())
+        assertEquals(BigInteger.valueOf(-5_000L), negativeAvailability.accountBalanceMinor)
         assertEquals(BigInteger.valueOf(-5_000L), negativeAvailability.netWorthMinor)
         assertEquals(BigInteger.ZERO, negativeAvailability.availableToContributeMinor)
         assertFalse(negativeAvailability.canAfford(1L))
@@ -238,7 +334,7 @@ class GoalFundingPolicyTest {
         )
 
         val expected = BigInteger.valueOf(Long.MAX_VALUE).multiply(BigInteger.valueOf(2L))
-        assertEquals(expected, availability.cashBalanceMinor)
+        assertEquals(expected, availability.accountBalanceMinor)
         assertEquals(expected, availability.netWorthMinor)
         assertEquals(expected, availability.availableToContributeMinor)
         assertTrue(availability.canAfford(Long.MAX_VALUE))
@@ -332,20 +428,20 @@ class GoalFundingPolicyTest {
         )
 
         // Only resolved LKR income (300,000) minus resolved LKR expense (60,000) = 240,000
-        assertEquals(BigInteger.valueOf(240_000L), availability.cashBalanceMinor)
+        assertEquals(BigInteger.valueOf(240_000L), availability.accountBalanceMinor)
         assertEquals(BigInteger.valueOf(240_000L), availability.netWorthMinor)
         assertEquals(BigInteger.valueOf(240_000L), availability.availableToContributeMinor)
     }
 
     @Test
-    fun `goal contribution expense deducts from both cash balance and net worth`() {
+    fun `goal contribution expense deducts from selected bank account balance and net worth`() {
         val initialIncome = Transaction(
             id = "income-1",
             userId = userId,
             type = TransactionType.INCOME,
             amountMinor = 100_000L,
-            category = "Cash Income",
-            accountId = cashWallet.id,
+            category = "Salary",
+            accountId = bankAccount.id,
             currency = "LKR",
             targetCurrency = "LKR"
         )
@@ -356,18 +452,19 @@ class GoalFundingPolicyTest {
             amountMinor = 25_000L,
             category = TransactionTags.GOAL_CONTRIBUTION,
             note = "Goal: Emergency Fund",
-            accountId = cashWallet.id,
+            accountId = bankAccount.id,
             currency = "LKR",
             targetCurrency = "LKR"
         )
 
         val availability = GoalFundingPolicy.evaluate(
             transactions = listOf(initialIncome, contributionExpense),
-            accounts = listOf(cashWallet),
+            accounts = listOf(cashWallet, bankAccount),
             currency = "LKR"
         )
 
-        assertEquals(BigInteger.valueOf(75_000L), availability.cashBalanceMinor)
+        assertEquals(bankAccount.id, availability.selectedAccount?.id)
+        assertEquals(BigInteger.valueOf(75_000L), availability.accountBalanceMinor)
         assertEquals(BigInteger.valueOf(75_000L), availability.netWorthMinor)
         assertEquals(BigInteger.valueOf(75_000L), availability.availableToContributeMinor)
         assertTrue(TransactionTags.isExcludedFromIncomeExpenseSummary(TransactionTags.GOAL_CONTRIBUTION))
@@ -375,4 +472,3 @@ class GoalFundingPolicyTest {
         assertFalse(TransactionTags.isExcludedFromIncomeExpenseSummary("Food"))
     }
 }
-

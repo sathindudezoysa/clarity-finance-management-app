@@ -1,10 +1,12 @@
 package com.example.clarity.presentation.goals
 
 import com.example.clarity.domain.model.FinancialGoal
+import com.example.clarity.domain.model.GoalContribution
 import com.example.clarity.domain.model.GoalContributionError
 import com.example.clarity.domain.model.GoalContributionException
 import com.example.clarity.domain.model.TransactionError
 import com.example.clarity.domain.model.TransactionException
+import java.math.BigInteger
 import java.time.LocalDate
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -144,6 +146,20 @@ class GoalsStateTest {
     @Test
     fun goalErrorMessage_mapsFundingAndBalanceErrorsToInlineMessages() {
         assertEquals(
+            GoalMessages.ACCOUNT_REQUIRED,
+            goalErrorMessage(
+                GoalContributionException(GoalContributionError.ACCOUNT_REQUIRED),
+                GoalMessages.CONTRIBUTION_SAVE_ERROR
+            )
+        )
+        assertEquals(
+            GoalMessages.ACCOUNT_NOT_FOUND,
+            goalErrorMessage(
+                GoalContributionException(GoalContributionError.ACCOUNT_NOT_FOUND),
+                GoalMessages.CONTRIBUTION_SAVE_ERROR
+            )
+        )
+        assertEquals(
             GoalMessages.CASH_WALLET_REQUIRED,
             goalErrorMessage(
                 GoalContributionException(GoalContributionError.CASH_WALLET_REQUIRED),
@@ -171,6 +187,44 @@ class GoalsStateTest {
                 GoalMessages.CONTRIBUTION_SAVE_ERROR
             )
         )
+    }
+
+    @Test
+    fun formatCompactPercentAndTimeline_formatCardAndAggregateValuesCleanly() {
+        val baseDate = LocalDate.of(2026, 1, 10)
+        val baseEpoch = baseDate.toEpochDay()
+        val fiveWeeksEpoch = baseEpoch + 35L
+
+        val goal = sampleGoal(
+            id = "g-safety",
+            targetMinor = 1_500_000L,
+            currency = "USD",
+            targetDateEpochDay = fiveWeeksEpoch
+        )
+        val contribution = GoalContribution(
+            id = "c-1",
+            userId = "user-1",
+            goalId = "g-safety",
+            amountMinor = 1_450_000L,
+            currency = "USD",
+            dateEpochDay = baseEpoch
+        )
+
+        val card = goal.toCardUiModel(baseEpoch, listOf(contribution))
+        assertEquals("96.6%", card.percentValueLabel)
+        assertEquals("5 weeks left", card.timelineRemainingLabel)
+
+        val aggregate = buildGoalsAggregateSummary(
+            currency = "USD",
+            monthlyRateMinor = BigInteger.valueOf(85_000L),
+            savedMinor = BigInteger.valueOf(2_250_000L),
+            targetMinor = BigInteger.valueOf(4_500_000L)
+        )
+        assertEquals("USD 850.00", aggregate.monthlyRateFormatted)
+        assertEquals("USD 22500.00", aggregate.savedFormatted)
+        assertEquals("USD 45000.00", aggregate.targetFormatted)
+        assertEquals("50%", aggregate.percentLabel)
+        assertEquals(0.5f, aggregate.progressFraction, 0.0001f)
     }
 }
 

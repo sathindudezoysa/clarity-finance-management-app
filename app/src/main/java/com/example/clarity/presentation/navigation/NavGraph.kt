@@ -17,7 +17,6 @@ import com.example.clarity.presentation.auth.login.LoginScreen
 import com.example.clarity.presentation.auth.register.RegisterScreen
 import com.example.clarity.presentation.goals.GoalEditScreen
 import com.example.clarity.presentation.goals.GoalProgressScreen
-import com.example.clarity.presentation.goals.GoalRewardsScreen
 import com.example.clarity.presentation.goals.GoalsScreen
 import com.example.clarity.presentation.income.IncomeScreen
 import com.example.clarity.presentation.main.MainScreen
@@ -194,11 +193,6 @@ fun SetupNavGraph(
                     navController.navigate(Screen.GoalProgress.createRoute(goalId)) {
                         launchSingleTop = true
                     }
-                },
-                onOpenRewards = {
-                    navController.navigate(Screen.GoalRewards.route) {
-                        launchSingleTop = true
-                    }
                 }
             )
         }
@@ -217,12 +211,11 @@ fun SetupNavGraph(
         ) {
             GoalProgressScreen(
                 onBack = { navController.popBackStack() },
-                viewModel = hiltViewModel()
-            )
-        }
-        composable(route = Screen.GoalRewards.route) {
-            GoalRewardsScreen(
-                onBack = { navController.popBackStack() },
+                onEditGoal = { goalId ->
+                    navController.navigate(Screen.GoalEdit.createRoute(goalId)) {
+                        launchSingleTop = true
+                    }
+                },
                 viewModel = hiltViewModel()
             )
         }
