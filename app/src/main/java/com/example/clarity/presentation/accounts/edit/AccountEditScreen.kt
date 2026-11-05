@@ -4,7 +4,6 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
@@ -12,15 +11,18 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.semantics.Role
-import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.example.clarity.domain.model.Currencies
 import com.example.clarity.presentation.theme.ClarityTheme
 
 @Composable
@@ -45,6 +47,8 @@ internal fun AccountEditContent(
 ) {
     val focusManager = LocalFocusManager.current
     val enabled = state.canSave && !state.isSaving && !state.isLoading
+    var currencyMenuExpanded by remember { mutableStateOf(false) }
+    val selectedCurrency = state.currency.ifBlank { Currencies.supported.first() }
     Scaffold(topBar = {
         TopAppBar(
             title = { Text(if (state.isEditMode) "Edit bank account" else "Add bank account") },
@@ -90,14 +94,37 @@ internal fun AccountEditContent(
                                 label = { Text("Account type (optional)") },
                                 enabled = enabled, singleLine = true, modifier = Modifier.fillMaxWidth()
                             )
-                            OutlinedTextField(
-                                value = state.currency, onValueChange = onCurrencyChange,
-                                label = { Text("Currency") },
-                                keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Characters),
-                                isError = state.currencyError != null,
-                                supportingText = { Text(state.currencyError ?: "Use a three-letter currency code, such as LKR or USD.") },
-                                enabled = enabled, singleLine = true, modifier = Modifier.fillMaxWidth()
-                            )
+                            ExposedDropdownMenuBox(
+                                expanded = currencyMenuExpanded,
+                                onExpandedChange = { if (enabled) currencyMenuExpanded = it }
+                            ) {
+                                OutlinedTextField(
+                                    value = selectedCurrency,
+                                    onValueChange = {},
+                                    readOnly = true,
+                                    label = { Text("Currency") },
+                                    trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = currencyMenuExpanded) },
+                                    isError = state.currencyError != null,
+                                    supportingText = { Text(state.currencyError ?: "Select a supported currency.") },
+                                    enabled = enabled,
+                                    singleLine = true,
+                                    modifier = Modifier.fillMaxWidth().menuAnchor()
+                                )
+                                ExposedDropdownMenu(
+                                    expanded = currencyMenuExpanded,
+                                    onDismissRequest = { currencyMenuExpanded = false }
+                                ) {
+                                    Currencies.supported.forEach { code ->
+                                        DropdownMenuItem(
+                                            text = { Text(code) },
+                                            onClick = {
+                                                onCurrencyChange(code)
+                                                currencyMenuExpanded = false
+                                            }
+                                        )
+                                    }
+                                }
+                            }
                             Row(
                                 Modifier.fillMaxWidth().toggleable(value = state.isDefault,
                                     enabled = enabled && !state.isDefaultLocked, role = Role.Switch, onValueChange = onDefaultChange)

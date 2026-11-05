@@ -204,8 +204,14 @@ class TransactionEditViewModel @Inject constructor(
             (!state.isEditMode || state.transaction != null)) {
             val accountId = state.transaction?.accountId ?: state.accounts.firstOrNull { it.isDefault }?.id
             if (accountId != null) {
+                val selectedAccount = state.accounts.firstOrNull { it.id == accountId }
                 persistSelection(accountId)
-                next = state.copy(selectedAccountId = accountId, accountError = null)
+                next = state.copy(
+                    selectedAccountId = accountId,
+                    accountError = null,
+                    currency = selectedAccount?.currency?.takeIf { it.isNotBlank() } ?: state.currency
+                )
+                savedStateHandle["currency"] = next.currency
             }
         }
         return when {
@@ -229,8 +235,15 @@ class TransactionEditViewModel @Inject constructor(
         synchronized(stateLock) {
             val state = _uiState.value
             if (state.isSaving || state.isDeleting || state.isSuccess || state.isDeleted || state.accounts.none { it.id == accountId }) return
+            val selectedAccount = state.accounts.firstOrNull { it.id == accountId }
             persistSelection(accountId)
-            _uiState.value = state.copy(selectedAccountId = accountId, accountError = null)
+            val nextCurrency = selectedAccount?.currency?.takeIf { it.isNotBlank() } ?: state.currency
+            _uiState.value = state.copy(
+                selectedAccountId = accountId,
+                accountError = null,
+                currency = nextCurrency
+            )
+            savedStateHandle["currency"] = nextCurrency
         }
     }
 
@@ -475,6 +488,9 @@ class TransactionEditViewModel @Inject constructor(
     fun onCurrencySelected(currency: String) {
         val current = uiState.value
         if (currency !in com.example.clarity.domain.model.Currencies.supported || current.isSaving || current.isDeleting) return
+        val lockedCurrency = current.accounts.firstOrNull { it.id == current.selectedAccountId }?.currency
+            ?: current.currency
+        if (current.selectedAccountId != null && lockedCurrency.isNotBlank() && currency != lockedCurrency) return
         savedStateHandle["currency"] = currency
         previewJob?.cancel()
         updateState { it.copy(currency = currency, preview = null) }
