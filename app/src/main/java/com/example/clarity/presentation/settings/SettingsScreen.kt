@@ -1,7 +1,10 @@
 package com.example.clarity.presentation.settings
 
+import android.app.Activity
+import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
+import android.net.Uri
 import android.os.Build
 import android.provider.Settings
 import androidx.compose.foundation.background
@@ -22,7 +25,6 @@ import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.Lock
 import androidx.compose.material.icons.outlined.Notifications
 import androidx.compose.material.icons.outlined.Person
-import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.Share
 import androidx.compose.material.icons.outlined.Star
@@ -196,116 +198,15 @@ fun SettingsScreen(
                     SettingsDivider()
 
                     SettingsRow(
-                        icon = Icons.Outlined.Refresh,
-                        title = "Multi-Currency Sync",
-                        subtitle = "Live rate conversion",
-                        trailingContent = {
-                            Surface(
-                                shape = CircleShape,
-                                color = colors.secondaryContainer
-                            ) {
-                                Text(
-                                    text = state.currency,
-                                    style = MaterialTheme.typography.labelSmall,
-                                    fontWeight = FontWeight.SemiBold,
-                                    color = colors.primary,
-                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                                )
-                            }
-                        }
-                    )
-
-                    SettingsDivider()
-
-                    SettingsRow(
                         icon = Icons.Outlined.AccountBox,
                         title = "Default Spending Account",
                         subtitle = state.defaultAccountName ?: "Manage bank accounts",
                         onClick = viewModel::onBankAccounts
                     )
-
-                    SettingsDivider()
-
-                    SettingsRow(
-                        icon = Icons.Outlined.Settings,
-                        title = "Cash Threshold Top-up",
-                        subtitle = "Auto-replenish limit",
-                        trailingContent = {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(4.dp)
-                            ) {
-                                state.cashThreshold?.let { threshold ->
-                                    Text(
-                                        text = threshold,
-                                        style = MaterialTheme.typography.labelMedium,
-                                        fontWeight = FontWeight.SemiBold,
-                                        color = colors.primary
-                                    )
-                                }
-                                Icon(
-                                    imageVector = Icons.Default.KeyboardArrowRight,
-                                    contentDescription = null,
-                                    tint = colors.onSurfaceVariant
-                                )
-                            }
-                        }
-                    )
                 }
 
                 // 3. Cloud Sync & Data
-                SettingsSection(title = "CLOUD SYNC & DATA") {
-                    SettingsRow(
-                        icon = Icons.Outlined.Refresh,
-                        title = "Cloud Vault Sync",
-                        subtitle = state.email ?: "Not connected",
-                        trailingContent = {
-                            state.cloudSyncSchedule?.let { schedule ->
-                                Surface(
-                                    shape = CircleShape,
-                                    color = colors.secondaryContainer
-                                ) {
-                                    Text(
-                                        text = schedule,
-                                        style = MaterialTheme.typography.labelSmall,
-                                        fontWeight = FontWeight.SemiBold,
-                                        color = colors.primary,
-                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                                    )
-                                }
-                            }
-                        }
-                    )
-
-                    SettingsDivider()
-
-                    SettingsRow(
-                        icon = Icons.Outlined.Info,
-                        title = "Realtime Ledger",
-                        subtitle = "Firestore Active",
-                        trailingContent = {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(6.dp)
-                            ) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(8.dp)
-                                        .clip(CircleShape)
-                                        .background(if (state.pendingSync) colors.tertiary else colors.primary)
-                                )
-                                Text(
-                                    text = if (state.pendingSync) "Pending" else "Synced",
-                                    style = MaterialTheme.typography.labelMedium,
-                                    fontWeight = FontWeight.SemiBold,
-                                    color = colors.primary
-                                )
-                            }
-                        }
-                    )
-
-                    SettingsDivider()
-
+                SettingsSection(title = "DATA") {
                     SettingsRow(
                         icon = Icons.Outlined.Share,
                         title = "Export Financial Audit",
@@ -353,11 +254,13 @@ fun SettingsScreen(
                 }
                 // 5. Preferences & Support
                 SettingsSection(title = "PREFERENCES & SUPPORT") {
+                    val context = LocalContext.current
+
                     SettingsRow(
                         icon = Icons.Outlined.Notifications,
-                        title = "Notification Guardrails",
+                        title = "Notifications",
                         subtitle = "Budget caps & milestone alerts",
-                        onClick = {}
+                        onClick = { openAppNotificationSettings(context) }
                     )
 
                     SettingsDivider()
@@ -732,5 +635,38 @@ private fun openBiometricEnrollment(context: Context) {
 
     if (intent.resolveActivity(context.packageManager) != null) {
         context.startActivity(intent)
+    }
+}
+
+private fun openAppNotificationSettings(context: Context) {
+    val intent = Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).apply {
+        putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
+        if (context !is Activity) {
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+    }
+
+    if (intent.resolveActivity(context.packageManager) != null) {
+        try {
+            context.startActivity(intent)
+            return
+        } catch (_: ActivityNotFoundException) {
+        }
+    }
+
+    val fallbackIntent = Intent(
+        Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+        Uri.fromParts("package", context.packageName, null)
+    ).apply {
+        if (context !is Activity) {
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+    }
+
+    if (fallbackIntent.resolveActivity(context.packageManager) != null) {
+        try {
+            context.startActivity(fallbackIntent)
+        } catch (_: ActivityNotFoundException) {
+        }
     }
 }
