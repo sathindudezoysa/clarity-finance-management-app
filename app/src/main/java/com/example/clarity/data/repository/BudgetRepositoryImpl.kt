@@ -30,7 +30,8 @@ class BudgetRepositoryImpl @Inject constructor(
             val entries = transactions.filter { !it.isDeleted }.map { it.toDomain() }
             val resolved = resolutions.map { BudgetResolution(it.transactionId, it.transactionVersion, it.currency, it.amountMinor) }
             val zone = ZoneId.systemDefault()
-            BudgetOverview(user.uid, budgets.map { BudgetPolicy.evaluate(it.toDomain(), entries, resolved, zone, clock) }, user.uid in errors)
+            val visibleBudgets = budgets.filter { !it.isDeleted && it.active }
+            BudgetOverview(user.uid, visibleBudgets.map { BudgetPolicy.evaluate(it.toDomain(), entries, resolved, zone, clock) }, user.uid in errors)
         }.onStart { emit(BudgetOverview(user.uid, loading = true)) }
     }.flowOn(io)
 
@@ -41,22 +42,46 @@ class BudgetRepositoryImpl @Inject constructor(
         BudgetPolicy.validate(normalized)
         db.withTransaction {
             val old = db.budgetDao.get(uid, normalized.id)
-            // Identity and the recorded currency survive edits and later preference changes.
-            require(old == null || (old.month == normalized.month && old.categoryKey == BudgetPolicy.categoryKey(normalized.category) && old.currency == normalized.currency))
+            val activeExisting = old?.takeIf { !it.isDeleted }
+            // Identity and the recorded currency survive edits to an existing non-deleted budget.
+            require(
+                activeExisting == null || (
+                    activeExisting.month == normalized.month &&
+                        activeExisting.categoryKey == BudgetPolicy.categoryKey(normalized.category) &&
+                        activeExisting.currency == normalized.currency
+                    )
+            )
             checkOwner(uid)
             val now = maxOf(clock.millis(), old?.updatedAt?.let { Math.addExact(it, 1) } ?: 0)
-            db.budgetDao.upsert(normalized.copy(currency = old?.currency ?: normalized.currency,
-                createdAt = old?.createdAt ?: now, updatedAt = now, pendingSync = true).toEntity())
+            db.budgetDao.upsert(
+                normalized.copy(
+                    currency = activeExisting?.currency ?: normalized.currency,
+                    createdAt = activeExisting?.createdAt ?: now,
+                    updatedAt = now,
+                    pendingSync = true
+                ).toEntity()
+            )
         }
     }
-    override suspend fun disable(id: String): Result<Unit> = operation {
+
+    override suspend fun delete(id: String): Result<Unit> = operation {
         val uid = owner()
         db.withTransaction {
             val row = requireNotNull(db.budgetDao.get(uid, id))
+            require(!row.isDeleted) { "Budget already deleted" }
             checkOwner(uid)
-            db.budgetDao.upsert(row.copy(active = false, updatedAt = maxOf(clock.millis(), Math.addExact(row.updatedAt, 1)), pendingSync = true))
+            db.budgetDao.upsert(
+                row.copy(
+                    active = false,
+                    isDeleted = true,
+                    updatedAt = maxOf(clock.millis(), Math.addExact(row.updatedAt, 1)),
+                    pendingSync = true
+                )
+            )
         }
     }
+
+    override suspend fun disable(id: String): Result<Unit> = delete(id)
     override suspend fun resolveUncounted(id: String): Result<Unit> = operation {
         val uid = owner()
         val budget = requireNotNull(db.budgetDao.get(uid, id)).toDomain()

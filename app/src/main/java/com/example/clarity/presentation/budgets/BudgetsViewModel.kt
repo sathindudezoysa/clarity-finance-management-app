@@ -20,13 +20,35 @@ import javax.inject.Inject
 data class BudgetEditor(val budget: Budget? = null, val category: String = "Food", val month: String,
     val amount: String = "", val currency: String, val owner: String, val period: BudgetPeriod = BudgetPeriod.MONTHLY)
 data class BudgetsState(val loading: Boolean = true, val overview: BudgetOverview = BudgetOverview(),
-    val tags: List<String> = TransactionTags.predefined, val currency: String = "LKR", val editor: BudgetEditor? = null,
+    val tags: List<String> = TransactionTags.defaultExpenseCategories, val currency: String = "LKR", val editor: BudgetEditor? = null,
     val busy: Boolean = false, val error: String? = null, val currentMonth: String = "", val currentYear: String = "")
+
+internal fun defaultBudgetCategory(
+    tags: List<String>,
+    overview: BudgetOverview,
+    period: BudgetPeriod
+): String {
+    val existingKeys = overview.statuses
+        .filter { it.budget.period == period }
+        .map { BudgetPolicy.categoryKey(it.budget.category) }
+        .toSet()
+    val preferred = tags.firstOrNull { TransactionTags.key(it) == TransactionTags.key("Food") }
+    if (preferred != null && BudgetPolicy.categoryKey(preferred) !in existingKeys) {
+        return preferred
+    }
+    return tags.firstOrNull { BudgetPolicy.categoryKey(it) !in existingKeys }
+        ?: preferred
+        ?: tags.firstOrNull()
+        ?: "Food"
+}
+
+internal fun matchBudgetCategoryTag(tags: List<String>, rawCategory: String): String? =
+    tags.firstOrNull { TransactionTags.key(it) == TransactionTags.key(rawCategory) }
 
 @HiltViewModel
 class BudgetsViewModel @Inject constructor(
     observe: ObserveBudgetsUseCase, tags: GetTransactionTagsUseCase, preference: ObserveCurrencyPreferenceUseCase,
-    private val saveBudget: SaveBudgetUseCase, private val disableBudget: DisableBudgetUseCase,
+    private val saveBudget: SaveBudgetUseCase, private val deleteBudget: DeleteBudgetUseCase,
     private val resolve: ResolveBudgetCurrencyUseCase, private val clock: Clock, private val auth: AuthRepository
 ) : ViewModel() {
     private val mutable = MutableStateFlow(BudgetsState(
@@ -47,16 +69,41 @@ class BudgetsViewModel @Inject constructor(
                     editor = if (changedOwner) null else old.editor, error = if (changedOwner) null else old.error)
             } }
         }
-        viewModelScope.launch { tags().collect { value -> mutable.update { it.copy(tags = value) } } }
+        viewModelScope.launch {
+            tags(TransactionType.EXPENSE).collect { value ->
+                val resolvedTags = value.ifEmpty { TransactionTags.defaultExpenseCategories }
+                mutable.update { old ->
+                    val updatedEditor = old.editor?.let { ed ->
+                        if (ed.budget == null && resolvedTags.none { TransactionTags.key(it) == TransactionTags.key(ed.category) }) {
+                            ed.copy(category = defaultBudgetCategory(resolvedTags, old.overview, ed.period))
+                        } else {
+                            ed
+                        }
+                    }
+                    old.copy(tags = resolvedTags, editor = updatedEditor)
+                }
+            }
+        }
         viewModelScope.launch { preference().collect { value -> mutable.update { it.copy(currency = value.currency) } } }
     }
     fun edit(budget: Budget? = null) {
         val owner = state.value.overview.ownerId ?: return
         val period = budget?.period ?: BudgetPeriod.MONTHLY
-        mutable.update { it.copy(editor = BudgetEditor(budget, budget?.category ?: "Food",
-            budget?.month ?: BudgetPolicy.currentPeriodKey(clock, period),
-            budget?.let { b -> BigDecimal.valueOf(b.limitMinor, Currencies.digits(b.currency)).toPlainString() } ?: "",
-            budget?.currency ?: it.currency, owner, period), error = null) }
+        mutable.update {
+            val initialCategory = budget?.category ?: defaultBudgetCategory(it.tags, it.overview, period)
+            it.copy(
+                editor = BudgetEditor(
+                    budget = budget,
+                    category = initialCategory,
+                    month = budget?.month ?: BudgetPolicy.currentPeriodKey(clock, period),
+                    amount = budget?.let { b -> BigDecimal.valueOf(b.limitMinor, Currencies.digits(b.currency)).toPlainString() } ?: "",
+                    currency = budget?.currency ?: it.currency,
+                    owner = owner,
+                    period = period
+                ),
+                error = null
+            )
+        }
     }
     fun changePeriod(value: BudgetPeriod) {
         mutable.update { state ->
@@ -65,14 +112,27 @@ class BudgetsViewModel @Inject constructor(
             else state.copy(editor = editor.copy(period = value, month = BudgetPolicy.currentPeriodKey(clock, value)), error = null)
         }
     }
-    fun changeCategory(value: String) { mutable.update { it.copy(editor = it.editor?.copy(category = value), error = null) } }
+    fun changeCategory(value: String) {
+        mutable.update { state ->
+            val editor = state.editor ?: return@update state
+            if (editor.budget != null) return@update state
+            val matched = matchBudgetCategoryTag(state.tags, value) ?: return@update state
+            state.copy(editor = editor.copy(category = matched), error = null)
+        }
+    }
     fun changeMonth(value: String) { mutable.update { it.copy(editor = it.editor?.copy(month = value), error = null) } }
     fun changeAmount(value: String) { mutable.update { it.copy(editor = it.editor?.copy(amount = value), error = null) } }
     fun closeEditor() { mutable.update { it.copy(editor = null, error = null) } }
     fun save() {
-        val editor = state.value.editor ?: return
+        val currentState = state.value
+        val editor = currentState.editor ?: return
         val budget = runCatching {
-            val category = TransactionTags.normalize(editor.category)
+            val category = if (editor.budget != null) {
+                TransactionTags.normalize(editor.budget.category)
+            } else {
+                val matched = requireNotNull(matchBudgetCategoryTag(currentState.tags, editor.category))
+                TransactionTags.normalize(matched)
+            }
             val month = editor.budget?.month ?: BudgetPolicy.currentPeriodKey(clock, editor.period)
             val amount = BigDecimal(editor.amount).movePointRight(Currencies.digits(editor.currency)).longValueExact()
             require(amount > 0)
@@ -80,7 +140,7 @@ class BudgetsViewModel @Inject constructor(
             val categoryKey = BudgetPolicy.categoryKey(category)
             // Existing budgets, including disabled ones, are edited with their recorded currency.
             require(
-                editor.budget != null || state.value.overview.statuses.none {
+                editor.budget != null || currentState.overview.statuses.none {
                     it.budget.id == id ||
                         (it.budget.period == editor.period && BudgetPolicy.categoryKey(it.budget.category) == categoryKey)
                 }
@@ -92,7 +152,7 @@ class BudgetsViewModel @Inject constructor(
             mutable.update { if (it.editor == editor) it.copy(editor = null) else it }
         }
     }
-    fun disable(id: String) = action(BudgetMessages.SAVE_ERROR) { disableBudget(id).getOrThrow() }
+    fun delete(id: String) = action(BudgetMessages.DELETE_ERROR) { deleteBudget(id).getOrThrow() }
     fun retryCurrency(id: String) = action(BudgetMessages.CONVERSION_ERROR) { resolve(id).getOrThrow() }
     private fun action(errorMessage: String, block: suspend () -> Unit) {
         if (state.value.busy) return

@@ -10,7 +10,11 @@ import javax.inject.Inject
 class GetTransactionTagsUseCase @Inject constructor(private val repository: TransactionTagRepository) {
     operator fun invoke(): Flow<List<String>> = repository.observeTags().map { saved ->
         (TransactionTags.predefined + saved.map { it.trim() }
-            .filter { it.isNotEmpty() && it.length <= 100 }
+            .filter {
+                it.isNotEmpty() &&
+                    it.length <= 100 &&
+                    !TransactionTags.isExcludedFromIncomeExpenseSummary(it)
+            }
             .sortedWith(String.CASE_INSENSITIVE_ORDER))
             .distinctBy { TransactionTags.key(it) }
     }
@@ -26,7 +30,12 @@ class GetTransactionTagsUseCase @Inject constructor(private val repository: Tran
                 .toSet()
 
             val customOrMatching = saved.map { it.trim() }
-                .filter { it.isNotEmpty() && it.length <= 100 && TransactionTags.key(it) !in otherTypeOnlyDefaults }
+                .filter {
+                    it.isNotEmpty() &&
+                        it.length <= 100 &&
+                        TransactionTags.key(it) !in otherTypeOnlyDefaults &&
+                        !TransactionTags.isExcludedFromIncomeExpenseSummary(it)
+                }
                 .sortedWith(String.CASE_INSENSITIVE_ORDER)
 
             (defaults + customOrMatching).distinctBy { TransactionTags.key(it) }

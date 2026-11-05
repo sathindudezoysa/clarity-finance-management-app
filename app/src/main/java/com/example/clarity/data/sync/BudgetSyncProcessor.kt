@@ -20,7 +20,14 @@ class BudgetSyncProcessor @Inject constructor(
     suspend fun reconcile(uid: String, budgets: List<Budget>) {
         db.withTransaction {
             checkOwner(uid)
-            budgets.filter { it.userId == uid }.forEach { incoming ->
+            val scopedIncoming = budgets.filter { it.userId == uid }
+            val incomingIds = scopedIncoming.map { it.id }.toSet()
+            db.budgetDao.all(uid).forEach { local ->
+                if (!local.pendingSync && local.id !in incomingIds) {
+                    db.budgetDao.remove(uid, local.id)
+                }
+            }
+            scopedIncoming.forEach { incoming ->
                 val old = db.budgetDao.get(uid, incoming.id)
                 if (old == null || (!old.pendingSync && (incoming.updatedAt > old.updatedAt ||
                         (incoming.updatedAt == old.updatedAt && !incoming.active)))) {
@@ -39,10 +46,20 @@ class BudgetSyncProcessor @Inject constructor(
         for (row in db.budgetDao.pending(uid)) {
             try {
                 checkOwner(uid)
-                val saved = remote.write(row.toDomain())
-                db.withTransaction {
-                    checkOwner(uid)
-                    if (db.budgetDao.get(uid, row.id) == row) db.budgetDao.upsert(saved.copy(pendingSync = false).toEntity())
+                if (row.isDeleted) {
+                    remote.delete(uid, row.id)
+                    db.withTransaction {
+                        checkOwner(uid)
+                        if (db.budgetDao.get(uid, row.id) == row) {
+                            db.budgetDao.remove(uid, row.id)
+                        }
+                    }
+                } else {
+                    val saved = remote.write(row.toDomain())
+                    db.withTransaction {
+                        checkOwner(uid)
+                        if (db.budgetDao.get(uid, row.id) == row) db.budgetDao.upsert(saved.copy(pendingSync = false).toEntity())
+                    }
                 }
             } catch (error: Exception) {
                 if (error is CancellationException) throw error

@@ -15,6 +15,16 @@ class BudgetAlertEvaluator @Inject constructor(
     suspend fun evaluate(overview: BudgetOverview) {
         val owner = overview.ownerId ?: return
         if (auth.currentUser.first()?.uid != owner) return
+        val activeBudgetIds = overview.statuses.map { it.budget.id }.toSet()
+        dao.alertedIds(owner).map { it.substringBefore('@') }.distinct().forEach { budgetId ->
+            if (budgetId !in activeBudgetIds) {
+                val existing = dao.get(owner, budgetId)
+                if (existing == null || existing.isDeleted || !existing.active) {
+                    notifications.cancel(owner, budgetId)
+                    dao.clearAlerts(owner, budgetId)
+                }
+            }
+        }
         overview.statuses.forEach { status ->
             val budget = status.budget
             if (budget.userId != owner || auth.currentUser.first()?.uid != owner) return
@@ -38,7 +48,7 @@ class BudgetAlertEvaluator @Inject constructor(
         }
     }
     private suspend fun isCurrent(budget: Budget): Boolean = dao.get(budget.userId, budget.id)?.let {
-        it.updatedAt == budget.updatedAt && it.limitMinor == budget.limitMinor &&
+        !it.isDeleted && it.updatedAt == budget.updatedAt && it.limitMinor == budget.limitMinor &&
             it.active == budget.active && it.currency == budget.currency
     } == true
 }

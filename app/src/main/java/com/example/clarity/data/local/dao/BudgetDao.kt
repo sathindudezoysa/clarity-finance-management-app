@@ -8,17 +8,21 @@ import kotlinx.coroutines.flow.Flow
 abstract class BudgetDao {
     @Query("SELECT * FROM budgets WHERE userId = :uid ORDER BY month DESC, category")
     abstract fun observe(uid: String): Flow<List<BudgetEntity>>
+    @Query("SELECT * FROM budgets WHERE userId = :uid")
+    open suspend fun all(uid: String): List<BudgetEntity> = emptyList()
     @Query("SELECT * FROM budgets WHERE userId = :uid AND id = :id")
     abstract suspend fun get(uid: String, id: String): BudgetEntity?
     @Query("SELECT * FROM budgets WHERE userId = :uid AND pendingSync = 1")
     abstract suspend fun pending(uid: String): List<BudgetEntity>
+    @Query("DELETE FROM budgets WHERE userId = :uid AND id = :id")
+    open suspend fun remove(uid: String, id: String) = Unit
     @Upsert abstract suspend fun persist(row: BudgetEntity)
     // Every accepted write (local, reconciliation or upload acknowledgement) passes through here.
     // Level zero invalidates old delivery history and asks evaluation to cancel old notification content.
     @Transaction
     open suspend fun upsert(row: BudgetEntity) {
         val old = get(row.userId, row.id)
-        if (old != null && old.limitMinor != row.limitMinor) {
+        if (old != null && (old.limitMinor != row.limitMinor || old.isDeleted != row.isDeleted)) {
             putAlert(BudgetAlertEntity(row.userId, row.id, 0))
             resetPeriodAlerts(row.userId, "${row.id}@%")
         }
@@ -26,6 +30,10 @@ abstract class BudgetDao {
     }
     @Query("UPDATE budget_alerts SET level = 0 WHERE userId = :uid AND budgetId LIKE :pattern")
     open suspend fun resetPeriodAlerts(uid: String, pattern: String) = Unit
+    @Query("SELECT DISTINCT budgetId FROM budget_alerts WHERE userId = :uid")
+    open suspend fun alertedIds(uid: String): List<String> = emptyList()
+    @Query("DELETE FROM budget_alerts WHERE userId = :uid AND (budgetId = :id OR budgetId LIKE :pattern)")
+    open suspend fun clearAlerts(uid: String, id: String, pattern: String = "${id}@%") = Unit
     @Upsert abstract suspend fun resolve(row: BudgetResolutionEntity)
     @Query("SELECT * FROM budget_resolutions WHERE userId = :uid")
     abstract fun resolutions(uid: String): Flow<List<BudgetResolutionEntity>>
@@ -35,7 +43,7 @@ abstract class BudgetDao {
     @Transaction
     open suspend fun claimAlert(uid: String, id: String, level: Int, expectedVersion: Long, expectedLimit: Long): Boolean {
         val budget = get(uid, id.substringBefore('@')) ?: return false
-        if (!budget.active || budget.updatedAt != expectedVersion || budget.limitMinor != expectedLimit) return false
+        if (budget.isDeleted || !budget.active || budget.updatedAt != expectedVersion || budget.limitMinor != expectedLimit) return false
         if (level <= (alert(uid, id)?.level ?: 0)) return false
         putAlert(BudgetAlertEntity(uid, id, level))
         return true

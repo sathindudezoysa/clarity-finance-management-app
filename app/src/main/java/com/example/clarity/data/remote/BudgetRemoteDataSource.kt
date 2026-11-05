@@ -16,6 +16,7 @@ import javax.inject.Inject
 interface BudgetRemoteDataSource {
     fun observe(uid: String): Flow<List<Budget>>
     suspend fun write(budget: Budget): Budget
+    suspend fun delete(uid: String, id: String)
 }
 
 class FirestoreBudgetDataSource @Inject constructor(private val firestore: FirestoreDataSource) : BudgetRemoteDataSource {
@@ -38,4 +39,11 @@ class FirestoreBudgetDataSource @Inject constructor(private val firestore: Fires
             merged
         }.await()
     } ?: throw IOException("Budget sync timed out")
+
+    override suspend fun delete(uid: String, id: String) {
+        withTimeoutOrNull(30_000) {
+            firestore.getCollection("users/$uid/budgets").document(id).delete().await()
+            Unit
+        } ?: throw IOException("Budget delete timed out")
+    }
 }

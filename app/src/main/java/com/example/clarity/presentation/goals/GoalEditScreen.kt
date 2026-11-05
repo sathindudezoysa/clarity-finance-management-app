@@ -20,10 +20,10 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material3.Button
-import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DatePicker
+import androidx.compose.material3.DatePickerDialog
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenuBox
@@ -46,7 +46,6 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.Role
@@ -106,6 +105,33 @@ internal fun GoalEditContent(
     var currencyMenuExpanded by remember { mutableStateOf(false) }
     val selectedCurrency = state.currency.ifBlank { Currencies.supported.first() }
     val canEditCurrency = !state.isSaving && !state.isEditMode
+
+    if (showDatePicker) {
+        val pickerState = rememberDatePickerState(
+            initialSelectedDateMillis = state.selectedDateUtcMillis.takeIf { it != 0L }
+        )
+        DatePickerDialog(
+            onDismissRequest = { showDatePicker = false },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        pickerState.selectedDateMillis?.let(onTargetDateSelected)
+                        showDatePicker = false
+                    },
+                    enabled = pickerState.selectedDateMillis != null
+                ) {
+                    Text("OK")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDatePicker = false }) {
+                    Text("Cancel")
+                }
+            }
+        ) {
+            DatePicker(state = pickerState)
+        }
+    }
 
     Scaffold(
         topBar = {
@@ -285,7 +311,7 @@ internal fun GoalEditContent(
                                         enabled = !state.isSaving,
                                         role = Role.Button
                                     ) {
-                                        showDatePicker = !showDatePicker
+                                        showDatePicker = true
                                     },
                                 border = BorderStroke(1.dp, borderColor),
                                 colors = CardDefaults.outlinedCardColors(
@@ -332,56 +358,6 @@ internal fun GoalEditContent(
                                     color = MaterialTheme.colorScheme.error,
                                     modifier = Modifier.padding(horizontal = 16.dp)
                                 )
-                            }
-                        }
-
-                        if (showDatePicker) {
-                            val pickerState = rememberDatePickerState(
-                                initialSelectedDateMillis = state.selectedDateUtcMillis.takeIf { it != 0L }
-                            )
-                            LaunchedEffect(pickerState) {
-                                val initialMillis = pickerState.selectedDateMillis
-                                snapshotFlow { pickerState.selectedDateMillis }
-                                    .collect { selectedMillis ->
-                                        if (selectedMillis != null && selectedMillis != initialMillis) {
-                                            onTargetDateSelected(selectedMillis)
-                                            showDatePicker = false
-                                        }
-                                    }
-                            }
-
-                            Card(
-                                modifier = Modifier.fillMaxWidth(),
-                                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-                                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
-                            ) {
-                                Column(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(vertical = 8.dp)
-                                ) {
-                                    Row(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .padding(horizontal = 16.dp),
-                                        horizontalArrangement = Arrangement.SpaceBetween,
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Text(
-                                            text = "Select Target Date",
-                                            style = MaterialTheme.typography.titleSmall,
-                                            fontWeight = FontWeight.SemiBold
-                                        )
-                                        TextButton(onClick = { showDatePicker = false }) {
-                                            Text("Done")
-                                        }
-                                    }
-                                    DatePicker(
-                                        state = pickerState,
-                                        showModeToggle = false,
-                                        modifier = Modifier.fillMaxWidth()
-                                    )
-                                }
                             }
                         }
 
