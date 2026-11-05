@@ -207,7 +207,6 @@ class SettingsViewModel @Inject constructor(
             currency = prefs.getString(KEY_CURRENCY, "LKR") ?: "LKR",
             defaultAccountName = prefs.getString(KEY_DEFAULT_ACCOUNT, null),
             twoFactorStatus = prefs.getString(KEY_TWO_FACTOR_STATUS, null),
-            appearanceMode = prefs.getString(KEY_APPEARANCE_MODE, null),
             isBiometricEnabled = prefs.getBoolean(KEY_BIOMETRIC_ENABLED, false)
         )
     }
@@ -271,6 +270,5 @@ class SettingsViewModel @Inject constructor(
         const val KEY_TIER_LABEL = "settings_tier_label"
         const val KEY_STREAK_LABEL = "settings_streak_label"
         const val KEY_TWO_FACTOR_STATUS = "settings_two_factor_status"
-        const val KEY_APPEARANCE_MODE = "settings_appearance_mode"
     }
 }

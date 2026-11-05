@@ -19,7 +19,6 @@ data class SettingsState(
     val error: Boolean = false,
     val defaultAccountName: String? = null,
     val twoFactorStatus: String? = null,
-    val appearanceMode: String? = null,
     val isUpdatingProfile: Boolean = false,
     val profileSaved: Boolean = false,
     val profileError: String? = null,
