@@ -20,9 +20,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
-import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.outlined.Edit
-import androidx.compose.material.icons.outlined.Star
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -48,10 +46,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -91,15 +88,18 @@ internal fun GoalProgressContent(
     var accountMenuExpanded by remember { mutableStateOf(false) }
     val selectedAccount = state.fundingAccounts.firstOrNull { it.id == state.selectedAccountId }
     val canSelectAccount = !state.isSaving && state.fundingAccounts.isNotEmpty()
+    val topBarTitle = state.name.ifBlank { "Goal Progress" }
 
     Scaffold(
         topBar = {
             TopAppBar(
                 title = {
                     Text(
-                        text = "Goal Progress",
+                        text = topBarTitle,
                         style = MaterialTheme.typography.titleLarge,
-                        fontWeight = FontWeight.SemiBold
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
                 },
                 navigationIcon = {
@@ -182,7 +182,7 @@ internal fun GoalProgressContent(
                             .widthIn(max = 600.dp)
                             .fillMaxSize(),
                         contentPadding = PaddingValues(16.dp),
-                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                        verticalArrangement = Arrangement.spacedBy(16.dp)
                     ) {
                         state.formError?.let { errorMsg ->
                             item(key = "progress-form-error") {
@@ -193,23 +193,11 @@ internal fun GoalProgressContent(
                             }
                         }
 
-                        if (state.celebrationTitle != null && state.celebrationMessage != null) {
-                            item(key = "progress-celebration") {
-                                GoalMilestoneCelebrationCard(
-                                    title = state.celebrationTitle,
-                                    message = state.celebrationMessage
-                                )
-                            }
-                        }
-
-                        item(key = "progress-summary-card") {
-                            GoalProgressSummaryCard(state = state)
-                        }
-
                         item(key = "progress-add-card") {
                             Card(
                                 modifier = Modifier.fillMaxWidth(),
-                                border = BorderStroke(1.dp, colors.outlineVariant),
+                                shape = RoundedCornerShape(20.dp),
+                                border = BorderStroke(1.dp, colors.outlineVariant.copy(alpha = 0.5f)),
                                 colors = CardDefaults.cardColors(
                                     containerColor = colors.surface,
                                     contentColor = colors.onSurface
@@ -222,7 +210,7 @@ internal fun GoalProgressContent(
                                     verticalArrangement = Arrangement.spacedBy(12.dp)
                                 ) {
                                     Text(
-                                        text = "Add Progress Today",
+                                        text = "Add Progress",
                                         style = MaterialTheme.typography.titleMedium,
                                         fontWeight = FontWeight.SemiBold
                                     )
@@ -316,35 +304,6 @@ internal fun GoalProgressContent(
                                         }
                                     }
 
-                                    if (state.availableToContributeFormatted.isNotEmpty()) {
-                                        Surface(
-                                            shape = MaterialTheme.shapes.small,
-                                            color = colors.surfaceVariant,
-                                            contentColor = colors.onSurfaceVariant,
-                                            modifier = Modifier.fillMaxWidth()
-                                        ) {
-                                            Column(
-                                                modifier = Modifier
-                                                    .fillMaxWidth()
-                                                    .padding(horizontal = 12.dp, vertical = 10.dp),
-                                                verticalArrangement = Arrangement.spacedBy(2.dp)
-                                            ) {
-                                                Text(
-                                                    text = "Available to add: ${state.availableToContributeFormatted}",
-                                                    style = MaterialTheme.typography.bodyMedium,
-                                                    fontWeight = FontWeight.SemiBold,
-                                                    color = colors.onSurface
-                                                )
-                                                if (state.availabilityLimitLabel.isNotEmpty()) {
-                                                    Text(
-                                                        text = state.availabilityLimitLabel,
-                                                        style = MaterialTheme.typography.bodySmall,
-                                                        color = colors.onSurfaceVariant
-                                                    )
-                                                }
-                                            }
-                                        }
-                                    }
                                     state.fundingError?.let { fundingMsg ->
                                         Surface(
                                             shape = MaterialTheme.shapes.small,
@@ -359,6 +318,7 @@ internal fun GoalProgressContent(
                                             )
                                         }
                                     }
+
                                     OutlinedTextField(
                                         value = state.amountInput,
                                         onValueChange = onAmountChanged,
@@ -370,16 +330,17 @@ internal fun GoalProgressContent(
                                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                                         supportingText = {
                                             val err = state.amountError
-                                            if (err != null) {
-                                                Text(err)
-                                            } else if (!state.selectedAccountLabel.isNullOrBlank()) {
-                                                Text("Transferred from ${state.selectedAccountLabel} today in ${state.currency}")
-                                            } else {
-                                                Text("Select a funded ${state.currency} account above")
+                                            when {
+                                                err != null -> Text(err)
+                                                state.availableToContributeFormatted.isNotEmpty() -> {
+                                                    Text("Available to add: ${state.availableToContributeFormatted}")
+                                                }
+                                                else -> Text("Select a funded ${state.currency} account above")
                                             }
                                         },
                                         modifier = Modifier.fillMaxWidth()
                                     )
+
                                     Row(
                                         modifier = Modifier.fillMaxWidth(),
                                         horizontalArrangement = Arrangement.End
@@ -396,22 +357,6 @@ internal fun GoalProgressContent(
                             }
                         }
 
-                        item(key = "progress-milestones-header") {
-                            Text(
-                                text = "Milestones",
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.SemiBold,
-                                modifier = Modifier.padding(top = 4.dp)
-                            )
-                        }
-
-                        items(
-                            items = state.milestones,
-                            key = { "milestone-${it.percent}" }
-                        ) { milestone ->
-                            GoalMilestoneRowCard(milestone = milestone)
-                        }
-
                         item(key = "progress-history-header") {
                             Text(
                                 text = "Contribution History",
@@ -425,7 +370,8 @@ internal fun GoalProgressContent(
                             item(key = "progress-history-empty") {
                                 Card(
                                     modifier = Modifier.fillMaxWidth(),
-                                    border = BorderStroke(1.dp, colors.outlineVariant),
+                                    shape = RoundedCornerShape(16.dp),
+                                    border = BorderStroke(1.dp, colors.outlineVariant.copy(alpha = 0.5f)),
                                     colors = CardDefaults.cardColors(containerColor = colors.surface)
                                 ) {
                                     Text(
@@ -447,183 +393,6 @@ internal fun GoalProgressContent(
                     }
                 }
             }
-        }
-    }
-}
-
-@Composable
-private fun GoalMilestoneCelebrationCard(
-    title: String,
-    message: String
-) {
-    val colors = MaterialTheme.colorScheme
-    Surface(
-        modifier = Modifier
-            .fillMaxWidth()
-            .semantics { contentDescription = "$title. $message" },
-        shape = MaterialTheme.shapes.medium,
-        color = colors.primaryContainer,
-        contentColor = colors.onPrimaryContainer
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Icon(
-                imageVector = Icons.Outlined.Star,
-                contentDescription = null,
-                modifier = Modifier.size(24.dp)
-            )
-            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text(
-                    text = title,
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.Bold
-                )
-                Text(
-                    text = message,
-                    style = MaterialTheme.typography.bodyMedium
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun GoalProgressSummaryCard(state: GoalProgressState) {
-    val colors = MaterialTheme.colorScheme
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(20.dp),
-        border = BorderStroke(1.dp, colors.outlineVariant.copy(alpha = 0.5f)),
-        colors = CardDefaults.cardColors(
-            containerColor = colors.surface,
-            contentColor = colors.onSurface
-        )
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = state.name,
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold,
-                    modifier = Modifier.weight(1f)
-                )
-                Text(
-                    text = state.percentLabel,
-                    style = MaterialTheme.typography.labelLarge,
-                    fontWeight = FontWeight.SemiBold,
-                    color = colors.primary
-                )
-            }
-            if (state.description.isNotEmpty()) {
-                Text(
-                    text = state.description,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = colors.onSurfaceVariant
-                )
-            }
-            Text(
-                text = "Saved: ${state.savedFormatted} of ${state.targetFormatted}",
-                style = MaterialTheme.typography.bodyLarge,
-                fontWeight = FontWeight.SemiBold,
-                modifier = Modifier.fillMaxWidth()
-            )
-            GoalRoundedProgressBar(
-                progress = state.progressFraction,
-                trackColor = colors.surfaceVariant,
-                indicatorColor = colors.primary,
-                modifier = Modifier.semantics {
-                    contentDescription = "Goal progress ${state.percentLabel}, saved ${state.savedFormatted} of ${state.targetFormatted}"
-                }
-            )
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = "Target date: ${state.targetDateFormatted}",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = if (state.isOverdue && !state.isCompleted) colors.error else colors.onSurfaceVariant
-                )
-                Text(
-                    text = state.daysRemainingLabel,
-                    style = MaterialTheme.typography.labelSmall,
-                    fontWeight = FontWeight.SemiBold,
-                    color = if (state.isOverdue && !state.isCompleted) colors.error else colors.primary
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun GoalMilestoneRowCard(milestone: GoalMilestoneUiModel) {
-    val colors = MaterialTheme.colorScheme
-    val statusText = if (milestone.isReached) "Reached" else "Upcoming"
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .semantics {
-                contentDescription = "${milestone.title}, $statusText, target ${milestone.requiredFormatted}"
-            },
-        shape = RoundedCornerShape(16.dp),
-        border = BorderStroke(
-            1.dp,
-            if (milestone.isReached) colors.primary else colors.outlineVariant.copy(alpha = 0.5f)
-        ),
-        colors = CardDefaults.cardColors(
-            containerColor = colors.surface,
-            contentColor = colors.onSurface
-        )
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Icon(
-                imageVector = if (milestone.isReached) Icons.Default.CheckCircle else Icons.Outlined.Star,
-                contentDescription = null,
-                tint = if (milestone.isReached) colors.primary else colors.onSurfaceVariant,
-                modifier = Modifier.size(22.dp)
-            )
-            Column(
-                modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(4.dp)
-            ) {
-                Text(
-                    text = "${milestone.title} (${milestone.requiredFormatted})",
-                    style = MaterialTheme.typography.bodyLarge,
-                    fontWeight = FontWeight.SemiBold
-                )
-                Text(
-                    text = milestone.motivationText,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = colors.onSurfaceVariant
-                )
-            }
-            Text(
-                text = statusText,
-                style = MaterialTheme.typography.labelMedium,
-                fontWeight = FontWeight.SemiBold,
-                color = if (milestone.isReached) colors.primary else colors.onSurfaceVariant
-            )
         }
     }
 }
@@ -714,14 +483,6 @@ private fun GoalProgressScreenPreview() {
                 selectedAccountLabel = "Daily Spending (Commercial Bank)",
                 availableToContributeFormatted = "LKR 85000.00",
                 availabilityLimitLabel = "Available in Daily Spending (Commercial Bank): LKR 85000.00",
-                celebrationTitle = "50% Milestone",
-                celebrationMessage = "Halfway there! You have reached 50% of your goal.",
-                milestones = listOf(
-                    GoalMilestoneUiModel(25, "25% Milestone", "LKR 125000.00", "Great start!", true),
-                    GoalMilestoneUiModel(50, "50% Milestone", "LKR 250000.00", "Halfway there!", true),
-                    GoalMilestoneUiModel(75, "75% Milestone", "LKR 375000.00", "Almost there!", false),
-                    GoalMilestoneUiModel(100, "Goal Reached!", "LKR 500000.00", "Congratulations!", false)
-                ),
                 contributions = listOf(
                     GoalContributionItemUiModel(
                         id = "c1",
@@ -736,7 +497,8 @@ private fun GoalProgressScreenPreview() {
             onRetryLoad = {},
             onAccountSelected = {},
             onAmountChanged = {},
-            onAddContribution = {}
+            onAddContribution = {},
+            onEditGoal = {}
         )
     }
 }
