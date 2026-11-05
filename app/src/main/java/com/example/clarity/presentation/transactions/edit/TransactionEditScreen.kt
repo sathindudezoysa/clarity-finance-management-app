@@ -461,6 +461,7 @@ internal fun TransactionEditContent(
                     onCurrencySelected = onCurrencySelected,
                     onRetryPreview = { onRetryPreview?.invoke() ?: onPreview(amount) },
                     enabled = !isBusy,
+                    currencyLocked = false,
                     amountFocus = amountFocus
                 )
 
@@ -704,9 +705,9 @@ private fun StitchHeroAmountCard(
     onCurrencySelected: (String) -> Unit,
     onRetryPreview: () -> Unit,
     enabled: Boolean,
+    currencyLocked: Boolean,
     amountFocus: FocusRequester
 ) {
-    var currencyMenuExpanded by remember { mutableStateOf(false) }
     val uriHandler = LocalUriHandler.current
     val isDifferentCurrency = !currency.equals(targetCurrency, ignoreCase = true)
 
@@ -731,7 +732,6 @@ private fun StitchHeroAmountCard(
                     shape = CircleShape,
                     modifier = Modifier
                         .clip(CircleShape)
-                        .clickable(enabled = enabled) { currencyMenuExpanded = true }
                 ) {
                     Row(
                         modifier = Modifier.padding(horizontal = 12.dp, vertical = 5.dp),
@@ -750,26 +750,6 @@ private fun StitchHeroAmountCard(
                                 fontWeight = FontWeight.Bold,
                                 color = StitchTextPrimary
                             )
-                        )
-                        Icon(
-                            imageVector = Icons.Default.ArrowDropDown,
-                            contentDescription = "Select currency",
-                            tint = StitchTextSecondary,
-                            modifier = Modifier.size(16.dp)
-                        )
-                    }
-                }
-                DropdownMenu(
-                    expanded = currencyMenuExpanded,
-                    onDismissRequest = { currencyMenuExpanded = false }
-                ) {
-                    Currencies.supported.forEach { code ->
-                        DropdownMenuItem(
-                            text = { Text("$code (${currencySymbol(code)})") },
-                            onClick = {
-                                currencyMenuExpanded = false
-                                onCurrencySelected(code)
-                            }
                         )
                     }
                 }

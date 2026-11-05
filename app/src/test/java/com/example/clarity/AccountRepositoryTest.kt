@@ -669,6 +669,31 @@ class AccountRepositoryTest {
         assertTrue(remote.batches.flatten().none { it.id == Account.cashWalletId("user-a") })
     }
 
+    @Test
+    fun observeAccountsFiltersHiddenGoalAccountsWhileGetAccountReturnsThem() = runBlocking {
+        repository.createAccount(account("daily")).getOrThrow()
+        val hiddenGoal = Account.goalAccount(
+            goalId = "goal-1",
+            currency = "LKR",
+            userId = "user-a",
+            createdAt = 100L,
+            updatedAt = 100L
+        )
+        dao.upsertAll(listOf(hiddenGoal.toEntity().copy(pendingSync = true)))
+
+        val visible = repository.observeAccounts()
+            .filterIsInstance<Resource.Success<List<Account>>>()
+            .first()
+            .data!!
+        assertEquals(listOf("daily"), visible.map { it.id })
+        assertTrue(visible.none { it.isGoalAccount })
+
+        val fetchedHidden = repository.getAccount(hiddenGoal.id).getOrThrow()
+        assertNotNull(fetchedHidden)
+        assertEquals(hiddenGoal.id, fetchedHidden!!.id)
+        assertTrue(fetchedHidden.isGoalAccount)
+    }
+
     // Primitive storage is faked; repository validation and reconciliation run unchanged.
     private class MemoryDao : AccountDao() {
         private val rows = MutableStateFlow<Map<String, AccountEntity>>(emptyMap())

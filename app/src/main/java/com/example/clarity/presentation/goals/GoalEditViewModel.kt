@@ -148,6 +148,19 @@ class GoalEditViewModel @Inject constructor(
         }
     }
 
+    fun onCurrencyChanged(value: String) {
+        val normalized = value.trim().uppercase()
+        if (normalized !in com.example.clarity.domain.model.Currencies.supported) return
+        _uiState.update {
+            it.copy(
+                currency = normalized,
+                targetAmount = if (it.targetAmount.isBlank() || it.targetAmount == "0") it.targetAmount else it.targetAmount,
+                targetAmountError = null,
+                formError = null
+            )
+        }
+    }
+
     fun onTargetDateSelected(utcMillis: Long?) {
         val millis = utcMillis ?: return
         val epochDay = Instant.ofEpochMilli(millis).atZone(ZoneOffset.UTC).toLocalDate().toEpochDay()

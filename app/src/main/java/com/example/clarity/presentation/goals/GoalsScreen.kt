@@ -1,7 +1,6 @@
 package com.example.clarity.presentation.goals
 
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -17,14 +16,16 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Star
+import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.Icon
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
@@ -41,7 +42,6 @@ import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
@@ -49,6 +49,8 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.example.clarity.domain.util.GoalProgressPolicy
+import com.example.clarity.domain.util.GoalStreakSummary
 import com.example.clarity.presentation.navigation.BottomNavDestination
 import com.example.clarity.presentation.navigation.ClarityTopBar
 import com.example.clarity.presentation.theme.ClarityTheme
@@ -57,6 +59,8 @@ import com.example.clarity.presentation.theme.ClarityTheme
 fun GoalsScreen(
     onAddGoal: () -> Unit = {},
     onEditGoal: (String) -> Unit = {},
+    onAddProgress: (String) -> Unit = {},
+    onOpenRewards: () -> Unit = {},
     onNavigateToProfile: () -> Unit = {},
     topBar: @Composable () -> Unit = {
         ClarityTopBar(
@@ -84,6 +88,8 @@ fun GoalsScreen(
         state = state,
         onAddGoal = onAddGoal,
         onEditGoal = onEditGoal,
+        onAddProgress = onAddProgress,
+        onOpenRewards = onOpenRewards,
         onRetry = viewModel::retry,
         topBar = topBar,
         bottomBar = bottomBar
@@ -96,6 +102,8 @@ internal fun GoalsContent(
     onAddGoal: () -> Unit,
     onEditGoal: (String) -> Unit,
     onRetry: () -> Unit,
+    onAddProgress: (String) -> Unit = {},
+    onOpenRewards: () -> Unit = {},
     topBar: @Composable () -> Unit = {
         ClarityTopBar(
             title = BottomNavDestination.GOALS.label,
@@ -135,6 +143,15 @@ internal fun GoalsContent(
                 ),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
+                if (!state.isLoading && state.ownerId != null) {
+                    item(key = "goals-streak-summary") {
+                        GoalStreakSummaryCard(
+                            streak = state.streakSummary,
+                            onOpenRewards = onOpenRewards
+                        )
+                    }
+                }
+
                 if (!state.isLoading && state.ownerId != null && state.activeGoalCount > 0) {
                     item(key = "goals-monthly-total") {
                         GoalsMonthlyTotalCard(
@@ -175,10 +192,111 @@ internal fun GoalsContent(
                     ) { goal ->
                         GoalCard(
                             goal = goal,
-                            onEdit = { onEditGoal(goal.id) }
+                            onEdit = { onEditGoal(goal.id) },
+                            onAddProgress = { onAddProgress(goal.id) }
                         )
                     }
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun GoalStreakSummaryCard(
+    streak: GoalStreakSummary,
+    onOpenRewards: () -> Unit
+) {
+    val colors = MaterialTheme.colorScheme
+    val streakTitle = if (streak.currentStreakDays == 1) {
+        "Current streak: 1 day"
+    } else {
+        "Current streak: ${streak.currentStreakDays} days"
+    }
+    val longestText = if (streak.longestStreakDays == 1) {
+        "Longest streak: 1 day"
+    } else {
+        "Longest streak: ${streak.longestStreakDays} days"
+    }
+    val statusText = when {
+        streak.isAtRisk -> GoalProgressPolicy.STREAK_AT_RISK_HINT
+        streak.contributedToday -> "You contributed today — great consistency!"
+        else -> GoalProgressPolicy.MOTIVATION_START
+    }
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .semantics {
+                contentDescription = "$streakTitle. $longestText. $statusText"
+            },
+        border = BorderStroke(1.dp, colors.outlineVariant),
+        colors = CardDefaults.cardColors(
+            containerColor = colors.surface,
+            contentColor = colors.onSurface
+        )
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Icon(
+                        imageVector = Icons.Outlined.Star,
+                        contentDescription = null,
+                        tint = colors.primary,
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Column {
+                        Text(
+                            text = streakTitle,
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.SemiBold,
+                            color = colors.onSurface
+                        )
+                        Text(
+                            text = longestText,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = colors.onSurfaceVariant
+                        )
+                    }
+                }
+                OutlinedButton(
+                    onClick = onOpenRewards,
+                    modifier = Modifier.heightIn(min = 48.dp)
+                ) {
+                    Text("Achievements")
+                }
+            }
+            if (streak.isAtRisk) {
+                Surface(
+                    shape = MaterialTheme.shapes.small,
+                    color = colors.tertiaryContainer,
+                    contentColor = colors.onTertiaryContainer,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(
+                        text = "Streak at risk: $statusText",
+                        style = MaterialTheme.typography.bodySmall,
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
+                    )
+                }
+            } else {
+                Text(
+                    text = statusText,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = colors.onSurfaceVariant
+                )
             }
         }
     }
@@ -294,7 +412,8 @@ private fun GoalsMonthlyTotalCard(
 @Composable
 private fun GoalCard(
     goal: GoalCardUiModel,
-    onEdit: () -> Unit
+    onEdit: () -> Unit,
+    onAddProgress: () -> Unit = {}
 ) {
     val colors = MaterialTheme.colorScheme
     Card(
@@ -349,12 +468,55 @@ private fun GoalCard(
                 )
             }
 
-            Text(
-                text = "Target: ${goal.targetFormatted}",
-                style = MaterialTheme.typography.bodyMedium,
-                fontWeight = FontWeight.SemiBold,
-                color = colors.onSurface
-            )
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text(
+                    text = "Saved: ${goal.savedFormatted} of ${goal.targetFormatted}",
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    color = colors.onSurface,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.Start,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Surface(
+                        shape = RoundedCornerShape(50),
+                        color = if (goal.isCompleted) colors.primaryContainer else colors.surfaceVariant,
+                        contentColor = if (goal.isCompleted) colors.onPrimaryContainer else colors.onSurfaceVariant
+                    ) {
+                        Text(
+                            text = goal.percentLabel,
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.SemiBold,
+                            maxLines = 1,
+                            softWrap = false,
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                        )
+                    }
+                }
+                LinearProgressIndicator(
+                    progress = goal.progressFraction.coerceIn(0f, 1f),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(8.dp)
+                        .clip(RoundedCornerShape(4.dp))
+                        .semantics {
+                            contentDescription = "Goal progress ${goal.percentLabel}, saved ${goal.savedFormatted} of ${goal.targetFormatted}"
+                        },
+                    color = colors.primary,
+                    trackColor = colors.surfaceVariant
+                )
+                Text(
+                    text = goal.nextMilestoneLabel,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = if (goal.isCompleted) colors.primary else colors.onSurfaceVariant,
+                    fontWeight = if (goal.isCompleted) FontWeight.SemiBold else FontWeight.Normal
+                )
+            }
 
             if (goal.isActive && goal.monthlyRateFormatted != null) {
                 val rateLabel = "Required monthly savings: ${goal.monthlyRateFormatted}"
@@ -395,7 +557,7 @@ private fun GoalCard(
 
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.End,
+                horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 OutlinedButton(
@@ -403,6 +565,12 @@ private fun GoalCard(
                     modifier = Modifier.heightIn(min = 48.dp)
                 ) {
                     Text("Edit")
+                }
+                Button(
+                    onClick = onAddProgress,
+                    modifier = Modifier.heightIn(min = 48.dp)
+                ) {
+                    Text("Add progress")
                 }
             }
         }
@@ -429,7 +597,11 @@ private fun GoalsScreenPreview() {
                         isOverdue = false,
                         isSyncing = true,
                         isActive = true,
-                        monthlyRateFormatted = "LKR 125000.00 / month"
+                        monthlyRateFormatted = "LKR 125000.00 / month",
+                        progressFraction = 0.5f,
+                        savedFormatted = "LKR 250000.00",
+                        percentLabel = "50% saved",
+                        nextMilestoneLabel = "Next milestone: 75% (LKR 375000.00)"
                     ),
                     GoalCardUiModel(
                         id = "2",
@@ -451,7 +623,13 @@ private fun GoalsScreenPreview() {
                         totalFormatted = "LKR 125000.00 / month"
                     )
                 ),
-                activeGoalCount = 1
+                activeGoalCount = 1,
+                streakSummary = GoalStreakSummary(
+                    currentStreakDays = 3,
+                    longestStreakDays = 5,
+                    isAtRisk = false,
+                    contributedToday = true
+                )
             ),
             onAddGoal = {},
             onEditGoal = {},

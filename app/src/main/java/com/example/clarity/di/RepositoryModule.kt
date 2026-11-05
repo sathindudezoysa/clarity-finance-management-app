@@ -10,16 +10,22 @@ import com.example.clarity.data.remote.FirebaseProofDataSource
 import com.example.clarity.data.remote.ProofRemoteDataSource
 import com.example.clarity.data.repository.AuthRepositoryImpl
 import com.example.clarity.data.repository.AccountRepositoryImpl
+import com.example.clarity.data.repository.BiometricRepositoryImpl
 import com.example.clarity.data.sync.AccountUploader
 import com.example.clarity.data.remote.AccountRemoteDataSource
 import com.example.clarity.data.remote.FirestoreAccountDataSource
+import com.example.clarity.data.remote.FirestoreGoalContributionDataSource
 import com.example.clarity.data.remote.FirestoreGoalDataSource
+import com.example.clarity.data.remote.GoalContributionRemoteDataSource
 import com.example.clarity.data.remote.GoalRemoteDataSource
+import com.example.clarity.data.repository.GoalContributionRepositoryImpl
+import com.example.clarity.data.repository.GoalFundingRepositoryImpl
 import com.example.clarity.data.repository.GoalRepositoryImpl
 import com.example.clarity.domain.repository.AccountRepository
 import com.example.clarity.domain.repository.AuthRepository
-import com.example.clarity.data.repository.BiometricRepositoryImpl
 import com.example.clarity.domain.repository.BiometricRepository
+import com.example.clarity.domain.repository.GoalContributionRepository
+import com.example.clarity.domain.repository.GoalFundingRepository
 import com.example.clarity.domain.repository.GoalRepository
 import com.example.clarity.data.repository.TransactionRepositoryImpl
 import com.example.clarity.domain.repository.TransactionRepository
@@ -76,6 +82,15 @@ abstract class RepositoryModule {
 
     @Binds @Singleton
     abstract fun bindGoalRepository(impl: GoalRepositoryImpl): GoalRepository
+
+    @Binds @Singleton
+    abstract fun bindGoalContributionRemote(impl: FirestoreGoalContributionDataSource): GoalContributionRemoteDataSource
+
+    @Binds @Singleton
+    abstract fun bindGoalContributionRepository(impl: GoalContributionRepositoryImpl): GoalContributionRepository
+
+    @Binds @Singleton
+    abstract fun bindGoalFundingRepository(impl: GoalFundingRepositoryImpl): GoalFundingRepository
 
     @Binds
     @Singleton

@@ -15,6 +15,12 @@ data class CategoryTag(
 
 /** Default and custom category helpers for Expense and Income transactions. */
 object TransactionTags {
+    const val CASH_TOP_UP = "Cash Top-Up"
+    const val GOAL_CONTRIBUTION = "Goal Contribution"
+
+    fun isExcludedFromIncomeExpenseSummary(category: String): Boolean =
+        category == CASH_TOP_UP || category == GOAL_CONTRIBUTION
+
     val defaultExpenseCategories: List<String> = listOf(
         "General",
         "Groceries",

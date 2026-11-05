@@ -58,6 +58,7 @@ import com.example.clarity.R
 import com.example.clarity.domain.model.Account
 import com.example.clarity.domain.model.Currencies
 import com.example.clarity.domain.model.Transaction
+import com.example.clarity.domain.model.TransactionTags
 import com.example.clarity.domain.model.TransactionType
 import com.example.clarity.domain.util.MoneyUtils
 import com.example.clarity.domain.util.TransactionCalendar
@@ -287,19 +288,19 @@ private fun TransactionListContent(
 
     val totalSpentMinor = remember(monthTransactions, convertedAmountsMinor, preferredCurrency) {
         monthTransactions
-            .filter { it.type == TransactionType.EXPENSE && it.category != "Cash Top-Up" }
+            .filter { it.type == TransactionType.EXPENSE && !TransactionTags.isExcludedFromIncomeExpenseSummary(it.category) }
             .fold(BigInteger.ZERO) { sum, tx -> sum + resolveAmountMinor(tx) }
     }
 
     val prevSpentMinor = remember(prevMonthTransactions, convertedAmountsMinor, preferredCurrency) {
         prevMonthTransactions
-            .filter { it.type == TransactionType.EXPENSE && it.category != "Cash Top-Up" }
+            .filter { it.type == TransactionType.EXPENSE && !TransactionTags.isExcludedFromIncomeExpenseSummary(it.category) }
             .fold(BigInteger.ZERO) { sum, tx -> sum + resolveAmountMinor(tx) }
     }
 
     val totalIncomeMinor = remember(monthTransactions, convertedAmountsMinor, preferredCurrency) {
         monthTransactions
-            .filter { it.type == TransactionType.INCOME && it.category != "Cash Top-Up" }
+            .filter { it.type == TransactionType.INCOME && !TransactionTags.isExcludedFromIncomeExpenseSummary(it.category) }
             .fold(BigInteger.ZERO) { sum, tx -> sum + resolveAmountMinor(tx) }
     }
 

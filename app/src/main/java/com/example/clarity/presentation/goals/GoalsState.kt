@@ -2,8 +2,16 @@ package com.example.clarity.presentation.goals
 
 import com.example.clarity.domain.model.Currencies
 import com.example.clarity.domain.model.FinancialGoal
+import com.example.clarity.domain.model.GoalContribution
+import com.example.clarity.domain.model.GoalContributionError
+import com.example.clarity.domain.model.GoalContributionException
 import com.example.clarity.domain.model.GoalError
 import com.example.clarity.domain.model.GoalException
+import com.example.clarity.domain.model.TransactionError
+import com.example.clarity.domain.model.TransactionException
+import com.example.clarity.domain.util.GoalMilestoneThreshold
+import com.example.clarity.domain.util.GoalProgressPolicy
+import com.example.clarity.domain.util.GoalStreakSummary
 import com.example.clarity.domain.util.MoneyUtils
 import java.math.BigInteger
 import java.time.LocalDate
@@ -21,7 +29,12 @@ data class GoalCardUiModel(
     val isOverdue: Boolean,
     val isSyncing: Boolean,
     val isActive: Boolean = false,
-    val monthlyRateFormatted: String? = null
+    val monthlyRateFormatted: String? = null,
+    val progressFraction: Float = 0f,
+    val savedFormatted: String = formatGoalMoney(0L, currency),
+    val percentLabel: String = "0% saved",
+    val nextMilestoneLabel: String = "Next milestone: 25%",
+    val isCompleted: Boolean = false
 )
 
 data class MonthlyRateTotalUiModel(
@@ -35,7 +48,8 @@ data class GoalsState(
     val goals: List<GoalCardUiModel> = emptyList(),
     val error: String? = null,
     val totalMonthlyRates: List<MonthlyRateTotalUiModel> = emptyList(),
-    val activeGoalCount: Int = 0
+    val activeGoalCount: Int = 0,
+    val streakSummary: GoalStreakSummary = GoalStreakSummary()
 ) {
     val isEmpty: Boolean
         get() = goals.isEmpty()
@@ -48,6 +62,11 @@ object GoalMessages {
     const val NOT_FOUND = "Financial goal not found."
     const val OPEN_ERROR = "Could not open this financial goal. Please go back and try again."
     const val SAVE_ERROR = "Could not save the financial goal. Please check your inputs and try again."
+    const val CONTRIBUTION_SAVE_ERROR = "Could not record your contribution. Please check the amount and try again."
+    const val CONTRIBUTION_AMOUNT_POSITIVE = "Contribution amount must be greater than zero."
+    const val CASH_WALLET_REQUIRED = "Set up your Cash Wallet first"
+    const val CURRENCY_MISMATCH = "Goal currency must match your Cash Wallet and display currency preference."
+    const val INSUFFICIENT_FUNDS = "Amount exceeds available funds in your Cash Wallet or Net Worth."
     const val NAME_BLANK = "Enter a goal name."
     const val NAME_TOO_LONG = "Goal name must be 100 characters or fewer."
     const val DESCRIPTION_TOO_LONG = "Description must be 500 characters or fewer."
@@ -59,6 +78,11 @@ object GoalMessages {
 }
 
 fun formatGoalMoney(amountMinor: Long, currency: String): String {
+    val safeCurrency = if (currency in Currencies.supported) currency else Currencies.supported.first()
+    return "$safeCurrency ${MoneyUtils.formatMinor(amountMinor, safeCurrency)}"
+}
+
+fun formatGoalMoney(amountMinor: BigInteger, currency: String): String {
     val safeCurrency = if (currency in Currencies.supported) currency else Currencies.supported.first()
     return "$safeCurrency ${MoneyUtils.formatMinor(amountMinor, safeCurrency)}"
 }
@@ -104,6 +128,23 @@ fun formatGoalEpochDay(epochDay: Long): String =
         .getOrElse { epochDay.toString() }
 
 fun goalErrorMessage(error: Throwable, fallback: String): String {
+    if (error is GoalContributionException) {
+        return when (error.error) {
+            GoalContributionError.SIGN_IN_REQUIRED -> GoalMessages.SIGN_IN
+            GoalContributionError.GOAL_NOT_FOUND -> GoalMessages.NOT_FOUND
+            GoalContributionError.INVALID_ID, GoalContributionError.INVALID_GOAL_ID -> fallback
+            GoalContributionError.INVALID_CURRENCY -> GoalMessages.INVALID_CURRENCY
+            GoalContributionError.INVALID_AMOUNT -> GoalMessages.INVALID_AMOUNT
+            GoalContributionError.AMOUNT_NON_POSITIVE -> GoalMessages.CONTRIBUTION_AMOUNT_POSITIVE
+            GoalContributionError.INVALID_DATE -> GoalMessages.INVALID_DATE
+            GoalContributionError.CASH_WALLET_REQUIRED -> GoalMessages.CASH_WALLET_REQUIRED
+            GoalContributionError.CURRENCY_MISMATCH -> GoalMessages.CURRENCY_MISMATCH
+            GoalContributionError.INSUFFICIENT_FUNDS -> GoalMessages.INSUFFICIENT_FUNDS
+        }
+    }
+    if (error is TransactionException && error.error == TransactionError.INSUFFICIENT_BALANCE) {
+        return GoalMessages.INSUFFICIENT_FUNDS
+    }
     val goalEx = error as? GoalException ?: return fallback
     return when (goalEx.error) {
         GoalError.SIGN_IN_REQUIRED -> GoalMessages.SIGN_IN
@@ -121,7 +162,10 @@ fun goalErrorMessage(error: Throwable, fallback: String): String {
     }
 }
 
-fun FinancialGoal.toCardUiModel(todayEpochDay: Long): GoalCardUiModel {
+fun FinancialGoal.toCardUiModel(
+    todayEpochDay: Long,
+    contributions: List<GoalContribution> = emptyList()
+): GoalCardUiModel {
     val overdue = isOverdue(todayEpochDay)
     val active = isActive(todayEpochDay)
     val daysLeft = daysRemaining(todayEpochDay)
@@ -133,6 +177,24 @@ fun FinancialGoal.toCardUiModel(todayEpochDay: Long): GoalCardUiModel {
     val monthlyRate = requiredMonthlySavingsMinor(todayEpochDay)?.let { rateMinor ->
         formatGoalMonthlyRate(rateMinor, currency)
     }
+    val progress = GoalProgressPolicy.evaluateGoalProgress(this, contributions)
+    val savedFormatted = formatGoalMoney(progress.savedMinor, currency)
+    val percentLabel = if (progress.isCompleted) {
+        "100% — Goal Reached"
+    } else {
+        "${progress.displayPercent}% saved"
+    }
+    val nextMilestoneLabel = if (progress.isCompleted) {
+        GoalMilestoneThreshold.COMPLETE.motivationText
+    } else {
+        val next = progress.nextMilestone
+        if (next != null) {
+            "Next milestone: ${next.threshold.percent}% (${formatGoalMoney(next.requiredMinor, currency)})"
+        } else {
+            "Next milestone: 25%"
+        }
+    }
+    val anyContributionSyncing = contributions.any { it.goalId == id && it.pendingSync }
     return GoalCardUiModel(
         id = id,
         name = name,
@@ -142,8 +204,13 @@ fun FinancialGoal.toCardUiModel(todayEpochDay: Long): GoalCardUiModel {
         targetDateFormatted = formatGoalEpochDay(targetDateEpochDay),
         daysRemainingLabel = daysLabel,
         isOverdue = overdue,
-        isSyncing = pendingSync,
+        isSyncing = pendingSync || anyContributionSyncing,
         isActive = active,
-        monthlyRateFormatted = monthlyRate
+        monthlyRateFormatted = monthlyRate,
+        progressFraction = progress.progressFraction,
+        savedFormatted = savedFormatted,
+        percentLabel = percentLabel,
+        nextMilestoneLabel = nextMilestoneLabel,
+        isCompleted = progress.isCompleted
     )
 }

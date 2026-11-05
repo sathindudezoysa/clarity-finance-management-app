@@ -7,6 +7,7 @@ import com.example.clarity.domain.model.Currencies
 import com.example.clarity.domain.model.CurrencyConversion
 import com.example.clarity.domain.model.IncomeSources
 import com.example.clarity.domain.model.Transaction
+import com.example.clarity.domain.model.TransactionTags
 import com.example.clarity.domain.model.TransactionType
 import com.example.clarity.domain.repository.ExchangeRateRepository
 import com.example.clarity.domain.usecase.account.GetAccountsUseCase
@@ -105,16 +106,16 @@ class MainViewModel @Inject constructor(
                 for (tx in transactions) {
                     val amount = resolveTransactionMinor(tx)
                     val isCashTx = (cashAccount != null && tx.accountId == cashAccount.id) || tx.isCash
-                    val isTopUp = tx.category == "Cash Top-Up"
+                    val isExcludedSummary = TransactionTags.isExcludedFromIncomeExpenseSummary(tx.category)
 
                     if (tx.type == TransactionType.INCOME) {
                         netWorthMinor += amount
                         if (isCashTx) cashBalanceMinor += amount
-                        if (!isTopUp) incomeMinor += amount
+                        if (!isExcludedSummary) incomeMinor += amount
                     } else {
                         netWorthMinor -= amount
                         if (isCashTx) cashBalanceMinor -= amount
-                        if (!isTopUp) {
+                        if (!isExcludedSummary) {
                             expenseMinor += amount
                             expenseCount++
                         }
