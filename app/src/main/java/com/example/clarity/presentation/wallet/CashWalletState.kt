@@ -13,6 +13,7 @@ data class CashWalletState(
     val balance: String = "0.00",
     val cashAccount: Account? = null,
     val sourceAccounts: List<Account> = emptyList(),
+    val hasOtherCurrencyAccounts: Boolean = false,
     val selectedSourceAccountId: String = "",
     val mode: WalletActionMode = WalletActionMode.TOP_UP,
     val amount: String = "",
