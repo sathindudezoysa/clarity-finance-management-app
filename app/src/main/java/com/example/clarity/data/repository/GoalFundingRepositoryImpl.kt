@@ -20,7 +20,9 @@ import com.example.clarity.domain.model.TransactionTags
 import com.example.clarity.domain.model.TransactionType
 import com.example.clarity.domain.repository.AuthRepository
 import com.example.clarity.domain.repository.CurrencyPreferenceRepository
+import com.example.clarity.domain.repository.ExchangeRateRepository
 import com.example.clarity.domain.repository.GoalFundingRepository
+import com.example.clarity.domain.util.GoalFundingPolicy
 import com.example.clarity.domain.util.GoalPolicy
 import com.example.clarity.domain.util.GoalProgressPolicy
 import kotlinx.coroutines.CancellationException
@@ -38,6 +40,7 @@ class GoalFundingRepositoryImpl @Inject internal constructor(
     private val database: ClarityDatabase,
     private val auth: AuthRepository,
     private val currencyPreferenceRepository: CurrencyPreferenceRepository,
+    private val rates: ExchangeRateRepository,
     private val accountUploader: AccountUploader,
     private val contributionProcessor: GoalContributionSyncProcessor,
     @ApplicationScope private val applicationScope: CoroutineScope,
@@ -53,6 +56,7 @@ class GoalFundingRepositoryImpl @Inject internal constructor(
     override suspend fun contribute(
         goalId: String,
         amountMinor: Long,
+        sourceAccountId: String,
         id: String
     ): Result<GoalContribution> = operation {
         val uid = owner()
@@ -65,6 +69,9 @@ class GoalFundingRepositoryImpl @Inject internal constructor(
             if (!GoalPolicy.validId(goalId)) {
                 throw GoalContributionException(GoalContributionError.INVALID_GOAL_ID)
             }
+            if (sourceAccountId.isBlank() || !GoalPolicy.validId(sourceAccountId)) {
+                throw GoalContributionException(GoalContributionError.ACCOUNT_REQUIRED)
+            }
             val existing = contributionDao.get(uid, id)
             if (existing != null) {
                 return@withTransaction existing.toDomain()
@@ -75,18 +82,26 @@ class GoalFundingRepositoryImpl @Inject internal constructor(
                 throw GoalContributionException(GoalContributionError.SIGN_IN_REQUIRED)
             }
 
-            val cashWallet = accountDao.getById(Account.cashWalletId(uid))
+            val sourceAccount = accountDao.getById(sourceAccountId)
                 ?.takeIf { it.userId == uid }
                 ?.toDomain()
-                ?: accountDao.getAllForUser(uid)
-                    .map { it.toDomain() }
-                    .firstOrNull { it.isCashWallet }
-                ?: throw GoalContributionException(GoalContributionError.CASH_WALLET_REQUIRED)
+                ?.takeIf { !it.isGoalAccount }
+                ?: throw GoalContributionException(GoalContributionError.ACCOUNT_NOT_FOUND)
 
-            if (!goal.currency.equals(cashWallet.currency, ignoreCase = true) ||
-                !goal.currency.equals(preferredCurrency, ignoreCase = true)
-            ) {
+            if (!goal.currency.equals(sourceAccount.currency, ignoreCase = true)) {
                 throw GoalContributionException(GoalContributionError.CURRENCY_MISMATCH)
+            }
+
+            val userAccounts = accountDao.getAllForUser(uid).map { it.toDomain() }
+            val activeTransactions = transactionDao.getActiveForUser(uid).map { it.toDomain() }
+            val availability = GoalFundingPolicy.evaluate(
+                transactions = activeTransactions,
+                accounts = userAccounts,
+                currency = goal.currency,
+                selectedAccountId = sourceAccount.id
+            )
+            if (!availability.canAfford(amountMinor)) {
+                throw GoalContributionException(GoalContributionError.INSUFFICIENT_FUNDS)
             }
 
             val now = maxOf(clock.millis(), 1L)
@@ -121,6 +136,16 @@ class GoalFundingRepositoryImpl @Inject internal constructor(
                 accountDao.upsertAll(listOf(hiddenGoalAccount.toEntity().copy(pendingSync = true)))
             }
 
+            val targetCurrency = preferredCurrency.ifBlank { goal.currency }
+            val snapshot = if (goal.currency.equals(targetCurrency, ignoreCase = true)) {
+                ConversionSnapshot.identity(amountMinor)
+            } else {
+                rates.cached(goal.currency, targetCurrency)?.let { quote ->
+                    runCatching { CurrencyConversion.snapshot(amountMinor, quote) }.getOrNull()
+                }
+            }
+            val txUpdatedAt = maxOf(now, snapshot?.fetchedAt ?: 0L)
+
             val expenseTransaction = Transaction(
                 id = id,
                 userId = uid,
@@ -130,12 +155,12 @@ class GoalFundingRepositoryImpl @Inject internal constructor(
                 note = "Goal: ${goal.name}",
                 dateEpochMillis = now,
                 createdAt = now,
-                updatedAt = now,
-                accountId = cashWallet.id,
+                updatedAt = txUpdatedAt,
+                accountId = sourceAccount.id,
                 currency = goal.currency,
-                targetCurrency = preferredCurrency,
-                conversion = ConversionSnapshot.identity(amountMinor),
-                pendingConversion = false
+                targetCurrency = targetCurrency,
+                conversion = snapshot,
+                pendingConversion = snapshot == null
             ).also { CurrencyConversion.validate(it) }
 
             try {
@@ -185,4 +210,3 @@ class GoalFundingRepositoryImpl @Inject internal constructor(
         }
     }
 }
-

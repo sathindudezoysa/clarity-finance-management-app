@@ -13,7 +13,9 @@ import com.example.clarity.domain.util.GoalMilestoneThreshold
 import com.example.clarity.domain.util.GoalProgressPolicy
 import com.example.clarity.domain.util.GoalStreakSummary
 import com.example.clarity.domain.util.MoneyUtils
+import java.math.BigDecimal
 import java.math.BigInteger
+import java.math.RoundingMode
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import java.util.Locale
@@ -33,6 +35,8 @@ data class GoalCardUiModel(
     val progressFraction: Float = 0f,
     val savedFormatted: String = formatGoalMoney(0L, currency),
     val percentLabel: String = "0% saved",
+    val percentValueLabel: String = "0%",
+    val timelineRemainingLabel: String = daysRemainingLabel,
     val nextMilestoneLabel: String = "Next milestone: 25%",
     val isCompleted: Boolean = false
 )
@@ -42,12 +46,22 @@ data class MonthlyRateTotalUiModel(
     val totalFormatted: String
 )
 
+data class GoalsAggregateSummaryUiModel(
+    val currency: String = Currencies.supported.first(),
+    val monthlyRateFormatted: String = formatGoalMoney(0L, currency),
+    val savedFormatted: String = formatGoalMoney(0L, currency),
+    val targetFormatted: String = formatGoalMoney(0L, currency),
+    val percentLabel: String = "0%",
+    val progressFraction: Float = 0f
+)
+
 data class GoalsState(
     val isLoading: Boolean = true,
     val ownerId: String? = null,
     val goals: List<GoalCardUiModel> = emptyList(),
     val error: String? = null,
     val totalMonthlyRates: List<MonthlyRateTotalUiModel> = emptyList(),
+    val aggregateSummary: GoalsAggregateSummaryUiModel = GoalsAggregateSummaryUiModel(),
     val activeGoalCount: Int = 0,
     val streakSummary: GoalStreakSummary = GoalStreakSummary()
 ) {
@@ -64,9 +78,11 @@ object GoalMessages {
     const val SAVE_ERROR = "Could not save the financial goal. Please check your inputs and try again."
     const val CONTRIBUTION_SAVE_ERROR = "Could not record your contribution. Please check the amount and try again."
     const val CONTRIBUTION_AMOUNT_POSITIVE = "Contribution amount must be greater than zero."
+    const val ACCOUNT_REQUIRED = "Select a funded account matching the goal currency."
+    const val ACCOUNT_NOT_FOUND = "Selected funding account was not found."
     const val CASH_WALLET_REQUIRED = "Set up your Cash Wallet first"
-    const val CURRENCY_MISMATCH = "Goal currency must match your Cash Wallet and display currency preference."
-    const val INSUFFICIENT_FUNDS = "Amount exceeds available funds in your Cash Wallet or Net Worth."
+    const val CURRENCY_MISMATCH = "Selected account currency must match the goal currency."
+    const val INSUFFICIENT_FUNDS = "Amount exceeds available funds in the selected account or Net Worth."
     const val NAME_BLANK = "Enter a goal name."
     const val NAME_TOO_LONG = "Goal name must be 100 characters or fewer."
     const val DESCRIPTION_TOO_LONG = "Description must be 500 characters or fewer."
@@ -75,6 +91,12 @@ object GoalMessages {
     const val TARGET_NON_POSITIVE = "Target amount must be greater than zero."
     const val INVALID_DATE = "Select a valid target date."
     const val DATE_NOT_IN_FUTURE = "Target date must be in the future."
+
+    fun noCurrencyAccounts(currency: String): String =
+        "No $currency accounts found. Add a $currency account with funds to transfer to this goal."
+
+    fun noFundedCurrencyAccounts(currency: String): String =
+        "No $currency accounts have available balance. Add funds to a $currency account first."
 }
 
 fun formatGoalMoney(amountMinor: Long, currency: String): String {
@@ -137,6 +159,8 @@ fun goalErrorMessage(error: Throwable, fallback: String): String {
             GoalContributionError.INVALID_AMOUNT -> GoalMessages.INVALID_AMOUNT
             GoalContributionError.AMOUNT_NON_POSITIVE -> GoalMessages.CONTRIBUTION_AMOUNT_POSITIVE
             GoalContributionError.INVALID_DATE -> GoalMessages.INVALID_DATE
+            GoalContributionError.ACCOUNT_REQUIRED -> GoalMessages.ACCOUNT_REQUIRED
+            GoalContributionError.ACCOUNT_NOT_FOUND -> GoalMessages.ACCOUNT_NOT_FOUND
             GoalContributionError.CASH_WALLET_REQUIRED -> GoalMessages.CASH_WALLET_REQUIRED
             GoalContributionError.CURRENCY_MISMATCH -> GoalMessages.CURRENCY_MISMATCH
             GoalContributionError.INSUFFICIENT_FUNDS -> GoalMessages.INSUFFICIENT_FUNDS
@@ -162,6 +186,67 @@ fun goalErrorMessage(error: Throwable, fallback: String): String {
     }
 }
 
+fun formatCompactPercent(
+    savedMinor: BigInteger,
+    targetMinor: BigInteger,
+    isCompleted: Boolean = savedMinor >= targetMinor && targetMinor > BigInteger.ZERO
+): String {
+    if (targetMinor <= BigInteger.ZERO) return "0%"
+    if (isCompleted || savedMinor >= targetMinor) return "100%"
+    if (savedMinor <= BigInteger.ZERO) return "0%"
+    val tenths = BigDecimal(savedMinor)
+        .multiply(BigDecimal.valueOf(1_000L))
+        .divide(BigDecimal(targetMinor), 0, RoundingMode.DOWN)
+        .toInt()
+        .coerceIn(0, 999)
+    return if (tenths % 10 == 0) {
+        "${tenths / 10}%"
+    } else {
+        "${tenths / 10}.${tenths % 10}%"
+    }
+}
+
+fun formatTimelineRemaining(
+    daysLeft: Long,
+    isOverdue: Boolean,
+    isCompleted: Boolean
+): String = when {
+    isCompleted -> "Goal reached"
+    isOverdue -> "Overdue"
+    daysLeft >= 14L -> "${daysLeft / 7L} weeks left"
+    daysLeft == 1L -> "1 day left"
+    else -> "$daysLeft days left"
+}
+
+fun buildGoalsAggregateSummary(
+    currency: String,
+    monthlyRateMinor: BigInteger,
+    savedMinor: BigInteger,
+    targetMinor: BigInteger
+): GoalsAggregateSummaryUiModel {
+    val safeCurrency = if (currency in Currencies.supported) currency else Currencies.supported.first()
+    val safeRate = monthlyRateMinor.max(BigInteger.ZERO)
+    val safeSaved = savedMinor.max(BigInteger.ZERO)
+    val safeTarget = targetMinor.max(BigInteger.ZERO)
+    val isCompleted = safeTarget > BigInteger.ZERO && safeSaved >= safeTarget
+    val progressFraction = when {
+        safeTarget <= BigInteger.ZERO -> 0f
+        isCompleted -> 1f
+        else -> BigDecimal(safeSaved)
+            .divide(BigDecimal(safeTarget), 4, RoundingMode.DOWN)
+            .toFloat()
+            .coerceIn(0f, 1f)
+    }
+    return GoalsAggregateSummaryUiModel(
+        currency = safeCurrency,
+        monthlyRateFormatted = formatGoalMoney(safeRate, safeCurrency),
+        savedFormatted = formatGoalMoney(safeSaved, safeCurrency),
+        targetFormatted = formatGoalMoney(safeTarget, safeCurrency),
+        percentLabel = formatCompactPercent(safeSaved, safeTarget, isCompleted),
+        progressFraction = progressFraction
+    )
+}
+
 fun FinancialGoal.toCardUiModel(
     todayEpochDay: Long,
     contributions: List<GoalContribution> = emptyList()
@@ -184,6 +269,16 @@ fun FinancialGoal.toCardUiModel(
     } else {
         "${progress.displayPercent}% saved"
     }
+    val percentValueLabel = formatCompactPercent(
+        savedMinor = progress.savedMinor,
+        targetMinor = BigInteger.valueOf(targetMinor.coerceAtLeast(0L)),
+        isCompleted = progress.isCompleted
+    )
+    val timelineRemainingLabel = formatTimelineRemaining(
+        daysLeft = daysLeft,
+        isOverdue = overdue,
+        isCompleted = progress.isCompleted
+    )
     val nextMilestoneLabel = if (progress.isCompleted) {
         GoalMilestoneThreshold.COMPLETE.motivationText
     } else {
@@ -210,6 +305,8 @@ fun FinancialGoal.toCardUiModel(
         progressFraction = progress.progressFraction,
         savedFormatted = savedFormatted,
         percentLabel = percentLabel,
+        percentValueLabel = percentValueLabel,
+        timelineRemainingLabel = timelineRemainingLabel,
         nextMilestoneLabel = nextMilestoneLabel,
         isCompleted = progress.isCompleted
     )

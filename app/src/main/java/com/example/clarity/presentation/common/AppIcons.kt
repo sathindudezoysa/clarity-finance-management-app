@@ -223,6 +223,151 @@ object AppIcons {
         }.build()
     }
 
+    val DonutLarge: ImageVector by lazy {
+        ImageVector.Builder(
+            name = "DonutLarge",
+            defaultWidth = 24.dp,
+            defaultHeight = 24.dp,
+            viewportWidth = 24f,
+            viewportHeight = 24f
+        ).path(fill = SolidColor(Color.Black)) {
+            moveTo(11f, 5.08f)
+            verticalLineTo(2f)
+            curveTo(6f, 2.5f, 2f, 6.81f, 2f, 12f)
+            reflectiveCurveToRelative(4f, 9.5f, 9f, 10f)
+            verticalLineToRelative(-3.08f)
+            curveToRelative(-3f, -0.48f, -6f, -3.4f, -6f, -6.92f)
+            reflectiveCurveToRelative(3f, -6.44f, 6f, -6.92f)
+            close()
+            moveTo(18.97f, 11f)
+            horizontalLineTo(22f)
+            curveToRelative(-0.47f, -5f, -4f, -8.53f, -9f, -9f)
+            verticalLineToRelative(3.08f)
+            curveTo(16f, 5.51f, 18.54f, 8f, 18.97f, 11f)
+            close()
+            moveTo(13f, 18.92f)
+            verticalLineTo(22f)
+            curveToRelative(5f, -0.47f, 8.53f, -4f, 9f, -9f)
+            horizontalLineToRelative(-3.03f)
+            curveToRelative(-0.43f, 3f, -2.97f, 5.49f, -5.97f, 5.92f)
+            close()
+        }.build()
+    }
+
+    val Flame: ImageVector by lazy {
+        ImageVector.Builder(
+            name = "Flame",
+            defaultWidth = 24.dp,
+            defaultHeight = 24.dp,
+            viewportWidth = 24f,
+            viewportHeight = 24f
+        ).path(fill = SolidColor(Color.Black)) {
+            moveTo(13.5f, 0.67f)
+            reflectiveCurveToRelative(0.74f, 2.65f, 0.74f, 4.8f)
+            curveToRelative(0f, 2.06f, -1.35f, 3.73f, -3.41f, 3.73f)
+            curveToRelative(-2.07f, 0f, -3.63f, -1.67f, -3.63f, -3.73f)
+            lineToRelative(0.03f, -0.36f)
+            curveTo(5.21f, 7.51f, 4f, 10.62f, 4f, 14f)
+            curveToRelative(0f, 4.42f, 3.58f, 8f, 8f, 8f)
+            reflectiveCurveToRelative(8f, -3.58f, 8f, -8f)
+            curveTo(20f, 8.61f, 17.41f, 3.8f, 13.5f, 0.67f)
+            close()
+            moveTo(11.71f, 19f)
+            curveToRelative(-1.78f, 0f, -3.22f, -1.4f, -3.22f, -3.14f)
+            curveToRelative(0f, -1.62f, 1.05f, -2.76f, 2.81f, -3.12f)
+            curveToRelative(1.77f, -0.36f, 3.6f, -1.21f, 4.62f, -2.58f)
+            curveToRelative(0.39f, 1.29f, 0.59f, 2.65f, 0.59f, 4.04f)
+            curveToRelative(0f, 2.65f, -2.15f, 4.8f, -4.8f, 4.8f)
+            close()
+        }.build()
+    }
+
+    val Trophy: ImageVector by lazy {
+        ImageVector.Builder(
+            name = "Trophy",
+            defaultWidth = 24.dp,
+            defaultHeight = 24.dp,
+            viewportWidth = 24f,
+            viewportHeight = 24f
+        ).path(fill = SolidColor(Color.Black)) {
+            moveTo(19f, 5f)
+            horizontalLineToRelative(-2f)
+            verticalLineTo(3f)
+            horizontalLineTo(7f)
+            verticalLineToRelative(2f)
+            horizontalLineTo(5f)
+            curveToRelative(-1.1f, 0f, -2f, 0.9f, -2f, 2f)
+            verticalLineToRelative(1f)
+            curveToRelative(0f, 2.55f, 1.92f, 4.63f, 4.39f, 4.94f)
+            curveToRelative(0.63f, 1.5f, 1.98f, 2.63f, 3.61f, 2.96f)
+            verticalLineTo(19f)
+            horizontalLineTo(7f)
+            verticalLineToRelative(2f)
+            horizontalLineToRelative(10f)
+            verticalLineToRelative(-2f)
+            horizontalLineToRelative(-4f)
+            verticalLineToRelative(-3.1f)
+            curveToRelative(1.63f, -0.33f, 2.98f, -1.46f, 3.61f, -2.96f)
+            curveTo(19.08f, 12.63f, 21f, 10.55f, 21f, 8f)
+            verticalLineTo(7f)
+            curveToRelative(0f, -1.1f, -0.9f, -2f, -2f, -2f)
+            close()
+            moveTo(5f, 8f)
+            verticalLineTo(7f)
+            horizontalLineToRelative(2f)
+            verticalLineToRelative(3.82f)
+            curveTo(5.84f, 10.4f, 5f, 9.3f, 5f, 8f)
+            close()
+            moveTo(19f, 8f)
+            curveToRelative(0f, 1.3f, -0.84f, 2.4f, -2f, 2.82f)
+            verticalLineTo(7f)
+            horizontalLineToRelative(2f)
+            verticalLineToRelative(1f)
+            close()
+        }.build()
+    }
+
+    val ShieldPlus: ImageVector by lazy {
+        ImageVector.Builder(
+            name = "ShieldPlus",
+            defaultWidth = 24.dp,
+            defaultHeight = 24.dp,
+            viewportWidth = 24f,
+            viewportHeight = 24f
+        ).path(fill = SolidColor(Color.Black)) {
+            moveTo(12f, 2f)
+            lineTo(4f, 5f)
+            verticalLineToRelative(6.09f)
+            curveToRelative(0f, 5.05f, 3.41f, 9.76f, 8f, 10.91f)
+            curveToRelative(4.59f, -1.15f, 8f, -5.86f, 8f, -10.91f)
+            verticalLineTo(5f)
+            lineToRelative(-8f, -3f)
+            close()
+            moveTo(18f, 11.09f)
+            curveToRelative(0f, 4f, -2.55f, 7.7f, -6f, 8.83f)
+            curveToRelative(-3.45f, -1.13f, -6f, -4.82f, -6f, -8.83f)
+            verticalLineTo(6.31f)
+            lineToRelative(6f, -2.12f)
+            lineToRelative(6f, 2.12f)
+            verticalLineToRelative(4.78f)
+            close()
+            moveTo(13f, 7f)
+            horizontalLineToRelative(-2f)
+            verticalLineToRelative(3f)
+            horizontalLineTo(8f)
+            verticalLineToRelative(2f)
+            horizontalLineToRelative(3f)
+            verticalLineToRelative(3f)
+            horizontalLineToRelative(2f)
+            verticalLineToRelative(-3f)
+            horizontalLineToRelative(3f)
+            verticalLineToRelative(-2f)
+            horizontalLineToRelative(-3f)
+            verticalLineTo(7f)
+            close()
+        }.build()
+    }
+
     // Fixed Google brand colors (official 4-color "G" mark).
     val Google: ImageVector by lazy {
         ImageVector.Builder(

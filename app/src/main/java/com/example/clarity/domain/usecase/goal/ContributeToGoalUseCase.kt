@@ -1,6 +1,5 @@
 package com.example.clarity.domain.usecase.goal
 
-import com.example.clarity.domain.model.Account
 import com.example.clarity.domain.model.GoalContribution
 import com.example.clarity.domain.model.GoalContributionError
 import com.example.clarity.domain.model.GoalContributionException
@@ -9,7 +8,6 @@ import com.example.clarity.domain.model.GoalException
 import com.example.clarity.domain.model.TransactionError
 import com.example.clarity.domain.model.TransactionException
 import com.example.clarity.domain.repository.AccountRepository
-import com.example.clarity.domain.repository.CurrencyPreferenceRepository
 import com.example.clarity.domain.repository.GoalFundingRepository
 import com.example.clarity.domain.repository.GoalRepository
 import com.example.clarity.domain.repository.TransactionRepository
@@ -24,12 +22,12 @@ class ContributeToGoalUseCase @Inject constructor(
     private val goalRepository: GoalRepository,
     private val accountRepository: AccountRepository,
     private val transactionRepository: TransactionRepository,
-    private val currencyPreferenceRepository: CurrencyPreferenceRepository,
     private val goalFundingRepository: GoalFundingRepository
 ) {
     suspend operator fun invoke(
         goalId: String,
         amountText: String,
+        sourceAccountId: String,
         id: String = UUID.randomUUID().toString()
     ): Result<GoalContribution> {
         if (!GoalPolicy.validId(goalId)) {
@@ -37,6 +35,9 @@ class ContributeToGoalUseCase @Inject constructor(
         }
         if (!GoalPolicy.validId(id)) {
             return Result.failure(GoalContributionException(GoalContributionError.INVALID_ID))
+        }
+        if (sourceAccountId.isBlank() || !GoalPolicy.validId(sourceAccountId)) {
+            return Result.failure(GoalContributionException(GoalContributionError.ACCOUNT_REQUIRED))
         }
 
         val goal = goalRepository.getGoal(goalId).getOrElse { error ->
@@ -63,24 +64,33 @@ class ContributeToGoalUseCase @Inject constructor(
             return Result.failure(GoalContributionException(GoalContributionError.AMOUNT_NON_POSITIVE))
         }
 
-        val cashWalletId = Account.cashWalletId(goal.userId)
-        val cashWallet = accountRepository.getAccount(cashWalletId).getOrNull()
-            ?: run {
-                val accountsResult = accountRepository.observeAccounts()
-                    .first { it !is Resource.Loading }
-                accountsResult.data.orEmpty().firstOrNull { it.isCashWallet }
-            }
+        val accountsResult = accountRepository.observeAccounts()
+            .first { it !is Resource.Loading }
+        val observedAccounts = accountsResult.data.orEmpty()
+        val sourceAccount = accountRepository.getAccount(sourceAccountId).getOrNull()
+            ?: observedAccounts.firstOrNull { it.id == sourceAccountId }
             ?: return Result.failure(
-                GoalContributionException(GoalContributionError.CASH_WALLET_REQUIRED)
+                GoalContributionException(GoalContributionError.ACCOUNT_NOT_FOUND)
             )
 
-        val preferredCurrency = currencyPreferenceRepository.current()
-        if (!goal.currency.equals(cashWallet.currency, ignoreCase = true) ||
-            !goal.currency.equals(preferredCurrency, ignoreCase = true)
+        if (sourceAccount.isGoalAccount ||
+            (sourceAccount.userId.isNotBlank() && sourceAccount.userId != goal.userId)
         ) {
+            return Result.failure(
+                GoalContributionException(GoalContributionError.ACCOUNT_NOT_FOUND)
+            )
+        }
+
+        if (!goal.currency.equals(sourceAccount.currency, ignoreCase = true)) {
             return Result.failure(
                 GoalContributionException(GoalContributionError.CURRENCY_MISMATCH)
             )
+        }
+
+        val allAccounts = if (observedAccounts.any { it.id == sourceAccount.id }) {
+            observedAccounts
+        } else {
+            observedAccounts + sourceAccount
         }
 
         val txResult = transactionRepository.observeTransactions()
@@ -88,8 +98,9 @@ class ContributeToGoalUseCase @Inject constructor(
         val transactions = txResult.data.orEmpty()
         val availability = GoalFundingPolicy.evaluate(
             transactions = transactions,
-            accounts = listOf(cashWallet),
-            currency = goal.currency
+            accounts = allAccounts,
+            currency = goal.currency,
+            selectedAccountId = sourceAccount.id
         )
         if (!availability.canAfford(amountMinor)) {
             return Result.failure(
@@ -100,6 +111,7 @@ class ContributeToGoalUseCase @Inject constructor(
         return goalFundingRepository.contribute(
             goalId = goal.id,
             amountMinor = amountMinor,
+            sourceAccountId = sourceAccount.id,
             id = id
         ).recoverCatching { error ->
             if (error is TransactionException && error.error == TransactionError.INSUFFICIENT_BALANCE) {
@@ -109,4 +121,3 @@ class ContributeToGoalUseCase @Inject constructor(
         }
     }
 }
-

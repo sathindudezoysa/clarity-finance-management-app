@@ -10,11 +10,20 @@ data class GoalMilestoneUiModel(
     val isReached: Boolean
 )
 
+data class GoalFundingAccountUiModel(
+    val id: String,
+    val label: String,
+    val currency: String,
+    val balanceFormatted: String,
+    val isDefault: Boolean = false
+)
+
 data class GoalContributionItemUiModel(
     val id: String,
     val amountFormatted: String,
     val dateFormatted: String,
-    val isSyncing: Boolean
+    val isSyncing: Boolean,
+    val sourceAccountLabel: String? = null
 )
 
 data class GoalProgressState(
@@ -26,6 +35,7 @@ data class GoalProgressState(
     val name: String = "",
     val description: String = "",
     val currency: String = Currencies.supported.first(),
+    val goalAccountLabel: String = "",
     val savedFormatted: String = "",
     val targetFormatted: String = "",
     val targetDateFormatted: String = "",
@@ -34,6 +44,10 @@ data class GoalProgressState(
     val progressFraction: Float = 0f,
     val percentLabel: String = "0% saved",
     val isCompleted: Boolean = false,
+    val fundingAccounts: List<GoalFundingAccountUiModel> = emptyList(),
+    val selectedAccountId: String? = null,
+    val selectedAccountLabel: String? = null,
+    val accountError: String? = null,
     val amountInput: String = "",
     val amountError: String? = null,
     val availableToContributeFormatted: String = "",
@@ -50,7 +64,8 @@ data class GoalProgressState(
             !isSaving &&
             fatalError == null &&
             fundingError == null &&
+            selectedAccountId != null &&
+            accountError == null &&
             amountError == null &&
             isAmountValid
 }
-
