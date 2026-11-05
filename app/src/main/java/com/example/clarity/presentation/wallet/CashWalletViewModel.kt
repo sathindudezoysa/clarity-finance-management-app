@@ -6,12 +6,14 @@ import androidx.lifecycle.viewModelScope
 import com.example.clarity.domain.model.Currencies
 import com.example.clarity.domain.model.CurrencyConversion
 import com.example.clarity.domain.model.Transaction
+import com.example.clarity.domain.model.TransactionTags
 import com.example.clarity.domain.model.TransactionType
 import com.example.clarity.domain.repository.ExchangeRateRepository
 import com.example.clarity.domain.usecase.account.GetAccountsUseCase
 import com.example.clarity.domain.usecase.currency.ObserveCurrencyPreferenceUseCase
 import com.example.clarity.domain.usecase.transaction.AddTransactionUseCase
 import com.example.clarity.domain.usecase.transaction.GetTransactionsUseCase
+import com.example.clarity.domain.util.CashTopUpPolicy
 import com.example.clarity.domain.util.MoneyUtils
 import com.example.clarity.domain.util.Resource
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -53,7 +55,9 @@ class CashWalletViewModel @Inject constructor(
                 val targetCurrency = pref.currency
 
                 val cashAccount = accounts.firstOrNull { it.isCashWallet }
-                val sourceAccounts = accounts.filter { !it.isCashWallet }
+                val sourceAccounts = CashTopUpPolicy.eligibleSourceAccounts(accounts, targetCurrency)
+                val hasOtherCurrencyAccounts = sourceAccounts.isEmpty() &&
+                    accounts.any { !it.isCashWallet && !it.isGoalAccount }
 
                 val rateCache = mutableMapOf<String, BigDecimal?>()
 
@@ -102,16 +106,17 @@ class CashWalletViewModel @Inject constructor(
                 }
 
                 val current = _uiState.value
-                val selectedSourceId = current.selectedSourceAccountId
-                    .takeIf { id -> sourceAccounts.any { it.id == id } }
-                    ?: sourceAccounts.firstOrNull { it.isDefault }?.id
-                    ?: sourceAccounts.firstOrNull()?.id.orEmpty()
+                val selectedSourceId = CashTopUpPolicy.resolveSelectedSourceAccountId(
+                    currentSelectedId = current.selectedSourceAccountId,
+                    eligibleAccounts = sourceAccounts
+                )
 
                 current.copy(
                     currency = targetCurrency,
                     balance = MoneyUtils.formatMinor(balanceMinor, targetCurrency),
                     cashAccount = cashAccount,
                     sourceAccounts = sourceAccounts,
+                    hasOtherCurrencyAccounts = hasOtherCurrencyAccounts,
                     selectedSourceAccountId = selectedSourceId
                 )
             }.collect { updated ->
@@ -129,7 +134,9 @@ class CashWalletViewModel @Inject constructor(
     }
 
     fun selectSourceAccount(accountId: String) {
-        if (_uiState.value.isSaving) return
+        val current = _uiState.value
+        if (current.isSaving) return
+        if (current.sourceAccounts.none { it.id == accountId }) return
         _uiState.update { it.copy(selectedSourceAccountId = accountId) }
     }
 
@@ -142,14 +149,18 @@ class CashWalletViewModel @Inject constructor(
         val state = _uiState.value
         if (state.isSaving) return
         val cashAccount = state.cashAccount ?: return
-        val amountMinor = MoneyUtils.parseMinor(state.amount, cashAccount.currency).getOrNull() ?: return
+        val defaultCurrency = state.currency
+        val amountMinor = MoneyUtils.parseMinor(state.amount, defaultCurrency).getOrNull() ?: return
         if (amountMinor <= 0L) return
 
-        val availableCashMinor = MoneyUtils.parseMinor(state.balance, state.currency).getOrDefault(0L)
+        val availableCashMinor = MoneyUtils.parseMinor(state.balance, defaultCurrency).getOrDefault(0L)
         if (state.mode == WalletActionMode.EXPENSE && amountMinor > availableCashMinor) return
 
         val sourceAccount = if (state.mode == WalletActionMode.TOP_UP) {
-            state.sourceAccounts.firstOrNull { it.id == state.selectedSourceAccountId } ?: return
+            state.sourceAccounts
+                .firstOrNull { it.id == state.selectedSourceAccountId }
+                ?.takeIf { CashTopUpPolicy.canTopUpFrom(it, defaultCurrency) }
+                ?: return
         } else null
 
         _uiState.update { it.copy(isSaving = true) }
@@ -159,44 +170,30 @@ class CashWalletViewModel @Inject constructor(
                 when (state.mode) {
                     WalletActionMode.TOP_UP -> {
                         val source = requireNotNull(sourceAccount)
-                        val sourceAmountMinor = if (source.currency == cashAccount.currency) {
-                            amountMinor
-                        } else {
-                            val quote = runCatching {
-                                rates.cached(cashAccount.currency, source.currency)
-                                    ?: rates.latest(cashAccount.currency, source.currency)
-                            }.getOrNull()
-                            val rate = quote?.let { runCatching { CurrencyConversion.rate(it.rate) }.getOrNull() }
-                            if (rate != null) {
-                                BigDecimal(BigInteger.valueOf(amountMinor), Currencies.digits(cashAccount.currency))
-                                    .multiply(rate)
-                                    .movePointRight(Currencies.digits(source.currency))
-                                    .setScale(0, RoundingMode.HALF_UP)
-                                    .toLong()
-                            } else {
-                                amountMinor
-                            }
+                        if (!CashTopUpPolicy.canTopUpFrom(source, defaultCurrency)) {
+                            _uiState.update { it.copy(isSaving = false) }
+                            return@launch
                         }
 
                         val debitTx = Transaction(
                             id = UUID.randomUUID().toString(),
-                            amountMinor = sourceAmountMinor,
+                            amountMinor = amountMinor,
                             type = TransactionType.EXPENSE,
-                            category = "Cash Top-Up",
+                            category = TransactionTags.CASH_TOP_UP,
                             dateEpochMillis = now,
                             note = "Top up to ${cashAccount.name}",
                             accountId = source.id,
-                            currency = source.currency
+                            currency = defaultCurrency
                         )
                         val creditTx = Transaction(
                             id = UUID.randomUUID().toString(),
                             amountMinor = amountMinor,
                             type = TransactionType.INCOME,
-                            category = "Cash Top-Up",
+                            category = TransactionTags.CASH_TOP_UP,
                             dateEpochMillis = now,
                             note = "Top up from ${source.displayLabel}",
                             accountId = cashAccount.id,
-                            currency = cashAccount.currency
+                            currency = defaultCurrency
                         )
                         val debitRes = addTransaction(debitTx)
                         if (debitRes.isSuccess) {

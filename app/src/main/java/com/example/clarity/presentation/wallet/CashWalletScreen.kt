@@ -41,6 +41,8 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.example.clarity.domain.util.CashTopUpPolicy
+import com.example.clarity.domain.util.MoneyUtils
 
 @Composable
 fun CashWalletScreen(
@@ -72,7 +74,10 @@ fun CashWalletContent(
     onSubmit: () -> Unit
 ) {
     var accountMenuExpanded by remember { mutableStateOf(false) }
-    val selectedSource = state.sourceAccounts.firstOrNull { it.id == state.selectedSourceAccountId }
+    val eligibleSourceAccounts = remember(state.sourceAccounts, state.currency) {
+        CashTopUpPolicy.eligibleSourceAccounts(state.sourceAccounts, state.currency)
+    }
+    val selectedSource = eligibleSourceAccounts.firstOrNull { it.id == state.selectedSourceAccountId }
 
     Scaffold(
         topBar = {
@@ -144,12 +149,26 @@ fun CashWalletContent(
             }
 
             if (state.mode == WalletActionMode.TOP_UP) {
-                if (state.sourceAccounts.isEmpty()) {
-                    OutlinedButton(
-                        onClick = onAddAccount,
-                        modifier = Modifier.fillMaxWidth()
+                if (eligibleSourceAccounts.isEmpty()) {
+                    Column(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        Text("Add an Account to Top Up From")
+                        Text(
+                            text = if (state.hasOtherCurrencyAccounts) {
+                                "Cash Wallet top-ups are restricted to ${state.currency} accounts matching your default currency."
+                            } else {
+                                "Add a ${state.currency} account matching your default currency to top up Cash Wallet."
+                            },
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        OutlinedButton(
+                            onClick = onAddAccount,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text("Add ${state.currency} Account to Top Up From")
+                        }
                     }
                 } else {
                     ExposedDropdownMenuBox(
@@ -160,7 +179,10 @@ fun CashWalletContent(
                             value = selectedSource?.displayLabel ?: "Select Source Account",
                             onValueChange = {},
                             readOnly = true,
-                            label = { Text("From Account") },
+                            label = { Text("From Account (${state.currency})") },
+                            supportingText = {
+                                Text("Only ${state.currency} accounts matching your default currency can be used")
+                            },
                             trailingIcon = {
                                 ExposedDropdownMenuDefaults.TrailingIcon(expanded = accountMenuExpanded)
                             },
@@ -172,7 +194,7 @@ fun CashWalletContent(
                             expanded = accountMenuExpanded,
                             onDismissRequest = { accountMenuExpanded = false }
                         ) {
-                            state.sourceAccounts.forEach { account ->
+                            eligibleSourceAccounts.forEach { account ->
                                 DropdownMenuItem(
                                     text = { Text("${account.displayLabel} (${account.currency})") },
                                     onClick = {
@@ -186,18 +208,21 @@ fun CashWalletContent(
                 }
             }
 
-            val enteredMinor = com.example.clarity.domain.util.MoneyUtils.parseMinor(state.amount, state.currency).getOrNull()
-            val availableMinor = com.example.clarity.domain.util.MoneyUtils.parseMinor(state.balance, state.currency).getOrDefault(0L)
+            val enteredMinor = MoneyUtils.parseMinor(state.amount, state.currency).getOrNull()
+            val availableMinor = MoneyUtils.parseMinor(state.balance, state.currency).getOrDefault(0L)
             val isAmountInvalid = state.amount.isNotBlank() && (enteredMinor == null || enteredMinor <= 0L)
             val isInsufficientBalance = state.mode == WalletActionMode.EXPENSE &&
                 enteredMinor != null && enteredMinor > availableMinor
             val hasValidationError = isAmountInvalid || isInsufficientBalance
+            val canEnterAmount = !state.isSaving &&
+                (state.mode != WalletActionMode.TOP_UP || eligibleSourceAccounts.isNotEmpty())
 
             OutlinedTextField(
                 value = state.amount,
                 onValueChange = onAmountChange,
                 label = { Text("Amount (${state.currency})") },
                 singleLine = true,
+                enabled = canEnterAmount,
                 isError = hasValidationError,
                 supportingText = when {
                     isInsufficientBalance -> ({ Text("Insufficient cash wallet balance") })
@@ -214,7 +239,7 @@ fun CashWalletContent(
                 enteredMinor != null &&
                 enteredMinor > 0L &&
                 !hasValidationError &&
-                (state.mode != WalletActionMode.TOP_UP || selectedSource != null)
+                (state.mode != WalletActionMode.TOP_UP || CashTopUpPolicy.canTopUpFrom(selectedSource, state.currency))
 
             Button(
                 onClick = onSubmit,
