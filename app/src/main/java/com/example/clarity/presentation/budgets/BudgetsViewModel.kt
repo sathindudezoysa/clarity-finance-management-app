@@ -23,23 +23,27 @@ data class BudgetsState(val loading: Boolean = true, val overview: BudgetOvervie
     val tags: List<String> = TransactionTags.defaultExpenseCategories, val currency: String = "LKR", val editor: BudgetEditor? = null,
     val busy: Boolean = false, val error: String? = null, val currentMonth: String = "", val currentYear: String = "")
 
+internal fun availableBudgetCategories(
+    tags: List<String>,
+    overview: BudgetOverview,
+    period: BudgetPeriod
+): List<String> {
+    val existingKeys = overview.statuses
+        .filter { it.budget.period == period }
+        .map { BudgetPolicy.categoryKey(it.budget.category) }
+        .toSet()
+    return tags.filter { BudgetPolicy.categoryKey(it) !in existingKeys }
+}
+
 internal fun defaultBudgetCategory(
     tags: List<String>,
     overview: BudgetOverview,
     period: BudgetPeriod
 ): String {
-    val existingKeys = overview.statuses
-        .filter { it.budget.period == period }
-        .map { BudgetPolicy.categoryKey(it.budget.category) }
-        .toSet()
-    val preferred = tags.firstOrNull { TransactionTags.key(it) == TransactionTags.key("Food") }
-    if (preferred != null && BudgetPolicy.categoryKey(preferred) !in existingKeys) {
-        return preferred
-    }
-    return tags.firstOrNull { BudgetPolicy.categoryKey(it) !in existingKeys }
-        ?: preferred
-        ?: tags.firstOrNull()
-        ?: "Food"
+    val available = availableBudgetCategories(tags, overview, period)
+    return matchBudgetCategoryTag(available, "Food")
+        ?: available.firstOrNull()
+        ?: ""
 }
 
 internal fun matchBudgetCategoryTag(tags: List<String>, rawCategory: String): String? =
@@ -63,10 +67,22 @@ class BudgetsViewModel @Inject constructor(
                 mutable.update { it.copy(loading = false, error = BudgetMessages.LOAD_ERROR) }
             }.collect { overview -> mutable.update { old ->
                 val changedOwner = old.overview.ownerId != overview.ownerId
+                val nextEditor = when {
+                    changedOwner -> null
+                    old.editor?.budget == null -> old.editor?.let { ed ->
+                        val available = availableBudgetCategories(old.tags, overview, ed.period)
+                        if (ed.category.isBlank() || matchBudgetCategoryTag(available, ed.category) == null) {
+                            ed.copy(category = defaultBudgetCategory(old.tags, overview, ed.period))
+                        } else {
+                            ed
+                        }
+                    }
+                    else -> old.editor
+                }
                 old.copy(loading = overview.loading, overview = overview,
                     currentMonth = BudgetPolicy.currentMonth(clock),
                     currentYear = TransactionCalendar.currentYear(clock),
-                    editor = if (changedOwner) null else old.editor, error = if (changedOwner) null else old.error)
+                    editor = nextEditor, error = if (changedOwner) null else old.error)
             } }
         }
         viewModelScope.launch {
@@ -74,8 +90,13 @@ class BudgetsViewModel @Inject constructor(
                 val resolvedTags = value.ifEmpty { TransactionTags.defaultExpenseCategories }
                 mutable.update { old ->
                     val updatedEditor = old.editor?.let { ed ->
-                        if (ed.budget == null && resolvedTags.none { TransactionTags.key(it) == TransactionTags.key(ed.category) }) {
-                            ed.copy(category = defaultBudgetCategory(resolvedTags, old.overview, ed.period))
+                        if (ed.budget == null) {
+                            val available = availableBudgetCategories(resolvedTags, old.overview, ed.period)
+                            if (ed.category.isBlank() || matchBudgetCategoryTag(available, ed.category) == null) {
+                                ed.copy(category = defaultBudgetCategory(resolvedTags, old.overview, ed.period))
+                            } else {
+                                ed
+                            }
                         } else {
                             ed
                         }
@@ -108,15 +129,26 @@ class BudgetsViewModel @Inject constructor(
     fun changePeriod(value: BudgetPeriod) {
         mutable.update { state ->
             val editor = state.editor ?: return@update state
-            if (editor.budget != null || editor.period == value) state
-            else state.copy(editor = editor.copy(period = value, month = BudgetPolicy.currentPeriodKey(clock, value)), error = null)
+            if (editor.budget != null || editor.period == value) return@update state
+            val available = availableBudgetCategories(state.tags, state.overview, value)
+            val nextCategory = matchBudgetCategoryTag(available, editor.category)
+                ?: defaultBudgetCategory(state.tags, state.overview, value)
+            state.copy(
+                editor = editor.copy(
+                    period = value,
+                    month = BudgetPolicy.currentPeriodKey(clock, value),
+                    category = nextCategory
+                ),
+                error = null
+            )
         }
     }
     fun changeCategory(value: String) {
         mutable.update { state ->
             val editor = state.editor ?: return@update state
             if (editor.budget != null) return@update state
-            val matched = matchBudgetCategoryTag(state.tags, value) ?: return@update state
+            val available = availableBudgetCategories(state.tags, state.overview, editor.period)
+            val matched = matchBudgetCategoryTag(available, value) ?: return@update state
             state.copy(editor = editor.copy(category = matched), error = null)
         }
     }
@@ -130,7 +162,8 @@ class BudgetsViewModel @Inject constructor(
             val category = if (editor.budget != null) {
                 TransactionTags.normalize(editor.budget.category)
             } else {
-                val matched = requireNotNull(matchBudgetCategoryTag(currentState.tags, editor.category))
+                val available = availableBudgetCategories(currentState.tags, currentState.overview, editor.period)
+                val matched = requireNotNull(matchBudgetCategoryTag(available, editor.category))
                 TransactionTags.normalize(matched)
             }
             val month = editor.budget?.month ?: BudgetPolicy.currentPeriodKey(clock, editor.period)

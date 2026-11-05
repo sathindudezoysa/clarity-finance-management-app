@@ -169,9 +169,16 @@ internal fun BudgetEditContent(
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
+                val availableTags = if (editor.budget == null) {
+                    availableBudgetCategories(state.tags, state.overview, editor.period)
+                } else {
+                    listOf(TransactionTags.normalize(editor.budget.category))
+                }
+                val canSave = !busy && (editor.budget != null || availableTags.isNotEmpty())
                 BudgetCategoryTagSelector(
                     selectedCategory = editor.category,
-                    tags = state.tags,
+                    tags = availableTags,
+                    isLocked = editor.budget != null,
                     enabled = canEditIdentity,
                     onCategorySelected = { selected ->
                         focusManager.clearFocus()
@@ -198,7 +205,7 @@ internal fun BudgetEditContent(
                             focusManager.clearFocus()
                             onSave()
                         },
-                        enabled = !busy,
+                        enabled = canSave,
                         modifier = Modifier.weight(1f)
                     ) {
                         Text(BudgetUiText.SAVE)
@@ -214,18 +221,12 @@ internal fun BudgetEditContent(
 private fun BudgetCategoryTagSelector(
     selectedCategory: String,
     tags: List<String>,
+    isLocked: Boolean,
     enabled: Boolean,
     onCategorySelected: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
     val normalizedSelected = TransactionTags.normalize(selectedCategory)
-    val displayTags = remember(tags, normalizedSelected) {
-        if (tags.any { TransactionTags.key(it) == TransactionTags.key(normalizedSelected) }) {
-            tags
-        } else {
-            listOf(normalizedSelected) + tags
-        }
-    }
 
     Column(
         modifier = modifier,
@@ -237,35 +238,43 @@ private fun BudgetCategoryTagSelector(
                 style = MaterialTheme.typography.labelLarge
             )
             Text(
-                text = if (enabled) BudgetUiText.CATEGORY_HINT else BudgetUiText.CATEGORY_LOCKED_HINT,
+                text = if (isLocked) BudgetUiText.CATEGORY_LOCKED_HINT else BudgetUiText.CATEGORY_HINT,
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
-        FlowRow(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            displayTags.forEach { tag ->
-                val isSelected = TransactionTags.key(normalizedSelected) == TransactionTags.key(tag)
-                FilterChip(
-                    selected = isSelected,
-                    onClick = { onCategorySelected(tag) },
-                    label = { Text(tag) },
-                    leadingIcon = if (isSelected) {
-                        {
-                            Icon(
-                                imageVector = Icons.Default.Check,
-                                contentDescription = null,
-                                modifier = Modifier.size(FilterChipDefaults.IconSize)
-                            )
-                        }
-                    } else {
-                        null
-                    },
-                    enabled = enabled
-                )
+        if (tags.isEmpty()) {
+            Text(
+                text = BudgetUiText.NO_AVAILABLE_CATEGORIES,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        } else {
+            FlowRow(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                tags.forEach { tag ->
+                    val isSelected = TransactionTags.key(normalizedSelected) == TransactionTags.key(tag)
+                    FilterChip(
+                        selected = isSelected,
+                        onClick = { onCategorySelected(tag) },
+                        label = { Text(tag) },
+                        leadingIcon = if (isSelected) {
+                            {
+                                Icon(
+                                    imageVector = Icons.Default.Check,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(FilterChipDefaults.IconSize)
+                                )
+                            }
+                        } else {
+                            null
+                        },
+                        enabled = enabled
+                    )
+                }
             }
         }
     }

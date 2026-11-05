@@ -10,6 +10,7 @@ import com.example.clarity.domain.repository.BudgetOverview
 import com.example.clarity.domain.repository.TransactionTagRepository
 import com.example.clarity.domain.usecase.transaction.GetTransactionTagsUseCase
 import com.example.clarity.presentation.budgets.BudgetsState
+import com.example.clarity.presentation.budgets.availableBudgetCategories
 import com.example.clarity.presentation.budgets.defaultBudgetCategory
 import com.example.clarity.presentation.budgets.formatBudgetPercentLabel
 import com.example.clarity.presentation.budgets.matchBudgetCategoryTag
@@ -69,9 +70,9 @@ class BudgetsCategoryTagsTest {
     }
 
     @Test
-    fun defaultBudgetCategoryPicksNextAvailableCreatedTagWhenFoodAlreadyHasMonthlyBudget() {
+    fun availableBudgetCategoriesRemovesAlreadyCreatedCategoryTagsForSelectedPeriod() {
         val tags = listOf("General", "Groceries", "Food", "Dining Out")
-        val existingFoodBudget = Budget(
+        val monthlyFood = Budget(
             id = BudgetPolicy.id("2026-11", "Food"),
             userId = "owner",
             month = "2026-11",
@@ -79,13 +80,77 @@ class BudgetsCategoryTagsTest {
             limitMinor = 500_000L,
             currency = "LKR"
         )
+        val monthlyGroceries = Budget(
+            id = BudgetPolicy.id("2026-11", "groceries"),
+            userId = "owner",
+            month = "2026-11",
+            category = "groceries",
+            limitMinor = 300_000L,
+            currency = "LKR"
+        )
+        val yearlyDiningOut = Budget(
+            id = BudgetPolicy.id("2026", "Dining Out"),
+            userId = "owner",
+            month = "2026",
+            category = "Dining Out",
+            limitMinor = 2_000_000L,
+            currency = "LKR"
+        )
         val overview = BudgetOverview(
             ownerId = "owner",
-            statuses = listOf(BudgetStatus(existingFoodBudget, BigInteger.ZERO, 0))
+            statuses = listOf(
+                BudgetStatus(monthlyFood, BigInteger.ZERO, 0),
+                BudgetStatus(monthlyGroceries, BigInteger.ZERO, 0),
+                BudgetStatus(yearlyDiningOut, BigInteger.ZERO, 0)
+            )
         )
 
+        assertEquals(
+            listOf("General", "Dining Out"),
+            availableBudgetCategories(tags, overview, BudgetPeriod.MONTHLY)
+        )
+        assertEquals(
+            listOf("General", "Groceries", "Food"),
+            availableBudgetCategories(tags, overview, BudgetPeriod.YEARLY)
+        )
         assertEquals("General", defaultBudgetCategory(tags, overview, BudgetPeriod.MONTHLY))
         assertEquals("Food", defaultBudgetCategory(tags, overview, BudgetPeriod.YEARLY))
+
+        // Deleting the monthly Food budget makes "Food" available again on Create Budget.
+        val afterDeletingFood = overview.copy(
+            statuses = overview.statuses.filterNot { it.budget.id == monthlyFood.id }
+        )
+        assertEquals(
+            listOf("General", "Food", "Dining Out"),
+            availableBudgetCategories(tags, afterDeletingFood, BudgetPeriod.MONTHLY)
+        )
+        assertEquals("Food", defaultBudgetCategory(tags, afterDeletingFood, BudgetPeriod.MONTHLY))
+    }
+
+    @Test
+    fun availableBudgetCategoriesReturnsEmptyWhenAllTagsAlreadyHaveBudgetsForPeriod() {
+        val tags = listOf("Food", "Transport")
+        val overview = BudgetOverview(
+            ownerId = "owner",
+            statuses = tags.map { tag ->
+                BudgetStatus(
+                    Budget(
+                        id = BudgetPolicy.id("2026-11", tag),
+                        userId = "owner",
+                        month = "2026-11",
+                        category = tag,
+                        limitMinor = 100_000L,
+                        currency = "LKR"
+                    ),
+                    BigInteger.ZERO,
+                    0
+                )
+            }
+        )
+
+        assertTrue(availableBudgetCategories(tags, overview, BudgetPeriod.MONTHLY).isEmpty())
+        assertEquals("", defaultBudgetCategory(tags, overview, BudgetPeriod.MONTHLY))
+        assertEquals(tags, availableBudgetCategories(tags, overview, BudgetPeriod.YEARLY))
     }
 
     @Test

@@ -74,6 +74,7 @@ object BudgetUiText {
     const val CATEGORY_LABEL = "Category tag"
     const val CATEGORY_HINT = "Select from your expense category tags."
     const val CATEGORY_LOCKED_HINT = "Category tag cannot be changed after creating a budget."
+    const val NO_AVAILABLE_CATEGORIES = "All expense category tags already have a budget for this period."
     const val RETRY = "Resolve uncounted currencies"
     const val PENDING_SYNC = "Saved on this device · Waiting to sync"
     const val EDIT = "Edit"
