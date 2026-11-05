@@ -109,6 +109,19 @@ class BudgetAlertEvaluatorTest {
         assertNull(dao.alert("owner", pastYearly.id))
     }
 
+    @Test fun deletedBudgetCancelsNotificationAndClearsAlertHistory() = runBlocking {
+        dao.upsert(budget.toEntity())
+        evaluate(1_050_000)
+        assertNotNull(notifications.visible)
+        assertEquals(3, dao.alert("owner", budget.id)!!.level)
+
+        dao.upsert(budget.copy(active = false, updatedAt = 2, pendingSync = true).toEntity().copy(isDeleted = true))
+        evaluator().evaluate(BudgetOverview("owner", emptyList()))
+
+        assertNull(notifications.visible)
+        assertNull(dao.alert("owner", budget.id))
+    }
+
     // Use the production DAO's upsert/claim bodies with an in-memory backing store. Room's
     // transaction/restart behavior is separately exercised by BudgetPersistenceTest.
     private class FakeDao : BudgetDao() {
@@ -116,9 +129,15 @@ class BudgetAlertEvaluatorTest {
         private val budgets = mutableMapOf<Pair<String, String>, BudgetEntity>()
         private val alerts = mutableMapOf<Pair<String, String>, BudgetAlertEntity>()
         override fun observe(uid: String) = flowOf(budgets.values.filter { it.userId == uid })
+        override suspend fun all(uid: String) = budgets.values.filter { it.userId == uid }
         override suspend fun get(uid: String, id: String) = budgets[uid to id]
         override suspend fun pending(uid: String) = budgets.values.filter { it.userId == uid && it.pendingSync }
+        override suspend fun remove(uid: String, id: String) { budgets.remove(uid to id) }
         override suspend fun persist(row: BudgetEntity) { budgets[row.userId to row.id] = row }
+        override suspend fun alertedIds(uid: String) = alerts.keys.filter { it.first == uid }.map { it.second }.distinct()
+        override suspend fun clearAlerts(uid: String, id: String, pattern: String) {
+            alerts.keys.removeIf { (owner, key) -> owner == uid && (key == id || key.startsWith("$id@")) }
+        }
         override suspend fun resolve(row: BudgetResolutionEntity) = Unit
         override fun resolutions(uid: String): Flow<List<BudgetResolutionEntity>> = flowOf(emptyList())
         override suspend fun alert(uid: String, id: String) = alerts[uid to id]

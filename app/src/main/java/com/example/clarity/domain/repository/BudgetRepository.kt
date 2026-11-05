@@ -10,6 +10,7 @@ data class BudgetOverview(val ownerId: String? = null, val statuses: List<Budget
 interface BudgetRepository {
     fun observe(): Flow<BudgetOverview>
     suspend fun save(budget: Budget): Result<Unit>
-    suspend fun disable(id: String): Result<Unit>
+    suspend fun delete(id: String): Result<Unit>
+    suspend fun disable(id: String): Result<Unit> = delete(id)
     suspend fun resolveUncounted(id: String): Result<Unit>
 }

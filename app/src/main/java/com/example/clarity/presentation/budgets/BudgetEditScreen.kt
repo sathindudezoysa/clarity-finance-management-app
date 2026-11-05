@@ -10,6 +10,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -23,7 +24,7 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.clarity.domain.model.BudgetPeriod
-import com.example.clarity.presentation.transactions.edit.TransactionTagField
+import com.example.clarity.domain.model.TransactionTags
 import kotlinx.coroutines.launch
 
 @Composable
@@ -99,7 +100,6 @@ internal fun BudgetEditContent(
     val scope = rememberCoroutineScope()
     val focusManager = LocalFocusManager.current
     val limitRequester = remember { BringIntoViewRequester() }
-    val tagRequester = remember { BringIntoViewRequester() }
 
     Scaffold(
         topBar = {
@@ -169,22 +169,23 @@ internal fun BudgetEditContent(
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .bringIntoViewRequester(tagRequester)
-                        .onFocusEvent { if (it.isFocused) scope.launch { tagRequester.bringIntoView() } }
-                ) {
-                    TransactionTagField(
-                        value = editor.category,
-                        tags = state.tags,
-                        onValueChange = onCategoryChange,
-                        enabled = canEditIdentity,
-                        error = null,
-                        modifier = Modifier.fillMaxWidth(),
-                        hint = "Tap a category or type a new one."
-                    )
+                val availableTags = if (editor.budget == null) {
+                    availableBudgetCategories(state.tags, state.overview, editor.period)
+                } else {
+                    listOf(TransactionTags.normalize(editor.budget.category))
                 }
+                val canSave = !busy && (editor.budget != null || availableTags.isNotEmpty())
+                BudgetCategoryTagSelector(
+                    selectedCategory = editor.category,
+                    tags = availableTags,
+                    isLocked = editor.budget != null,
+                    enabled = canEditIdentity,
+                    onCategorySelected = { selected ->
+                        focusManager.clearFocus()
+                        onCategoryChange(selected)
+                    },
+                    modifier = Modifier.fillMaxWidth()
+                )
                 state.error?.let {
                     BudgetMessageBanner(Icons.Default.Warning, it, isError = true)
                 }
@@ -204,11 +205,75 @@ internal fun BudgetEditContent(
                             focusManager.clearFocus()
                             onSave()
                         },
-                        enabled = !busy,
+                        enabled = canSave,
                         modifier = Modifier.weight(1f)
                     ) {
                         Text(BudgetUiText.SAVE)
                     }
+                }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class, ExperimentalMaterial3Api::class)
+@Composable
+private fun BudgetCategoryTagSelector(
+    selectedCategory: String,
+    tags: List<String>,
+    isLocked: Boolean,
+    enabled: Boolean,
+    onCategorySelected: (String) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val normalizedSelected = TransactionTags.normalize(selectedCategory)
+
+    Column(
+        modifier = modifier,
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(
+                text = BudgetUiText.CATEGORY_LABEL,
+                style = MaterialTheme.typography.labelLarge
+            )
+            Text(
+                text = if (isLocked) BudgetUiText.CATEGORY_LOCKED_HINT else BudgetUiText.CATEGORY_HINT,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+        if (tags.isEmpty()) {
+            Text(
+                text = BudgetUiText.NO_AVAILABLE_CATEGORIES,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        } else {
+            FlowRow(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                tags.forEach { tag ->
+                    val isSelected = TransactionTags.key(normalizedSelected) == TransactionTags.key(tag)
+                    FilterChip(
+                        selected = isSelected,
+                        onClick = { onCategorySelected(tag) },
+                        label = { Text(tag) },
+                        leadingIcon = if (isSelected) {
+                            {
+                                Icon(
+                                    imageVector = Icons.Default.Check,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(FilterChipDefaults.IconSize)
+                                )
+                            }
+                        } else {
+                            null
+                        },
+                        enabled = enabled
+                    )
                 }
             }
         }

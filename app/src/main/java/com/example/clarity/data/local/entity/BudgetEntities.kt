@@ -7,7 +7,8 @@ import androidx.room.Index
 data class BudgetEntity(
     val id: String, val userId: String, val month: String, val category: String, val categoryKey: String,
     val limitMinor: Long, val currency: String, val active: Boolean,
-    val createdAt: Long, val updatedAt: Long, val pendingSync: Boolean
+    val createdAt: Long, val updatedAt: Long, val pendingSync: Boolean,
+    val isDeleted: Boolean = false
 )
 
 // Local only: a durable high-water mark, independent of budget cloud synchronization.

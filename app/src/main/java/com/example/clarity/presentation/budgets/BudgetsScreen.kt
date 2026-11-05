@@ -11,12 +11,16 @@ import android.os.Build
 import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Warning
@@ -24,6 +28,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.semantics.contentDescription
@@ -76,7 +81,7 @@ fun BudgetsScreen(
             viewModel.edit(budget)
             onOpenEditor(budget.id)
         },
-        onDisable = viewModel::disable, onRetry = viewModel::retryCurrency,
+        onDelete = viewModel::delete, onRetry = viewModel::retryCurrency,
         notificationPermission = { BudgetNotificationPermission() },
         topBar = topBar,
         bottomBar = bottomBar
@@ -86,7 +91,7 @@ fun BudgetsScreen(
 @Composable
 fun BudgetsContent(
     state: BudgetsState, selectedId: String?, onBack: () -> Unit = {}, onCreate: () -> Unit,
-    onEdit: (Budget) -> Unit, onDisable: (String) -> Unit, onRetry: (String) -> Unit,
+    onEdit: (Budget) -> Unit, onDelete: (String) -> Unit, onRetry: (String) -> Unit,
     notificationPermission: @Composable () -> Unit = {},
     topBar: @Composable () -> Unit = {
         ClarityTopBar(
@@ -96,7 +101,9 @@ fun BudgetsContent(
     },
     bottomBar: @Composable () -> Unit = {}
 ) {
+    val colors = MaterialTheme.colorScheme
     val listState = rememberLazyListState()
+    var pendingDeleteBudget by remember { mutableStateOf<Budget?>(null) }
     // Highlighting/navigation only selects a budget already loaded from the authenticated owner's stream.
     val rows = state.overview.statuses.filter { it.budget.active }
     LaunchedEffect(selectedId, rows.map { it.budget.id }) {
@@ -104,57 +111,116 @@ fun BudgetsContent(
         // Exactly one header item precedes the budget rows.
         if (index >= 0) listState.animateScrollToItem(index + 1)
     }
+
+    pendingDeleteBudget?.let { target ->
+        AlertDialog(
+            onDismissRequest = { pendingDeleteBudget = null },
+            title = { Text(BudgetUiText.DELETE_CONFIRM_TITLE) },
+            text = { Text(budgetDeleteConfirmMessage(target.category)) },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        val deleteId = target.id
+                        pendingDeleteBudget = null
+                        onDelete(deleteId)
+                    }
+                ) {
+                    Text(
+                        text = BudgetUiText.DELETE,
+                        color = colors.error,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingDeleteBudget = null }) {
+                    Text(BudgetUiText.CANCEL)
+                }
+            }
+        )
+    }
+
     Scaffold(
         topBar = topBar,
         bottomBar = bottomBar,
+        containerColor = colors.background,
         floatingActionButton = {
             if (state.overview.ownerId != null) {
                 FloatingActionButton(
                     onClick = { if (!state.busy) onCreate() },
                     modifier = Modifier.semantics { contentDescription = BudgetUiText.CREATE }
                 ) {
-                    Text("+", style = MaterialTheme.typography.headlineMedium)
+                    Icon(
+                        imageVector = Icons.Default.Add,
+                        contentDescription = null
+                    )
                 }
             }
         }
     ) { padding ->
-        LazyColumn(
-            state = listState,
-            modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp),
-            contentPadding = PaddingValues(
-                top = padding.calculateTopPadding() + 8.dp,
-                bottom = padding.calculateBottomPadding()
-            ),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
+        Box(
+            modifier = Modifier.fillMaxSize(),
+            contentAlignment = Alignment.TopCenter
         ) {
-            item { BudgetsHeader(state, rows.isEmpty(), notificationPermission) }
-            items(rows, key = { it.budget.id }) { status ->
-                BudgetCard(status, selected = status.budget.id == selectedId,
-                    live = isLivePeriod(status, state),
-                    onEdit = { onEdit(status.budget) }, onDisable = { onDisable(status.budget.id) },
-                    onRetry = { onRetry(status.budget.id) }, enabled = !state.busy)
+            LazyColumn(
+                state = listState,
+                modifier = Modifier
+                    .widthIn(max = 600.dp)
+                    .fillMaxSize(),
+                contentPadding = PaddingValues(
+                    start = 16.dp,
+                    end = 16.dp,
+                    top = padding.calculateTopPadding() + 14.dp,
+                    bottom = padding.calculateBottomPadding() + 96.dp
+                ),
+                verticalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                item {
+                    BudgetsHeader(
+                        state = state,
+                        empty = rows.isEmpty(),
+                        onCreate = if (state.overview.ownerId != null && !state.busy) onCreate else null,
+                        notificationPermission = notificationPermission
+                    )
+                }
+                items(rows, key = { it.budget.id }) { status ->
+                    BudgetCard(
+                        status = status,
+                        selected = status.budget.id == selectedId,
+                        live = isLivePeriod(status, state),
+                        onEdit = { onEdit(status.budget) },
+                        onDelete = { pendingDeleteBudget = status.budget },
+                        onRetry = { onRetry(status.budget.id) },
+                        enabled = !state.busy
+                    )
+                }
             }
-            val disabled = state.overview.statuses.filter { !it.budget.active }
-            if (disabled.isNotEmpty()) item(key = "disabled-section") { BudgetSectionLabel(BudgetUiText.DISABLED_SECTION) }
-            items(disabled, key = { "disabled-${it.budget.id}" }) { status ->
-                DisabledBudgetRow(status, onClick = { onEdit(status.budget) }, enabled = !state.busy)
-            }
-            item { Spacer(Modifier.height(88.dp)) }
         }
     }
 }
 
 @Composable
-private fun BudgetsHeader(state: BudgetsState, empty: Boolean, notificationPermission: @Composable () -> Unit) {
+private fun BudgetsHeader(
+    state: BudgetsState,
+    empty: Boolean,
+    onCreate: (() -> Unit)?,
+    notificationPermission: @Composable () -> Unit
+) {
+    val colors = MaterialTheme.colorScheme
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         notificationPermission()
-        if (state.loading) Box(Modifier.fillMaxWidth().padding(vertical = 16.dp), contentAlignment = Alignment.Center) {
-            CircularProgressIndicator(Modifier.semantics { contentDescription = BudgetUiText.LOADING })
+        if (state.loading) {
+            Box(Modifier.fillMaxWidth().padding(vertical = 24.dp), contentAlignment = Alignment.Center) {
+                CircularProgressIndicator(
+                    color = colors.primary,
+                    modifier = Modifier.semantics { contentDescription = BudgetUiText.LOADING }
+                )
+            }
         }
         if (state.overview.ownerId == null && !state.loading) BudgetMessageBanner(Icons.Default.Info, BudgetUiText.SIGN_IN, isError = false)
         if (state.overview.syncError) BudgetMessageBanner(Icons.Default.Warning, BudgetUiText.SYNC_ERROR, isError = true)
         state.error?.let { BudgetMessageBanner(Icons.Default.Warning, it, isError = true) }
-        if (!state.loading && empty) BudgetEmptyState()
+        if (!state.loading && empty) BudgetEmptyState(onCreate = onCreate)
     }
 }
 
@@ -167,6 +233,7 @@ fun BudgetDashboardSummary(onOpen: (String?) -> Unit, viewModel: BudgetsViewMode
 // Rendered inside the dashboard's vertically scrolling Column: no lazy lists or nested scrolling.
 @Composable
 private fun BudgetDashboardCard(state: BudgetsState, onOpen: (String?) -> Unit) {
+    val colors = MaterialTheme.colorScheme
     val alerts = state.overview.statuses.filter { it.budget.active && isLivePeriod(it, state) &&
         (it.threshold.level > 0 || it.uncounted > 0) }.take(3)
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -177,23 +244,31 @@ private fun BudgetDashboardCard(state: BudgetsState, onOpen: (String?) -> Unit) 
                 fontWeight = FontWeight.Bold,
                 modifier = Modifier.weight(1f)
             )
-            TextButton(onClick = { onOpen(null) }) { Text(BudgetUiText.DASHBOARD_OPEN) }
+            TextButton(onClick = { onOpen(null) }) {
+                Text(BudgetUiText.DASHBOARD_OPEN, color = colors.primary, fontWeight = FontWeight.SemiBold)
+            }
         }
-        OutlinedCard(
+        Card(
             modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(16.dp)
+            shape = RoundedCornerShape(20.dp),
+            border = BorderStroke(1.dp, colors.outlineVariant.copy(alpha = 0.45f)),
+            colors = CardDefaults.cardColors(
+                containerColor = colors.surface,
+                contentColor = colors.onSurface
+            ),
+            elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
         ) {
             if (alerts.isEmpty()) {
                 Text(
                     BudgetUiText.DASHBOARD_EMPTY,
                     modifier = Modifier.padding(16.dp),
                     style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    color = colors.onSurfaceVariant
                 )
             } else {
                 Column {
                     alerts.forEachIndexed { index, status ->
-                        if (index > 0) Divider(color = MaterialTheme.colorScheme.outlineVariant)
+                        if (index > 0) Divider(color = colors.outlineVariant.copy(alpha = 0.35f))
                         BudgetDashboardAlert(status) { onOpen(status.budget.id) }
                     }
                 }
@@ -236,22 +311,70 @@ private fun BudgetNotificationPermission() {
         prefs.edit().putBoolean("asked", true).apply()
         if (Build.VERSION.SDK_INT >= 33) launcher.launch(Manifest.permission.POST_NOTIFICATIONS)
     }
-    OutlinedCard(Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(start = 16.dp, top = 16.dp, end = 8.dp, bottom = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Row(Modifier.padding(end = 8.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                Icon(Icons.Default.Notifications, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                Text(BudgetUiText.NOTIFICATION_TITLE, style = MaterialTheme.typography.titleSmall)
+    val colors = MaterialTheme.colorScheme
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(20.dp),
+        border = BorderStroke(1.dp, colors.outlineVariant.copy(alpha = 0.45f)),
+        colors = CardDefaults.cardColors(
+            containerColor = colors.surface,
+            contentColor = colors.onSurface
+        ),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+    ) {
+        Column(
+            modifier = Modifier.padding(start = 16.dp, top = 16.dp, end = 8.dp, bottom = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Row(
+                modifier = Modifier.padding(end = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(36.dp)
+                        .clip(CircleShape)
+                        .background(colors.secondaryContainer),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Notifications,
+                        contentDescription = null,
+                        tint = colors.primary,
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
+                Text(
+                    text = BudgetUiText.NOTIFICATION_TITLE,
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.SemiBold,
+                    color = colors.onSurface
+                )
             }
-            Text(BudgetUiText.NOTIFICATION_HELP, modifier = Modifier.padding(end = 8.dp), style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant)
-            TextButton(modifier = Modifier.align(Alignment.End), onClick = {
-                val activity = context as? Activity
-                if (Build.VERSION.SDK_INT < 33 || ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED) {
-                    context.startActivity(Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName))
-                } else if (activity != null && ActivityCompat.shouldShowRequestPermissionRationale(activity, Manifest.permission.POST_NOTIFICATIONS)) rationale = true
-                else if (asked) context.startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:${context.packageName}")))
-                else request()
-            }) { Text(BudgetUiText.NOTIFICATION_ACTION) }
+            Text(
+                text = BudgetUiText.NOTIFICATION_HELP,
+                modifier = Modifier.padding(end = 8.dp),
+                style = MaterialTheme.typography.bodySmall,
+                color = colors.onSurfaceVariant
+            )
+            TextButton(
+                modifier = Modifier.align(Alignment.End),
+                onClick = {
+                    val activity = context as? Activity
+                    if (Build.VERSION.SDK_INT < 33 || ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED) {
+                        context.startActivity(Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName))
+                    } else if (activity != null && ActivityCompat.shouldShowRequestPermissionRationale(activity, Manifest.permission.POST_NOTIFICATIONS)) rationale = true
+                    else if (asked) context.startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:${context.packageName}")))
+                    else request()
+                }
+            ) {
+                Text(
+                    text = BudgetUiText.NOTIFICATION_ACTION,
+                    color = colors.primary,
+                    fontWeight = FontWeight.SemiBold
+                )
+            }
         }
     }
     if (rationale) AlertDialog(onDismissRequest = { rationale = false },
@@ -271,14 +394,13 @@ private val previewState = BudgetsState(loading = false, currentMonth = "2026-10
         previewStatus("Transport", 850_000, 1_000_000),
         previewStatus("Shopping", 1_000_000, 1_000_000, uncounted = 2),
         previewStatus("Entertainment", 1_250_000, 1_000_000),
-        previewStatus("Bills", 1_400_000, 1_000_000, month = "2026-09"),
-        previewStatus("Health", 0, 500_000, active = false)
+        previewStatus("Bills", 1_400_000, 1_000_000, month = "2026-09")
     )))
 
 @Composable
 private fun BudgetsPreviewContent(state: BudgetsState, selectedId: String? = null) {
     ClarityTheme {
-        BudgetsContent(state, selectedId, onBack = {}, onCreate = {}, onEdit = {}, onDisable = {}, onRetry = {})
+        BudgetsContent(state, selectedId, onBack = {}, onCreate = {}, onEdit = {}, onDelete = {}, onRetry = {})
     }
 }
 

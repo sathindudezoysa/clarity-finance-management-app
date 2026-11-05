@@ -101,20 +101,24 @@ class BudgetPersistenceTest {
             evaluator.evaluate(status(repo))
             assertEquals(listOf(3, 3), notifications.delivered)
             assertNull(db.budgetDao.alert("other", budget.id))
-            repo.disable(budget.id).getOrThrow()
-            val disabled = db.budgetDao.get("owner", budget.id)!!
-            processor.reconcile("owner", listOf(budget.copy(updatedAt = disabled.updatedAt - 1)))
-            assertFalse(db.budgetDao.get("owner", budget.id)!!.active)
-            assertTrue(processor.upload("owner"))
-            processor.reconcile("owner", listOf(budget.copy(updatedAt = disabled.updatedAt - 1)))
-            assertFalse(db.budgetDao.get("owner", budget.id)!!.active)
-            evaluator.evaluate(status(repo))
+            repo.delete(budget.id).getOrThrow()
+            val deleted = db.budgetDao.get("owner", budget.id)!!
+            assertTrue(deleted.isDeleted)
+            assertTrue(deleted.pendingSync)
+            processor.reconcile("owner", listOf(budget.copy(updatedAt = deleted.updatedAt - 1)))
+            assertTrue(db.budgetDao.get("owner", budget.id)!!.isDeleted)
+            val postDeleteOverview = withTimeout(5_000) { repo.observe().first { !it.loading } }
+            assertTrue(postDeleteOverview.statuses.isEmpty())
+            evaluator.evaluate(postDeleteOverview)
             assertTrue(notifications.cancelled.contains(budget.id))
+            assertTrue(processor.upload("owner"))
+            assertNull(db.budgetDao.get("owner", budget.id))
+            assertFalse(remote.rows.containsKey(budget.id))
 
             auth.currentUser.value = User("other", null, null)
             assertTrue(repo.observe().first { !it.loading && it.ownerId == "other" }.statuses.isEmpty())
             assertTrue(repo.save(budget).isFailure)
-            assertTrue(repo.disable(budget.id).isFailure)
+            assertTrue(repo.delete(budget.id).isFailure)
             assertTrue(runCatching { processor.upload("owner") }.isFailure)
             evaluator.evaluate(overview)
             assertEquals(listOf(3, 3), notifications.delivered)
@@ -143,6 +147,11 @@ class BudgetPersistenceTest {
             val saved = budget.copy(pendingSync = false)
             rows[budget.id] = saved
             return saved
+        }
+        override suspend fun delete(uid: String, id: String) {
+            check(!offline)
+            onWrite()
+            rows.remove(id)
         }
     }
     private class TestAuth : AuthRepository {

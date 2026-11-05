@@ -10,8 +10,11 @@ class ObserveBudgetsUseCase @Inject constructor(private val repository: BudgetRe
 class SaveBudgetUseCase @Inject constructor(private val repository: BudgetRepository) {
     suspend operator fun invoke(budget: Budget) = repository.save(budget)
 }
+class DeleteBudgetUseCase @Inject constructor(private val repository: BudgetRepository) {
+    suspend operator fun invoke(id: String) = repository.delete(id)
+}
 class DisableBudgetUseCase @Inject constructor(private val repository: BudgetRepository) {
-    suspend operator fun invoke(id: String) = repository.disable(id)
+    suspend operator fun invoke(id: String) = repository.delete(id)
 }
 class ResolveBudgetCurrencyUseCase @Inject constructor(private val repository: BudgetRepository) {
     suspend operator fun invoke(id: String) = repository.resolveUncounted(id)

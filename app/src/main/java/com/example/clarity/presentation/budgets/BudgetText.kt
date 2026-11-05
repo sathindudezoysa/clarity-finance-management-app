@@ -38,8 +38,9 @@ fun budgetIncompleteText(uncounted: Int): String =
     String.format("%d expense(s) are uncounted because their currency is not yet comparable. This total is incomplete.", uncounted)
 
 object BudgetMessages {
-    const val VALIDATION = "Enter a valid month or year and a positive amount with the currency’s exact decimal places. If this category and month or year already have a budget, edit or re-enable that budget."
+    const val VALIDATION = "Enter a valid month or year and a positive amount with the currency’s exact decimal places. If this category and month or year already have a budget, edit that budget instead."
     const val SAVE_ERROR = "Could not save the budget. Check your session and try again."
+    const val DELETE_ERROR = "Could not delete the budget. Check your session and try again."
     const val LOAD_ERROR = "Could not load budgets. Reopen this screen to retry."
     const val CONVERSION_ERROR = "Some currency conversions are unavailable. Counted spending is unchanged; reconnect and retry."
 }
@@ -70,12 +71,18 @@ object BudgetUiText {
     const val PERIOD_YEARLY = "Yearly"
     const val RESET_MONTHLY_HINT = "Resets automatically on the 1st of every month."
     const val RESET_YEARLY_HINT = "Resets automatically on 1 January every year."
+    const val CATEGORY_LABEL = "Category tag"
+    const val CATEGORY_HINT = "Select from your expense category tags."
+    const val CATEGORY_LOCKED_HINT = "Category tag cannot be changed after creating a budget."
+    const val NO_AVAILABLE_CATEGORIES = "All expense category tags already have a budget for this period."
     const val RETRY = "Resolve uncounted currencies"
     const val PENDING_SYNC = "Saved on this device · Waiting to sync"
-    const val EDIT = "Edit budget"
-    const val DISABLE = "Disable"
-    const val DISABLED_SECTION = "Disabled budgets"
-    const val DISABLED_HINT = "Disabled — tap to enable"
+    const val EDIT = "Edit"
+    const val DELETE = "Delete"
+    const val DELETE_CONFIRM_TITLE = "Delete budget?"
     const val DASHBOARD_OPEN = "View all"
     const val DASHBOARD_EMPTY = "No budget alerts right now."
 }
+
+fun budgetDeleteConfirmMessage(category: String): String =
+    "This $category budget will be permanently deleted. Your transactions will not be affected."
