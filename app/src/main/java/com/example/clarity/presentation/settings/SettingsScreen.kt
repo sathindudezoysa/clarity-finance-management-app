@@ -21,11 +21,9 @@ import androidx.compose.material.icons.filled.KeyboardArrowRight
 import androidx.compose.material.icons.outlined.AccountBox
 import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.ExitToApp
-import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.Lock
 import androidx.compose.material.icons.outlined.Notifications
 import androidx.compose.material.icons.outlined.Person
-import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.Share
 import androidx.compose.material.icons.outlined.Star
 import androidx.compose.material3.*
@@ -253,7 +251,7 @@ fun SettingsScreen(
                     )
                 }
                 // 5. Preferences & Support
-                SettingsSection(title = "PREFERENCES & SUPPORT") {
+                SettingsSection(title = "NOTIFICATIONS") {
                     val context = LocalContext.current
 
                     SettingsRow(
@@ -261,24 +259,6 @@ fun SettingsScreen(
                         title = "Notifications",
                         subtitle = "Budget caps & milestone alerts",
                         onClick = { openAppNotificationSettings(context) }
-                    )
-
-                    SettingsDivider()
-
-                    SettingsRow(
-                        icon = Icons.Outlined.Settings,
-                        title = "Appearance",
-                        subtitle = state.appearanceMode ?: "System Adaptive",
-                        onClick = {}
-                    )
-
-                    SettingsDivider()
-
-                    SettingsRow(
-                        icon = Icons.Outlined.Info,
-                        title = "Help & Support",
-                        subtitle = "Guides & support",
-                        onClick = {}
                     )
                 }
 
