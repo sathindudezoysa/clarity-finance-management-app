@@ -18,8 +18,6 @@ data class SettingsState(
     val saving: Boolean = false,
     val error: Boolean = false,
     val defaultAccountName: String? = null,
-    val cashThreshold: String? = null,
-    val cloudSyncSchedule: String? = null,
     val twoFactorStatus: String? = null,
     val appearanceMode: String? = null,
     val isUpdatingProfile: Boolean = false,

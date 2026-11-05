@@ -206,8 +206,6 @@ class SettingsViewModel @Inject constructor(
             streakLabel = prefs.getString(KEY_STREAK_LABEL, null),
             currency = prefs.getString(KEY_CURRENCY, "LKR") ?: "LKR",
             defaultAccountName = prefs.getString(KEY_DEFAULT_ACCOUNT, null),
-            cashThreshold = prefs.getString(KEY_CASH_THRESHOLD, null),
-            cloudSyncSchedule = prefs.getString(KEY_CLOUD_SYNC_SCHEDULE, null),
             twoFactorStatus = prefs.getString(KEY_TWO_FACTOR_STATUS, null),
             appearanceMode = prefs.getString(KEY_APPEARANCE_MODE, null),
             isBiometricEnabled = prefs.getBoolean(KEY_BIOMETRIC_ENABLED, false)
@@ -272,8 +270,6 @@ class SettingsViewModel @Inject constructor(
         const val KEY_BIOMETRIC_ENABLED = "biometric_lock_enabled"
         const val KEY_TIER_LABEL = "settings_tier_label"
         const val KEY_STREAK_LABEL = "settings_streak_label"
-        const val KEY_CASH_THRESHOLD = "settings_cash_threshold"
-        const val KEY_CLOUD_SYNC_SCHEDULE = "settings_cloud_sync_schedule"
         const val KEY_TWO_FACTOR_STATUS = "settings_two_factor_status"
         const val KEY_APPEARANCE_MODE = "settings_appearance_mode"
     }
