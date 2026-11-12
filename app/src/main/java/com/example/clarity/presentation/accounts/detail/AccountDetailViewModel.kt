@@ -122,12 +122,24 @@ class AccountDetailViewModel @Inject constructor(
                 val rateCache = mutableMapOf<String, BigDecimal?>()
                 suspend fun resolveRate(source: String, target: String): BigDecimal? {
                     if (source.equals(target, ignoreCase = true)) return BigDecimal.ONE
-                    return rateCache.getOrPut("$source->$target") {
-                        val quote = runCatching {
-                            rates.cached(source, target) ?: rates.latest(source, target)
-                        }.getOrNull()
-                        quote?.let { runCatching { CurrencyConversion.rate(it.rate) }.getOrNull() }
+                    val key = "$source->$target"
+                    if (rateCache.containsKey(key)) {
+                        return rateCache[key]
                     }
+                    val quote = try {
+                        rates.cached(source, target) ?: rates.latest(source, target)
+                    } catch (_: Exception) {
+                        null
+                    }
+                    val resolved = quote?.let {
+                        try {
+                            CurrencyConversion.rate(it.rate)
+                        } catch (_: Exception) {
+                            null
+                        }
+                    }
+                    rateCache[key] = resolved
+                    return resolved
                 }
 
                 suspend fun resolveTxAmountMinor(tx: Transaction): BigInteger {
@@ -157,8 +169,9 @@ class AccountDetailViewModel @Inject constructor(
                 }
 
                 var balanceMinor = BigInteger.ZERO
+                val txItems = ArrayList<AccountTransactionItemUiModel>(accountTransactions.size)
 
-                val txItems = accountTransactions.map { tx ->
+                for (tx in accountTransactions) {
                     val resolvedMinor = resolveTxAmountMinor(tx)
                     if (tx.type == TransactionType.INCOME) {
                         balanceMinor += resolvedMinor
@@ -167,12 +180,14 @@ class AccountDetailViewModel @Inject constructor(
                     }
                     val sign = if (tx.type == TransactionType.INCOME) "+" else "-"
                     val formattedAmt = "$sign$accountCurrency ${MoneyUtils.formatMinor(resolvedMinor, accountCurrency)}"
-                    AccountTransactionItemUiModel(
-                        transaction = tx,
-                        resolvedAmountMinor = resolvedMinor,
-                        formattedAmount = formattedAmt,
-                        formattedDate = formatTransactionDate(tx.dateEpochMillis),
-                        hasReceipt = tx.id in receiptIds
+                    txItems.add(
+                        AccountTransactionItemUiModel(
+                            transaction = tx,
+                            resolvedAmountMinor = resolvedMinor,
+                            formattedAmount = formattedAmt,
+                            formattedDate = formatTransactionDate(tx.dateEpochMillis),
+                            hasReceipt = tx.id in receiptIds
+                        )
                     )
                 }
 

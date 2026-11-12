@@ -119,12 +119,24 @@ class AccountEditViewModel @Inject constructor(
                     val rateCache = mutableMapOf<String, BigDecimal?>()
                     suspend fun resolveRate(source: String, target: String): BigDecimal? {
                         if (source.equals(target, ignoreCase = true)) return BigDecimal.ONE
-                        return rateCache.getOrPut("$source->$target") {
-                            val quote = runCatching {
-                                rates?.cached(source, target) ?: rates?.latest(source, target)
-                            }.getOrNull()
-                            quote?.let { runCatching { CurrencyConversion.rate(it.rate) }.getOrNull() }
+                        val key = "$source->$target"
+                        if (rateCache.containsKey(key)) {
+                            return rateCache[key]
                         }
+                        val quote = try {
+                            rates?.cached(source, target) ?: rates?.latest(source, target)
+                        } catch (_: Exception) {
+                            null
+                        }
+                        val resolved = quote?.let {
+                            try {
+                                CurrencyConversion.rate(it.rate)
+                            } catch (_: Exception) {
+                                null
+                            }
+                        }
+                        rateCache[key] = resolved
+                        return resolved
                     }
                     val balanceMinor = AccountBalancePolicy.calculateBalanceMinor(
                         account = targetAccount,
