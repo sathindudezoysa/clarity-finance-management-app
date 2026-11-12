@@ -32,6 +32,13 @@ sealed class Screen(val route: String) {
         fun createRoute(id: String? = null) = if (id == null) "accounts/edit"
             else "accounts/edit?id=${Uri.encode(id)}"
     }
+    object AccountDetail : Screen("accounts/detail?id={id}") {
+        fun createRoute(id: String) = "accounts/detail?id=${Uri.encode(id)}"
+    }
+    object AccountTransfer : Screen("accounts/transfer?sourceId={sourceId}") {
+        fun createRoute(sourceId: String? = null) = if (sourceId == null) "accounts/transfer"
+            else "accounts/transfer?sourceId=${Uri.encode(sourceId)}"
+    }
     object TransactionDetail : Screen("transactions/{$TRANSACTION_ID_ARGUMENT}") {
         fun createRoute(id: String) = "transactions/${Uri.encode(id)}"
     }

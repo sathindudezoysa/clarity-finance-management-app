@@ -11,8 +11,10 @@ import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.navArgument
+import com.example.clarity.presentation.accounts.detail.AccountDetailScreen
 import com.example.clarity.presentation.accounts.edit.AccountEditScreen
 import com.example.clarity.presentation.accounts.list.AccountListScreen
+import com.example.clarity.presentation.accounts.transfer.AccountTransferScreen
 import com.example.clarity.presentation.auth.login.LoginScreen
 import com.example.clarity.presentation.auth.register.RegisterScreen
 import com.example.clarity.presentation.goals.GoalEditScreen
@@ -262,6 +264,11 @@ fun SetupNavGraph(
                 },
                 onAdd = { navController.navigate(Screen.AccountEdit.createRoute()) },
                 onEdit = { id -> navController.navigate(Screen.AccountEdit.createRoute(id)) },
+                onOpenAccount = { id ->
+                    navController.navigate(Screen.AccountDetail.createRoute(id)) {
+                        launchSingleTop = true
+                    }
+                },
                 onNavigateToProfile = {
                     navController.navigate(Screen.Settings.route) {
                         launchSingleTop = true
@@ -278,6 +285,53 @@ fun SetupNavGraph(
                         navController = navController,
                         currentDestination = BottomNavDestination.ACCOUNTS
                     )
+                },
+                viewModel = hiltViewModel()
+            )
+        }
+        composable(
+            route = Screen.AccountDetail.route,
+            arguments = listOf(navArgument("id") { type = NavType.StringType; nullable = true; defaultValue = null })
+        ) {
+            AccountDetailScreen(
+                onBack = {
+                    if (!navController.popBackStack()) {
+                        navController.navigate(Screen.AccountList.route) { launchSingleTop = true }
+                    }
+                },
+                onEditAccount = { id ->
+                    navController.navigate(Screen.AccountEdit.createRoute(id)) {
+                        launchSingleTop = true
+                    }
+                },
+                onSendMoney = { sourceId ->
+                    navController.navigate(Screen.AccountTransfer.createRoute(sourceId)) {
+                        launchSingleTop = true
+                    }
+                },
+                onOpenTransaction = { txId ->
+                    navController.navigate(Screen.TransactionDetail.createRoute(txId)) {
+                        launchSingleTop = true
+                    }
+                },
+                onAddAccount = {
+                    navController.navigate(Screen.AccountEdit.createRoute()) {
+                        launchSingleTop = true
+                    }
+                },
+                viewModel = hiltViewModel()
+            )
+        }
+        composable(
+            route = Screen.AccountTransfer.route,
+            arguments = listOf(navArgument("sourceId") { type = NavType.StringType; nullable = true; defaultValue = null })
+        ) {
+            AccountTransferScreen(
+                onBack = { navController.popBackStack() },
+                onAddAccount = {
+                    navController.navigate(Screen.AccountEdit.createRoute()) {
+                        launchSingleTop = true
+                    }
                 },
                 viewModel = hiltViewModel()
             )
