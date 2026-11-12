@@ -129,13 +129,111 @@ class TransactionBalanceGuardTest {
             targetCurrency = "LKR",
             conversion = null
         )
-        TransactionBalanceGuard.check(
-            before = emptyList(),
-            after = listOf(pendingUsdExpense),
-            previousAccountId = null,
-            newAccountId = "acc-a"
-        )
+        assertInsufficientBalance {
+            TransactionBalanceGuard.check(
+                before = emptyList(),
+                after = listOf(pendingUsdExpense),
+                previousAccountId = null,
+                newAccountId = "acc-a"
+            )
+        }
         assertEquals(java.math.BigInteger.ZERO, TransactionBalanceGuard.netMinor(listOf(pendingUsdExpense)))
+    }
+
+    @Test
+    fun pendingExpenseOnEmptyForeignCurrencyAccountThrowsInsufficientBalance() {
+        val pendingUsdExpense = entity(
+            id = "usd-exp-1",
+            type = "EXPENSE",
+            amountMinor = 50_000,
+            accountId = "acc-b",
+            currency = "USD",
+            targetCurrency = "LKR",
+            conversion = null
+        )
+        assertInsufficientBalance {
+            TransactionBalanceGuard.check(
+                before = emptyList(),
+                after = listOf(pendingUsdExpense),
+                previousAccountId = null,
+                newAccountId = "acc-b"
+            )
+        }
+    }
+
+    @Test
+    fun pendingForeignCurrencyIncomeFundsSmallerExpenseAndRejectsLargerExpense() {
+        val incUsd = entity(
+            id = "usd-inc",
+            type = "INCOME",
+            amountMinor = 10_000,
+            accountId = "acc-b",
+            currency = "USD",
+            targetCurrency = "LKR",
+            conversion = null
+        )
+        val okExpUsd = entity(
+            id = "usd-exp-ok",
+            type = "EXPENSE",
+            amountMinor = 4_000,
+            accountId = "acc-b",
+            currency = "USD",
+            targetCurrency = "LKR",
+            conversion = null
+        )
+        TransactionBalanceGuard.check(
+            before = listOf(incUsd),
+            after = listOf(incUsd, okExpUsd),
+            previousAccountId = null,
+            newAccountId = "acc-b"
+        )
+
+        val tooLargeExpUsd = entity(
+            id = "usd-exp-over",
+            type = "EXPENSE",
+            amountMinor = 10_001,
+            accountId = "acc-b",
+            currency = "USD",
+            targetCurrency = "LKR",
+            conversion = null
+        )
+        assertInsufficientBalance {
+            TransactionBalanceGuard.check(
+                before = listOf(incUsd),
+                after = listOf(incUsd, tooLargeExpUsd),
+                previousAccountId = null,
+                newAccountId = "acc-b"
+            )
+        }
+    }
+
+    @Test
+    fun expenseOnEmptyForeignAccountThrowsEvenWhenOtherAccountsHaveLargePositiveNetWorth() {
+        val largeIncomeA = entity(
+            id = "lkr-inc",
+            type = "INCOME",
+            amountMinor = 10_000_000,
+            accountId = "acc-a",
+            currency = "LKR",
+            targetCurrency = "LKR"
+        )
+        val pendingExpB = entity(
+            id = "usd-exp-b",
+            type = "EXPENSE",
+            amountMinor = 5_000,
+            accountId = "acc-b",
+            currency = "USD",
+            targetCurrency = "LKR",
+            conversion = null
+        )
+        assertInsufficientBalance {
+            TransactionBalanceGuard.check(
+                before = listOf(largeIncomeA),
+                after = listOf(largeIncomeA, pendingExpB),
+                previousAccountId = null,
+                newAccountId = "acc-b"
+            )
+        }
     }
 }
 
