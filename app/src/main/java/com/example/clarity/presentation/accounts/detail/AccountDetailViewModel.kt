@@ -41,7 +41,7 @@ class AccountDetailViewModel @Inject constructor(
     private val setDefaultAccount: SetDefaultAccountUseCase,
     private val authRepository: AuthRepository,
     private val rates: ExchangeRateRepository,
-    private val observeProofs: ObserveTransactionProofsUseCase? = null
+    private val observeProofs: ObserveTransactionProofsUseCase
 ) : ViewModel() {
 
     private val accountId: String? = (savedStateHandle.get<Any?>("id") as? String)

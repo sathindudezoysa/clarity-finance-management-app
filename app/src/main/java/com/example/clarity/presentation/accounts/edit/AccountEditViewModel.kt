@@ -32,11 +32,11 @@ class AccountEditViewModel @Inject constructor(
     private val savedStateHandle: SavedStateHandle,
     private val getAccount: GetAccountUseCase,
     private val createAccount: CreateAccountUseCase,
-    private val updateAccount: UpdateAccountUseCase
+    private val updateAccount: UpdateAccountUseCase,
+    private val deleteAccount: DeleteAccountUseCase? = null,
+    private val getTransactions: GetTransactionsUseCase? = null,
+    private val rates: ExchangeRateRepository? = null
 ) : ViewModel() {
-    private var deleteAccount: DeleteAccountUseCase? = null
-    private var getTransactions: GetTransactionsUseCase? = null
-    private var rates: ExchangeRateRepository? = null
 
     private val id: String? = savedStateHandle["id"]
     private val draftId = savedStateHandle.get<String>(KEY_DRAFT_ID)
@@ -55,18 +55,6 @@ class AccountEditViewModel @Inject constructor(
         isSuccess = savedStateHandle[KEY_SAVED] ?: false
     ))
     val uiState = _uiState.asStateFlow()
-
-    @Inject
-    internal fun injectDeleteSupport(
-        deleteAccount: DeleteAccountUseCase,
-        getTransactions: GetTransactionsUseCase,
-        rates: ExchangeRateRepository
-    ) {
-        this.deleteAccount = deleteAccount
-        this.getTransactions = getTransactions
-        this.rates = rates
-        observeCanDelete()
-    }
 
     init {
         load()
