@@ -59,6 +59,5 @@ data class AccountTransferState(
             sourceAccount != null &&
             destinationAccount != null &&
             sourceAccountId != destinationAccountId &&
-            !previewLoading &&
-            (!isCrossCurrency || (preview != null && !previewError))
+            !previewLoading
 }

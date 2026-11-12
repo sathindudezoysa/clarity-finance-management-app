@@ -124,7 +124,21 @@ class TransferMoneyUseCase @Inject constructor(
             val snapshot = if (sourceCurrency == destinationCurrency) {
                 ConversionSnapshot.identity(sourceAmountMinor)
             } else {
-                previewConversion(sourceAmountMinor, sourceCurrency, destinationCurrency)
+                try {
+                    previewConversion(sourceAmountMinor, sourceCurrency, destinationCurrency)
+                } catch (error: Exception) {
+                    if (error is CancellationException) throw error
+                    val cachedQuote = runCatching { rates.cached(sourceCurrency, destinationCurrency) }.getOrNull()
+                    if (cachedQuote != null) {
+                        CurrencyConversion.snapshot(sourceAmountMinor, cachedQuote)
+                    } else {
+                        return Result.failure(
+                            IllegalStateException(
+                                "Transfer blocked: Unable to convert $sourceCurrency to $destinationCurrency because there is no network service. Please connect to the internet and try again."
+                            )
+                        )
+                    }
+                }
             }
             val destinationAmountMinor = snapshot.amountMinor
 

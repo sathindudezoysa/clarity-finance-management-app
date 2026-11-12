@@ -35,15 +35,18 @@ class ExchangeRateRepositoryImpl @Inject constructor(
         val now = clock.millis()
         if (cached?.fresh(now) == true) return@withLock cached
         try {
-            require(now >= (failedUntil[source] ?: 0)) { "Exchange rate retry delayed" }
+            require(cached == null || now >= (failedUntil[source] ?: 0)) { "Exchange rate retry delayed" }
             val quotes = remote.fetch(source, now)
             require(quotes.all { it.source == source && it.usable(clock.millis()) })
             val selected = quotes.firstOrNull { it.target == target } ?: error("Currency missing from provider response")
             dao.putRates(quotes.map { ExchangeRateEntity(it.source, it.target, it.rate, it.provider, it.rateAt, it.fetchedAt, it.nextUpdateAt) })
+            failedUntil.remove(source)
             selected
         } catch (error: Exception) {
             if (error is CancellationException) throw error
-            failedUntil[source] = now + 30 * 60_000
+            if (cached != null) {
+                failedUntil[source] = now + 30 * 60_000
+            }
             cached?.takeIf { it.usable(clock.millis()) } ?: throw error
         }
     }

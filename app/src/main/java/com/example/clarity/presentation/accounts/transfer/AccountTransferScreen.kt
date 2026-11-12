@@ -633,7 +633,7 @@ private fun CrossCurrencyConversionCard(
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
                         Text(
-                            text = "Could not load exchange rate.",
+                            text = "No network service to convert $sourceCurrency to $destinationCurrency. Transfer is blocked until conversion rate is available.",
                             style = typography.bodyMedium,
                             color = colors.error,
                             modifier = Modifier.weight(1f)

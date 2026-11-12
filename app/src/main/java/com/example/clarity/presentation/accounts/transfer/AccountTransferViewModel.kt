@@ -244,7 +244,12 @@ class AccountTransferViewModel @Inject constructor(
         val state = _uiState.value
         if (!state.isCrossCurrency) {
             _uiState.update {
-                it.copy(preview = null, previewLoading = false, previewError = false)
+                it.copy(
+                    preview = null,
+                    previewLoading = false,
+                    previewError = false,
+                    error = if (it.previewError) null else it.error
+                )
             }
             return
         }
@@ -252,7 +257,12 @@ class AccountTransferViewModel @Inject constructor(
         val amountMinor = MoneyUtils.parseMinor(amountText, state.sourceCurrency).getOrNull()
         if (amountMinor == null || amountMinor <= 0L) {
             _uiState.update {
-                it.copy(preview = null, previewLoading = false, previewError = false)
+                it.copy(
+                    preview = null,
+                    previewLoading = false,
+                    previewError = false,
+                    error = if (it.previewError) null else it.error
+                )
             }
             return
         }
@@ -270,12 +280,28 @@ class AccountTransferViewModel @Inject constructor(
             try {
                 val snapshot = previewConversion(amountMinor, sourceCurrency, destinationCurrency)
                 _uiState.update {
-                    it.copy(preview = snapshot, previewLoading = false, previewError = false)
+                    it.copy(preview = snapshot, previewLoading = false, previewError = false, error = null)
                 }
             } catch (error: Exception) {
                 if (error is CancellationException) throw error
-                _uiState.update {
-                    it.copy(preview = null, previewLoading = false, previewError = true)
+                val cachedSnapshot = runCatching {
+                    rates.cached(sourceCurrency, destinationCurrency)?.let { quote ->
+                        CurrencyConversion.snapshot(amountMinor, quote)
+                    }
+                }.getOrNull()
+                if (cachedSnapshot != null) {
+                    _uiState.update {
+                        it.copy(preview = cachedSnapshot, previewLoading = false, previewError = false, error = null)
+                    }
+                } else {
+                    _uiState.update {
+                        it.copy(
+                            preview = null,
+                            previewLoading = false,
+                            previewError = true,
+                            error = "No network service available to convert $sourceCurrency to $destinationCurrency. Currency conversion is required to transfer between different currencies."
+                        )
+                    }
                 }
             }
         }
@@ -320,15 +346,9 @@ class AccountTransferViewModel @Inject constructor(
             return
         }
 
-        if (state.isCrossCurrency && (state.previewLoading || state.previewError)) {
+        if (state.isCrossCurrency && state.previewLoading) {
             _uiState.update {
-                it.copy(
-                    error = if (state.previewLoading) {
-                        "Waiting for exchange rate conversion..."
-                    } else {
-                        "Unable to fetch exchange rate. Tap Retry to convert currency."
-                    }
-                )
+                it.copy(error = "Waiting for exchange rate conversion...")
             }
             return
         }
@@ -369,7 +389,11 @@ class AccountTransferViewModel @Inject constructor(
                     else -> "Unable to complete money transfer. Please try again."
                 }
                 _uiState.update {
-                    it.copy(isSaving = false, error = message)
+                    it.copy(
+                        isSaving = false,
+                        previewError = if (it.isCrossCurrency && it.preview == null) true else it.previewError,
+                        error = message
+                    )
                 }
             }
         }
