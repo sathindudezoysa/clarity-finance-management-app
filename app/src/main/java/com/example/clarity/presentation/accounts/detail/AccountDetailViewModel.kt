@@ -157,17 +157,13 @@ class AccountDetailViewModel @Inject constructor(
                 }
 
                 var balanceMinor = BigInteger.ZERO
-                var incomeMinor = BigInteger.ZERO
-                var expenseMinor = BigInteger.ZERO
 
                 val txItems = accountTransactions.map { tx ->
                     val resolvedMinor = resolveTxAmountMinor(tx)
                     if (tx.type == TransactionType.INCOME) {
                         balanceMinor += resolvedMinor
-                        incomeMinor += resolvedMinor
                     } else {
                         balanceMinor -= resolvedMinor
-                        expenseMinor += resolvedMinor
                     }
                     val sign = if (tx.type == TransactionType.INCOME) "+" else "-"
                     val formattedAmt = "$sign$accountCurrency ${MoneyUtils.formatMinor(resolvedMinor, accountCurrency)}"
@@ -188,8 +184,6 @@ class AccountDetailViewModel @Inject constructor(
                         account = account,
                         balanceMinor = balanceMinor,
                         balanceFormatted = AccountBalancePolicy.formatAccountBalance(account, balanceMinor),
-                        totalIncomeFormatted = "+$accountCurrency ${MoneyUtils.formatMinor(incomeMinor, accountCurrency)}",
-                        totalExpenseFormatted = "-$accountCurrency ${MoneyUtils.formatMinor(expenseMinor, accountCurrency)}",
                         transactions = txItems,
                         otherAccountsCount = otherAccountsCount,
                         error = if (accountsResult is Resource.Error) {

@@ -18,8 +18,6 @@ data class AccountDetailState(
     val account: Account? = null,
     val balanceMinor: BigInteger = BigInteger.ZERO,
     val balanceFormatted: String = "",
-    val totalIncomeFormatted: String = "",
-    val totalExpenseFormatted: String = "",
     val transactions: List<AccountTransactionItemUiModel> = emptyList(),
     val otherAccountsCount: Int = 0,
     val isMakingDefault: Boolean = false,

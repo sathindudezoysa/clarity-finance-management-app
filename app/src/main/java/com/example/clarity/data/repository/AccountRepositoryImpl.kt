@@ -199,6 +199,34 @@ class AccountRepositoryImpl internal constructor(
         dao.getDefault(uid)?.toDomain()
     }
 
+    override suspend fun deleteAccount(id: String): Result<Unit> = localOperation { uid ->
+        runTransaction {
+            val existing = dao.getById(id)
+            if (existing == null || existing.userId != uid) {
+                throw AccountException(AccountError.NOT_FOUND, "Account not found")
+            }
+            if (existing.isDefault) {
+                val allAccounts = dao.getAllForUser(uid)
+                val candidates = allAccounts.filter {
+                    it.id != id &&
+                        !it.id.startsWith(Account.GOAL_ACCOUNT_PREFIX) &&
+                        !it.accountType.equals("GOAL", ignoreCase = true)
+                }
+                val replacement = candidates.firstOrNull { !it.id.startsWith(Account.CASH_WALLET_PREFIX) }
+                    ?: candidates.firstOrNull()
+                if (replacement != null) {
+                    val latest = allAccounts.maxOfOrNull { it.updatedAt } ?: 0L
+                    val now = maxOf(System.currentTimeMillis(), if (latest < Long.MAX_VALUE) latest + 1 else latest)
+                    dao.upsertAll(listOf(replacement.copy(isDefault = true, updatedAt = now, pendingSync = true)))
+                }
+            }
+            dao.deleteById(id, uid)
+        }
+        syncScope.launch {
+            runCatching { remote.deleteAccount(uid, id) }
+        }
+    }
+
     private suspend fun saveAccount(entity: AccountEntity, create: Boolean) = runTransaction {
         saveAccountInTransaction(entity, create)
     }

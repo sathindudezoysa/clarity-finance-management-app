@@ -38,7 +38,6 @@ import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
@@ -194,10 +193,7 @@ internal fun AccountDetailContent(
                         AccountOverviewCard(
                             account = account,
                             balanceFormatted = state.balanceFormatted,
-                            totalIncomeFormatted = state.totalIncomeFormatted,
-                            totalExpenseFormatted = state.totalExpenseFormatted,
                             isMakingDefault = state.isMakingDefault,
-                            onEditAccount = { onEditAccount(account.id) },
                             onSendMoney = { onSendMoney(account.id) },
                             onMakeDefault = onMakeDefault
                         )
@@ -336,10 +332,7 @@ internal fun AccountDetailContent(
 private fun AccountOverviewCard(
     account: Account,
     balanceFormatted: String,
-    totalIncomeFormatted: String,
-    totalExpenseFormatted: String,
     isMakingDefault: Boolean,
-    onEditAccount: () -> Unit,
     onSendMoney: () -> Unit,
     onMakeDefault: () -> Unit
 ) {
@@ -499,126 +492,23 @@ private fun AccountOverviewCard(
                 )
             }
 
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            Button(
+                onClick = onSendMoney,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = 48.dp)
             ) {
-                Surface(
-                    modifier = Modifier.weight(1f),
-                    shape = shapes.medium,
-                    color = colors.surfaceVariant.copy(alpha = 0.5f)
-                ) {
-                    Column(
-                        modifier = Modifier.padding(12.dp),
-                        verticalArrangement = Arrangement.spacedBy(4.dp)
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            Icon(
-                                imageVector = AppIcons.ArrowDownward,
-                                contentDescription = null,
-                                tint = colors.primary,
-                                modifier = Modifier.size(16.dp)
-                            )
-                            Text(
-                                text = "Total In",
-                                style = typography.labelMedium,
-                                color = colors.onSurfaceVariant
-                            )
-                        }
-                        Text(
-                            text = totalIncomeFormatted,
-                            style = typography.titleSmall,
-                            fontWeight = FontWeight.SemiBold,
-                            color = colors.primary,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                    }
-                }
-
-                Surface(
-                    modifier = Modifier.weight(1f),
-                    shape = shapes.medium,
-                    color = colors.surfaceVariant.copy(alpha = 0.5f)
-                ) {
-                    Column(
-                        modifier = Modifier.padding(12.dp),
-                        verticalArrangement = Arrangement.spacedBy(4.dp)
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            Icon(
-                                imageVector = AppIcons.ArrowUpward,
-                                contentDescription = null,
-                                tint = colors.error,
-                                modifier = Modifier.size(16.dp)
-                            )
-                            Text(
-                                text = "Total Out",
-                                style = typography.labelMedium,
-                                color = colors.onSurfaceVariant
-                            )
-                        }
-                        Text(
-                            text = totalExpenseFormatted,
-                            style = typography.titleSmall,
-                            fontWeight = FontWeight.SemiBold,
-                            color = colors.error,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                    }
-                }
-            }
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                Button(
-                    onClick = onSendMoney,
-                    modifier = Modifier
-                        .weight(1f)
-                        .heightIn(min = 48.dp)
-                ) {
-                    Icon(
-                        imageVector = AppIcons.Transactions,
-                        contentDescription = null,
-                        modifier = Modifier.size(18.dp)
-                    )
-                    Spacer(Modifier.width(8.dp))
-                    Text(
-                        text = "Send Money",
-                        style = typography.labelLarge,
-                        fontWeight = FontWeight.SemiBold
-                    )
-                }
-
-                if (!account.isCashWallet) {
-                    OutlinedButton(
-                        onClick = onEditAccount,
-                        modifier = Modifier
-                            .weight(1f)
-                            .heightIn(min = 48.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Edit,
-                            contentDescription = null,
-                            modifier = Modifier.size(18.dp)
-                        )
-                        Spacer(Modifier.width(8.dp))
-                        Text(
-                            text = "Edit Account",
-                            style = typography.labelLarge,
-                            fontWeight = FontWeight.SemiBold
-                        )
-                    }
-                }
+                Icon(
+                    imageVector = AppIcons.Transactions,
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp)
+                )
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    text = "Send Money",
+                    style = typography.labelLarge,
+                    fontWeight = FontWeight.SemiBold
+                )
             }
         }
     }
@@ -819,8 +709,6 @@ private val previewAccountDetailState = AccountDetailState(
     account = previewAccount,
     balanceMinor = BigInteger.valueOf(125_400_00L),
     balanceFormatted = "LKR 125,400.00",
-    totalIncomeFormatted = "+LKR 180,000.00",
-    totalExpenseFormatted = "-LKR 54,600.00",
     otherAccountsCount = 2,
     transactions = listOf(
         AccountTransactionItemUiModel(

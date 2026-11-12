@@ -340,7 +340,15 @@ fun SetupNavGraph(
             route = Screen.AccountEdit.route,
             arguments = listOf(navArgument("id") { type = NavType.StringType; nullable = true; defaultValue = null })
         ) {
-            AccountEditScreen(onBack = { navController.popBackStack() }, viewModel = hiltViewModel())
+            AccountEditScreen(
+                onBack = { navController.popBackStack() },
+                onDeleted = {
+                    if (!navController.popBackStack(Screen.AccountList.route, inclusive = false)) {
+                        navController.popBackStack()
+                    }
+                },
+                viewModel = hiltViewModel()
+            )
         }
         composable(route = Screen.TransactionList.route) {
             TransactionListScreen(

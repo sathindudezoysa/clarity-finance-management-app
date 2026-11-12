@@ -4,16 +4,25 @@ import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.clarity.domain.model.Account
+import com.example.clarity.domain.model.CurrencyConversion
+import com.example.clarity.domain.repository.ExchangeRateRepository
 import com.example.clarity.domain.usecase.account.CreateAccountUseCase
+import com.example.clarity.domain.usecase.account.DeleteAccountUseCase
 import com.example.clarity.domain.usecase.account.GetAccountUseCase
 import com.example.clarity.domain.usecase.account.UpdateAccountUseCase
+import com.example.clarity.domain.usecase.transaction.GetTransactionsUseCase
+import com.example.clarity.domain.util.AccountBalancePolicy
+import com.example.clarity.domain.util.Resource
 import com.example.clarity.presentation.accounts.AccountMessages
 import com.example.clarity.presentation.accounts.accountErrorMessage
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import java.math.BigDecimal
+import java.math.BigInteger
 import java.util.Locale
 import java.util.UUID
 import javax.inject.Inject
@@ -25,6 +34,10 @@ class AccountEditViewModel @Inject constructor(
     private val createAccount: CreateAccountUseCase,
     private val updateAccount: UpdateAccountUseCase
 ) : ViewModel() {
+    private var deleteAccount: DeleteAccountUseCase? = null
+    private var getTransactions: GetTransactionsUseCase? = null
+    private var rates: ExchangeRateRepository? = null
+
     private val id: String? = savedStateHandle["id"]
     private val draftId = savedStateHandle.get<String>(KEY_DRAFT_ID)
         ?: UUID.randomUUID().toString().also { savedStateHandle[KEY_DRAFT_ID] = it }
@@ -42,6 +55,18 @@ class AccountEditViewModel @Inject constructor(
         isSuccess = savedStateHandle[KEY_SAVED] ?: false
     ))
     val uiState = _uiState.asStateFlow()
+
+    @Inject
+    internal fun injectDeleteSupport(
+        deleteAccount: DeleteAccountUseCase,
+        getTransactions: GetTransactionsUseCase,
+        rates: ExchangeRateRepository
+    ) {
+        this.deleteAccount = deleteAccount
+        this.getTransactions = getTransactions
+        this.rates = rates
+        observeCanDelete()
+    }
 
     init {
         load()
@@ -71,11 +96,45 @@ class AccountEditViewModel @Inject constructor(
                         isDefaultLocked = loaded.isDefault
                     ) }
                     persistForm()
+                    observeCanDelete()
                 }
             }.onFailure { error ->
                 _uiState.update { it.copy(isLoading = false, canSave = false,
                     error = accountErrorMessage(error, AccountMessages.OPEN_ERROR)) }
             }
+        }
+    }
+
+    private fun observeCanDelete() {
+        val targetAccount = account ?: return
+        val txUseCase = getTransactions ?: return
+        if (id == null || targetAccount.isCashWallet || targetAccount.isGoalAccount) return
+
+        viewModelScope.launch {
+            txUseCase()
+                .catch { emit(Resource.Success(emptyList())) }
+                .collect { txResult ->
+                    if (txResult is Resource.Loading) return@collect
+                    val transactions = txResult.data.orEmpty()
+                    val rateCache = mutableMapOf<String, BigDecimal?>()
+                    suspend fun resolveRate(source: String, target: String): BigDecimal? {
+                        if (source.equals(target, ignoreCase = true)) return BigDecimal.ONE
+                        return rateCache.getOrPut("$source->$target") {
+                            val quote = runCatching {
+                                rates?.cached(source, target) ?: rates?.latest(source, target)
+                            }.getOrNull()
+                            quote?.let { runCatching { CurrencyConversion.rate(it.rate) }.getOrNull() }
+                        }
+                    }
+                    val balanceMinor = AccountBalancePolicy.calculateBalanceMinor(
+                        account = targetAccount,
+                        transactions = transactions,
+                        resolveRate = ::resolveRate
+                    )
+                    _uiState.update {
+                        it.copy(canDelete = balanceMinor == BigInteger.ZERO)
+                    }
+                }
         }
     }
 
@@ -89,7 +148,7 @@ class AccountEditViewModel @Inject constructor(
 
     private fun change(transform: (AccountEditState) -> AccountEditState) {
         val state = _uiState.value
-        if (state.isLoading || state.isSaving || state.isSuccess || !state.canSave) return
+        if (state.isLoading || state.isSaving || state.isDeleting || state.isSuccess || state.isDeleted || !state.canSave) return
         _uiState.update(transform)
         persistForm()
     }
@@ -106,7 +165,7 @@ class AccountEditViewModel @Inject constructor(
 
     fun save() {
         val state = _uiState.value
-        if (state.isLoading || state.isSaving || state.isSuccess || !state.canSave) return
+        if (state.isLoading || state.isSaving || state.isDeleting || state.isSuccess || state.isDeleted || !state.canSave) return
         val edited = (account ?: draft).copy(
             name = state.name, bankName = state.bankName,
             accountType = state.accountType.trim().takeIf { it.isNotEmpty() },
@@ -128,6 +187,28 @@ class AccountEditViewModel @Inject constructor(
                         it == AccountMessages.NAME_BLANK || it == AccountMessages.NAME_DUPLICATE || it == AccountMessages.CURRENCY_INVALID
                     }
                 ) }
+            }
+        }
+    }
+
+    fun delete() {
+        val targetId = id ?: return
+        val deleter = deleteAccount ?: return
+        val state = _uiState.value
+        if (state.isLoading || state.isSaving || state.isDeleting || state.isSuccess || state.isDeleted || !state.canDelete) return
+
+        _uiState.update { it.copy(isDeleting = true, error = null) }
+        viewModelScope.launch {
+            deleter(targetId).onSuccess {
+                _uiState.update { it.copy(isDeleting = false, isDeleted = true) }
+            }.onFailure { error ->
+                _uiState.update {
+                    it.copy(
+                        isDeleting = false,
+                        error = error.message?.takeIf { msg -> msg.isNotBlank() }
+                            ?: "Unable to delete this account. Please try again."
+                    )
+                }
             }
         }
     }

@@ -11,4 +11,5 @@ interface AccountRepository {
     suspend fun getAccount(id: String): Result<Account?>
     suspend fun getDefaultAccount(): Result<Account?>
     suspend fun setDefaultAccount(id: String): Result<Unit>
+    suspend fun deleteAccount(id: String): Result<Unit> = Result.failure(UnsupportedOperationException())
 }
