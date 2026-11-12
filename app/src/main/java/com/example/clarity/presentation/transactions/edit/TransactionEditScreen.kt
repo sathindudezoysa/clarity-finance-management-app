@@ -6,23 +6,19 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.provider.OpenableColumns
+import android.content.res.Configuration
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowBack
-import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.DateRange
@@ -36,24 +32,20 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
-import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.core.content.FileProvider
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.Lifecycle
@@ -61,7 +53,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.repeatOnLifecycle
 import com.example.clarity.R
 import com.example.clarity.domain.model.Account
-import com.example.clarity.domain.model.Currencies
+import com.example.clarity.domain.model.ConversionSnapshot
 import com.example.clarity.domain.model.ProofPolicy
 import com.example.clarity.domain.model.TransactionProof
 import com.example.clarity.domain.model.TransactionType
@@ -72,17 +64,6 @@ import com.example.clarity.presentation.theme.ClarityTheme
 import com.example.clarity.presentation.transactions.TransactionMessages
 import com.example.clarity.presentation.transactions.formatTransactionDate
 import java.io.File
-
-private val StitchBg = Color(0xFFF8FAFA)
-private val StitchTealDark = Color(0xFF006B5E)
-private val StitchTealPrimary = Color(0xFF006D43)
-private val StitchTealLightBg = Color(0xFFE6F4F1)
-private val StitchTealBadgeText = Color(0xFF004D40)
-private val StitchSurfaceMuted = Color(0xFFECF2F2)
-private val StitchCardSubtle = Color(0xFFF2F6F6)
-private val StitchBorder = Color(0xFFD9E2E2)
-private val StitchTextPrimary = Color(0xFF191C1D)
-private val StitchTextSecondary = Color(0xFF5C6B6B)
 
 @Composable
 fun TransactionEditScreen(
@@ -330,272 +311,259 @@ internal fun TransactionEditContent(
     }
 
     Scaffold(
-        containerColor = StitchBg,
         topBar = {
-            Surface(
-                color = StitchBg,
-                shadowElevation = 0.dp
-            ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .statusBarsPadding()
-                        .padding(horizontal = 16.dp, vertical = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+            TopAppBar(
+                title = {
+                    Text(
+                        text = if (state.isEditMode) "Update Transaction" else "Transaction Entry",
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                },
+                navigationIcon = {
+                    IconButton(
+                        onClick = onBack,
+                        enabled = !isBusy
                     ) {
-                        IconButton(
-                            onClick = onBack,
-                            enabled = !isBusy,
-                            modifier = Modifier
-                                .size(38.dp)
-                                .clip(CircleShape)
-                                .background(StitchSurfaceMuted)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.ArrowBack,
-                                contentDescription = TransactionMessages.BACK_LABEL,
-                                tint = StitchTealDark
-                            )
-                        }
-                        Text(
-                            text = if (state.isEditMode) "Update Transaction" else "Transaction Entry",
-                            style = MaterialTheme.typography.titleMedium.copy(
-                                fontWeight = FontWeight.Bold,
-                                color = StitchTextPrimary
-                            )
+                        Icon(
+                            imageVector = Icons.Default.ArrowBack,
+                            contentDescription = TransactionMessages.BACK_LABEL
                         )
                     }
+                },
+                actions = {
                     TextButton(
                         onClick = triggerSave,
                         enabled = !isBusy
                     ) {
                         Text(
                             text = TransactionMessages.SAVE_LABEL,
-                            color = StitchTealDark,
                             fontWeight = FontWeight.Bold
                         )
                     }
                 }
-            }
+            )
         }
     ) { padding ->
-        Column(
+        Box(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
-                .imePadding()
-                .verticalScroll(rememberScrollState())
-                .padding(horizontal = 16.dp, vertical = 6.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
+                .imePadding(),
+            contentAlignment = Alignment.TopCenter
         ) {
-            state.error?.let { errorMsg ->
-                Surface(
-                    color = MaterialTheme.colorScheme.errorContainer,
-                    shape = RoundedCornerShape(12.dp),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Text(
-                        text = errorMsg,
-                        color = MaterialTheme.colorScheme.onErrorContainer,
-                        style = MaterialTheme.typography.bodyMedium,
-                        modifier = Modifier.padding(12.dp)
-                    )
-                }
-            }
-
-            if (state.isLoading) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 32.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    CircularProgressIndicator(color = StitchTealDark)
-                }
-            } else if (state.isEditMode && state.transaction == null) {
-                if (state.error == null) {
-                    Text("Transaction not found.", color = StitchTextSecondary)
-                }
-            } else {
-                LaunchedEffect(Unit) {
-                    if (!state.isEditMode) amountFocus.requestFocus()
-                }
-
-                // 1. Segmented Control (Expense / Income)
-                val currentType = runCatching { TransactionType.valueOf(typeName) }.getOrDefault(TransactionType.EXPENSE)
-                val activeTypeTags = if (currentType == TransactionType.INCOME) state.incomeTags else state.expenseTags
-
-                StitchTransactionTypeSelector(
-                    selectedType = typeName,
-                    enabled = !isBusy,
-                    onTypeSelected = { newType ->
-                        if (newType != typeName) {
-                            typeName = newType
-                            val originalTx = state.transaction
-                            if (originalTx != null && originalTx.type.name == newType) {
-                                category = originalTx.category
-                            } else {
-                                val nextTags = if (newType == TransactionType.INCOME.name) state.incomeTags else state.expenseTags
-                                val defaultForSlide = if (newType == TransactionType.INCOME.name) "Salary" else "General"
-                                category = nextTags.firstOrNull() ?: defaultForSlide
-                            }
-                        }
-                    }
-                )
-
-                // 2. Hero Amount Card (only shows conversion rate when currency != targetCurrency)
-                StitchHeroAmountCard(
-                    amount = amount,
-                    onAmountChange = { amount = it },
-                    currency = state.currency,
-                    targetCurrency = state.targetCurrency,
-                    amountError = state.amountError,
-                    preview = state.preview,
-                    previewLoading = state.previewLoading,
-                    previewError = state.previewError,
-                    onCurrencySelected = onCurrencySelected,
-                    onRetryPreview = { onRetryPreview?.invoke() ?: onPreview(amount) },
-                    enabled = !isBusy,
-                    currencyLocked = false,
-                    amountFocus = amountFocus
-                )
-
-                // 3. Category Pills Section (Visible multi-row FlowRow, selected tag first)
-                StitchCategorySection(
-                    transactionType = currentType,
-                    category = category,
-                    tags = activeTypeTags,
-                    categoryError = state.categoryError,
-                    onOpenCreateCategory = { onOpenCreateCategory(currentType) },
-                    onCategoryChange = { category = it },
-                    enabled = !isBusy
-                )
-
-                // 4. Payment Account Section
-                StitchPaymentAccountSection(
-                    accounts = state.accounts,
-                    selectedAccountId = state.selectedAccountId,
-                    isAccountsLoading = state.isAccountsLoading,
-                    accountsError = state.accountsError,
-                    accountError = state.accountError,
-                    enabled = !isBusy,
-                    onAccountSelected = onAccountSelected,
-                    onCreateAccount = onCreateAccount
-                )
-
-                // 5. Receipt Verification / Slip Upload Section
-                StitchReceiptVerificationCard(
-                    isEditMode = state.isEditMode,
-                    proofs = state.proofs,
-                    pendingProofs = state.pendingProofs,
-                    isProofBusy = state.isProofBusy,
-                    proofError = state.proofError,
-                    amountMinor = parsedAmountMinor,
-                    currency = state.currency,
-                    enabled = !isBusy,
-                    onCapturePhoto = onCaptureProofPhoto,
-                    onUploadSlip = onPickProofDocument,
-                    onOpenProof = onOpenProof,
-                    onOpenPendingUri = { rawUri ->
-                        openLocalDraftUri(context, rawUri)
-                    },
-                    onVerifyProof = { proofId, verified ->
-                        if (parsedAmountMinor > 0L) {
-                            onVerifyProof(proofId, parsedAmountMinor, verified)
-                        }
-                    },
-                    onRemoveUnavailableProof = onRemoveUnavailableProof,
-                    onRetryProofs = onRetryProofs,
-                    onRemovePendingProof = onRemovePendingProof,
-                    onTogglePendingVerified = onTogglePendingProofVerified
-                )
-
-                // 6. Date & Transaction Note Cards
-                StitchDateAndNoteSection(
-                    dateEpochMillis = dateEpochMillis,
-                    note = note,
-                    noteError = state.noteError,
-                    enabled = !isBusy,
-                    onOpenDatePicker = { dateDialogVisible = true },
-                    onNoteChange = { note = it }
-                )
-
-                // 7. Primary & Delete Bottom Action Buttons
-                Button(
-                    onClick = triggerSave,
-                    enabled = !isBusy,
-                    shape = RoundedCornerShape(12.dp),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = StitchTealPrimary,
-                        contentColor = Color.White
-                    ),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(top = 2.dp, bottom = if (state.isEditMode && onRequestDelete != null) 0.dp else 14.dp)
-                        .height(52.dp)
-                ) {
-                    if (state.isSaving) {
-                        CircularProgressIndicator(
-                            color = Color.White,
-                            strokeWidth = 2.dp,
-                            modifier = Modifier.size(20.dp)
-                        )
-                        Spacer(Modifier.width(10.dp))
-                    }
-                    Text(
-                        text = if (state.isEditMode) "Update Transaction" else "Add Transaction",
-                        style = MaterialTheme.typography.titleSmall.copy(
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 15.sp
-                        )
-                    )
-                }
-
-                if (state.isEditMode && state.transaction != null && onRequestDelete != null) {
-                    OutlinedButton(
-                        onClick = {
-                            focusManager.clearFocus()
-                            onRequestDelete()
-                        },
-                        enabled = !isBusy,
-                        shape = RoundedCornerShape(12.dp),
-                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.55f)),
-                        colors = ButtonDefaults.outlinedButtonColors(
-                            containerColor = Color.White,
-                            contentColor = MaterialTheme.colorScheme.error
+            Column(
+                modifier = Modifier
+                    .widthIn(max = 600.dp)
+                    .fillMaxSize()
+                    .verticalScroll(rememberScrollState())
+                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                state.error?.let { errorMsg ->
+                    Card(
+                        colors = CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.errorContainer,
+                            contentColor = MaterialTheme.colorScheme.onErrorContainer
                         ),
+                        shape = MaterialTheme.shapes.medium,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(
+                            text = errorMsg,
+                            style = MaterialTheme.typography.bodyMedium,
+                            modifier = Modifier.padding(12.dp)
+                        )
+                    }
+                }
+
+                if (state.isLoading) {
+                    Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(bottom = 14.dp)
-                            .height(48.dp)
+                            .padding(vertical = 32.dp),
+                        contentAlignment = Alignment.Center
                     ) {
-                        if (state.isDeleting) {
-                            CircularProgressIndicator(
-                                color = MaterialTheme.colorScheme.error,
-                                strokeWidth = 2.dp,
-                                modifier = Modifier.size(18.dp)
+                        CircularProgressIndicator()
+                    }
+                } else if (state.isEditMode && state.transaction == null) {
+                    if (state.error == null) {
+                        Text(
+                            text = TransactionMessages.NOT_FOUND,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+                    }
+                } else {
+                    LaunchedEffect(Unit) {
+                        if (!state.isEditMode) amountFocus.requestFocus()
+                    }
+
+                    // 1. Transaction Type Selector (Expense / Income)
+                    val currentType = runCatching { TransactionType.valueOf(typeName) }.getOrDefault(TransactionType.EXPENSE)
+                    val activeTypeTags = if (currentType == TransactionType.INCOME) state.incomeTags else state.expenseTags
+
+                    TransactionTypeSelector(
+                        selectedType = typeName,
+                        enabled = !isBusy,
+                        onTypeSelected = { newType ->
+                            if (newType != typeName) {
+                                typeName = newType
+                                val originalTx = state.transaction
+                                if (originalTx != null && originalTx.type.name == newType) {
+                                    category = originalTx.category
+                                } else {
+                                    val nextTags = if (newType == TransactionType.INCOME.name) state.incomeTags else state.expenseTags
+                                    val defaultForSlide = if (newType == TransactionType.INCOME.name) "Salary" else "General"
+                                    category = nextTags.firstOrNull() ?: defaultForSlide
+                                }
+                            }
+                        }
+                    )
+
+                    // 2. Amount Card (shows conversion rate when currency != targetCurrency)
+                    TransactionAmountCard(
+                        amount = amount,
+                        onAmountChange = { amount = it },
+                        currency = state.currency,
+                        targetCurrency = state.targetCurrency,
+                        amountError = state.amountError,
+                        preview = state.preview,
+                        previewLoading = state.previewLoading,
+                        previewError = state.previewError,
+                        onCurrencySelected = onCurrencySelected,
+                        onRetryPreview = { onRetryPreview?.invoke() ?: onPreview(amount) },
+                        enabled = !isBusy,
+                        currencyLocked = false,
+                        amountFocus = amountFocus
+                    )
+
+                    // 3. Category Chips Section
+                    TransactionCategorySection(
+                        transactionType = currentType,
+                        category = category,
+                        tags = activeTypeTags,
+                        categoryError = state.categoryError,
+                        onOpenCreateCategory = { onOpenCreateCategory(currentType) },
+                        onCategoryChange = { category = it },
+                        enabled = !isBusy
+                    )
+
+                    // 4. Payment Account Section
+                    TransactionPaymentAccountSection(
+                        accounts = state.accounts,
+                        selectedAccountId = state.selectedAccountId,
+                        isAccountsLoading = state.isAccountsLoading,
+                        accountsError = state.accountsError,
+                        accountError = state.accountError,
+                        enabled = !isBusy,
+                        onAccountSelected = onAccountSelected,
+                        onCreateAccount = onCreateAccount
+                    )
+
+                    // 5. Receipt Verification / Slip Upload Section
+                    TransactionReceiptSection(
+                        isEditMode = state.isEditMode,
+                        proofs = state.proofs,
+                        pendingProofs = state.pendingProofs,
+                        isProofBusy = state.isProofBusy,
+                        proofError = state.proofError,
+                        amountMinor = parsedAmountMinor,
+                        currency = state.currency,
+                        enabled = !isBusy,
+                        onCapturePhoto = onCaptureProofPhoto,
+                        onUploadSlip = onPickProofDocument,
+                        onOpenProof = onOpenProof,
+                        onOpenPendingUri = { rawUri ->
+                            openLocalDraftUri(context, rawUri)
+                        },
+                        onVerifyProof = { proofId, verified ->
+                            if (parsedAmountMinor > 0L) {
+                                onVerifyProof(proofId, parsedAmountMinor, verified)
+                            }
+                        },
+                        onRemoveUnavailableProof = onRemoveUnavailableProof,
+                        onRetryProofs = onRetryProofs,
+                        onRemovePendingProof = onRemovePendingProof,
+                        onTogglePendingVerified = onTogglePendingProofVerified
+                    )
+
+                    // 6. Date & Transaction Note Section
+                    TransactionDateAndNoteSection(
+                        dateEpochMillis = dateEpochMillis,
+                        note = note,
+                        noteError = state.noteError,
+                        enabled = !isBusy,
+                        onOpenDatePicker = { dateDialogVisible = true },
+                        onNoteChange = { note = it }
+                    )
+
+                    // 7. Primary & Delete Bottom Action Buttons
+                    Button(
+                        onClick = triggerSave,
+                        enabled = !isBusy,
+                        shape = MaterialTheme.shapes.medium,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(
+                                top = 4.dp,
+                                bottom = if (state.isEditMode && onRequestDelete != null) 0.dp else 16.dp
                             )
-                            Spacer(Modifier.width(8.dp))
-                        } else {
-                            Icon(
-                                imageVector = Icons.Default.Delete,
-                                contentDescription = null,
+                            .heightIn(min = 48.dp)
+                    ) {
+                        if (state.isSaving) {
+                            CircularProgressIndicator(
+                                color = MaterialTheme.colorScheme.onPrimary,
+                                strokeWidth = 2.dp,
                                 modifier = Modifier.size(18.dp)
                             )
                             Spacer(Modifier.width(8.dp))
                         }
                         Text(
-                            text = "Delete Transaction",
-                            style = MaterialTheme.typography.titleSmall.copy(
-                                fontWeight = FontWeight.SemiBold,
-                                fontSize = 14.sp
-                            )
+                            text = if (state.isEditMode) "Update Transaction" else "Add Transaction",
+                            style = MaterialTheme.typography.labelLarge,
+                            fontWeight = FontWeight.Bold
                         )
+                    }
+
+                    if (state.isEditMode && state.transaction != null && onRequestDelete != null) {
+                        OutlinedButton(
+                            onClick = {
+                                focusManager.clearFocus()
+                                onRequestDelete()
+                            },
+                            enabled = !isBusy,
+                            shape = MaterialTheme.shapes.medium,
+                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.55f)),
+                            colors = ButtonDefaults.outlinedButtonColors(
+                                contentColor = MaterialTheme.colorScheme.error
+                            ),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(bottom = 16.dp)
+                                .heightIn(min = 48.dp)
+                        ) {
+                            if (state.isDeleting) {
+                                CircularProgressIndicator(
+                                    color = MaterialTheme.colorScheme.error,
+                                    strokeWidth = 2.dp,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                                Spacer(Modifier.width(8.dp))
+                            } else {
+                                Icon(
+                                    imageVector = Icons.Default.Delete,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(ButtonDefaults.IconSize)
+                                )
+                                Spacer(Modifier.width(ButtonDefaults.IconSpacing))
+                            }
+                            Text(
+                                text = "Delete Transaction",
+                                style = MaterialTheme.typography.labelLarge,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        }
                     }
                 }
             }
@@ -603,119 +571,102 @@ internal fun TransactionEditContent(
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun StitchTransactionTypeSelector(
+private fun TransactionTypeSelector(
     selectedType: String,
     enabled: Boolean,
     onTypeSelected: (String) -> Unit
 ) {
-    Surface(
-        color = StitchSurfaceMuted,
-        shape = RoundedCornerShape(12.dp),
-        modifier = Modifier.fillMaxWidth()
+    val isExpense = selectedType == TransactionType.EXPENSE.name
+    val isIncome = selectedType == TransactionType.INCOME.name
+
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(4.dp),
-            horizontalArrangement = Arrangement.spacedBy(6.dp)
-        ) {
-            val isExpense = selectedType == TransactionType.EXPENSE.name
-            val isIncome = selectedType == TransactionType.INCOME.name
+        FilterChip(
+            selected = isExpense,
+            onClick = { onTypeSelected(TransactionType.EXPENSE.name) },
+            enabled = enabled,
+            leadingIcon = {
+                Icon(
+                    imageVector = AppIcons.ArrowDownward,
+                    contentDescription = null,
+                    modifier = Modifier.size(FilterChipDefaults.IconSize)
+                )
+            },
+            label = {
+                Text(
+                    text = "Expense",
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = FontWeight.SemiBold,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 4.dp)
+                )
+            },
+            modifier = Modifier.weight(1f)
+        )
 
-            Surface(
-                color = if (isExpense) Color.White else Color.Transparent,
-                shape = RoundedCornerShape(9.dp),
-                shadowElevation = if (isExpense) 1.dp else 0.dp,
-                modifier = Modifier
-                    .weight(1f)
-                    .clip(RoundedCornerShape(9.dp))
-                    .clickable(enabled = enabled, role = Role.Tab) {
-                        onTypeSelected(TransactionType.EXPENSE.name)
-                    }
-            ) {
-                Row(
-                    modifier = Modifier.padding(vertical = 9.dp),
-                    horizontalArrangement = Arrangement.Center,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Icon(
-                        imageVector = AppIcons.ArrowDownward,
-                        contentDescription = null,
-                        tint = if (isExpense) StitchTealDark else StitchTextSecondary,
-                        modifier = Modifier.size(16.dp)
-                    )
-                    Spacer(Modifier.width(6.dp))
-                    Text(
-                        text = "Expense",
-                        style = MaterialTheme.typography.labelLarge.copy(
-                            fontWeight = FontWeight.SemiBold,
-                            color = if (isExpense) StitchTealDark else StitchTextSecondary
-                        )
-                    )
-                }
-            }
-
-            Surface(
-                color = if (isIncome) Color.White else Color.Transparent,
-                shape = RoundedCornerShape(9.dp),
-                shadowElevation = if (isIncome) 1.dp else 0.dp,
-                modifier = Modifier
-                    .weight(1f)
-                    .clip(RoundedCornerShape(9.dp))
-                    .clickable(enabled = enabled, role = Role.Tab) {
-                        onTypeSelected(TransactionType.INCOME.name)
-                    }
-            ) {
-                Row(
-                    modifier = Modifier.padding(vertical = 9.dp),
-                    horizontalArrangement = Arrangement.Center,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Icon(
-                        imageVector = AppIcons.ArrowUpward,
-                        contentDescription = null,
-                        tint = if (isIncome) StitchTealDark else StitchTextSecondary,
-                        modifier = Modifier.size(16.dp)
-                    )
-                    Spacer(Modifier.width(6.dp))
-                    Text(
-                        text = "Income",
-                        style = MaterialTheme.typography.labelLarge.copy(
-                            fontWeight = FontWeight.SemiBold,
-                            color = if (isIncome) StitchTealDark else StitchTextSecondary
-                        )
-                    )
-                }
-            }
-        }
+        FilterChip(
+            selected = isIncome,
+            onClick = { onTypeSelected(TransactionType.INCOME.name) },
+            enabled = enabled,
+            leadingIcon = {
+                Icon(
+                    imageVector = AppIcons.ArrowUpward,
+                    contentDescription = null,
+                    modifier = Modifier.size(FilterChipDefaults.IconSize)
+                )
+            },
+            label = {
+                Text(
+                    text = "Income",
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = FontWeight.SemiBold,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 4.dp)
+                )
+            },
+            modifier = Modifier.weight(1f)
+        )
     }
 }
 
 @Composable
-private fun StitchHeroAmountCard(
+private fun TransactionAmountCard(
     amount: String,
     onAmountChange: (String) -> Unit,
     currency: String,
     targetCurrency: String,
     amountError: String?,
-    preview: com.example.clarity.domain.model.ConversionSnapshot?,
+    preview: ConversionSnapshot?,
     previewLoading: Boolean,
     previewError: Boolean,
+    @Suppress("UNUSED_PARAMETER")
     onCurrencySelected: (String) -> Unit,
     onRetryPreview: () -> Unit,
     enabled: Boolean,
+    @Suppress("UNUSED_PARAMETER")
     currencyLocked: Boolean,
     amountFocus: FocusRequester
 ) {
     val uriHandler = LocalUriHandler.current
     val isDifferentCurrency = !currency.equals(targetCurrency, ignoreCase = true)
 
-    Surface(
-        color = Color.White,
-        shape = RoundedCornerShape(16.dp),
-        border = BorderStroke(1.dp, if (amountError != null) MaterialTheme.colorScheme.error else StitchBorder),
-        shadowElevation = 1.dp,
+    OutlinedCard(
+        shape = MaterialTheme.shapes.large,
+        border = BorderStroke(
+            width = 1.dp,
+            color = if (amountError != null) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.outlineVariant
+        ),
+        colors = CardDefaults.outlinedCardColors(
+            containerColor = MaterialTheme.colorScheme.surface
+        ),
         modifier = Modifier.fillMaxWidth()
     ) {
         Column(
@@ -725,37 +676,29 @@ private fun StitchHeroAmountCard(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            // Currency Switcher Pill Badge
-            Box {
-                Surface(
-                    color = StitchSurfaceMuted,
-                    shape = CircleShape,
-                    modifier = Modifier
-                        .clip(CircleShape)
+            Surface(
+                color = MaterialTheme.colorScheme.secondaryContainer,
+                contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                shape = MaterialTheme.shapes.small
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 5.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        Icon(
-                            imageVector = AppIcons.Transactions,
-                            contentDescription = null,
-                            tint = StitchTealDark,
-                            modifier = Modifier.size(14.dp)
-                        )
-                        Text(
-                            text = "Currency: $currency (${currencySymbol(currency)})",
-                            style = MaterialTheme.typography.labelMedium.copy(
-                                fontWeight = FontWeight.Bold,
-                                color = StitchTextPrimary
-                            )
-                        )
-                    }
+                    Icon(
+                        imageVector = AppIcons.Transactions,
+                        contentDescription = null,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Text(
+                        text = "Currency: $currency (${currencySymbol(currency)})",
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.Bold
+                    )
                 }
             }
 
-            // Ergonomic Amount Input
             OutlinedTextField(
                 value = amount,
                 onValueChange = onAmountChange,
@@ -764,38 +707,27 @@ private fun StitchHeroAmountCard(
                 prefix = {
                     Text(
                         text = "${currencySymbol(currency)} ",
-                        style = TextStyle(
-                            fontSize = 22.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = StitchTealDark
-                        )
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary
                     )
                 },
-                textStyle = TextStyle(
-                    fontSize = 26.sp,
-                    fontWeight = FontWeight.ExtraBold,
-                    color = StitchTextPrimary
+                textStyle = MaterialTheme.typography.headlineSmall.copy(
+                    fontWeight = FontWeight.Bold
                 ),
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                 isError = amountError != null,
                 supportingText = amountError?.let { err ->
-                    { Text(err, color = MaterialTheme.colorScheme.error) }
+                    { Text(err) }
                 },
                 enabled = enabled,
                 singleLine = true,
-                shape = RoundedCornerShape(12.dp),
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedBorderColor = StitchTealDark,
-                    unfocusedBorderColor = StitchBorder,
-                    focusedContainerColor = StitchCardSubtle.copy(alpha = 0.5f),
-                    unfocusedContainerColor = StitchCardSubtle.copy(alpha = 0.35f)
-                ),
+                shape = MaterialTheme.shapes.medium,
                 modifier = Modifier
                     .fillMaxWidth()
                     .focusRequester(amountFocus)
             )
 
-            // Only show conversion rate if entering a different currency than default targetCurrency
             if (isDifferentCurrency) {
                 if (previewLoading) {
                     Row(
@@ -804,45 +736,32 @@ private fun StitchHeroAmountCard(
                     ) {
                         CircularProgressIndicator(
                             modifier = Modifier.size(14.dp),
-                            strokeWidth = 2.dp,
-                            color = StitchTealDark
+                            strokeWidth = 2.dp
                         )
                         Text(
                             text = "Converting to $targetCurrency...",
-                            style = MaterialTheme.typography.labelSmall.copy(color = StitchTextSecondary)
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
                 } else if (preview != null) {
-                    // Rate value pill with ExchangeRate-API link hidden inside on tap
-                    Surface(
-                        color = StitchTealLightBg,
-                        shape = RoundedCornerShape(8.dp),
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(8.dp))
-                            .clickable {
-                                uriHandler.openUri("https://www.exchangerate-api.com")
-                            }
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
+                    AssistChip(
+                        onClick = { uriHandler.openUri("https://www.exchangerate-api.com") },
+                        leadingIcon = {
                             Icon(
                                 imageVector = AppIcons.Transactions,
                                 contentDescription = null,
-                                tint = StitchTealBadgeText,
-                                modifier = Modifier.size(14.dp)
+                                modifier = Modifier.size(AssistChipDefaults.IconSize)
                             )
+                        },
+                        label = {
                             Text(
                                 text = "≈ ${currencySymbol(targetCurrency)}${MoneyUtils.formatMinor(preview.amountMinor, targetCurrency)} $targetCurrency · Rate: ${preview.rate}",
-                                style = MaterialTheme.typography.labelMedium.copy(
-                                    fontWeight = FontWeight.SemiBold,
-                                    color = StitchTealBadgeText
-                                )
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.SemiBold
                             )
                         }
-                    }
+                    )
                 } else if (previewError) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
@@ -850,13 +769,14 @@ private fun StitchHeroAmountCard(
                     ) {
                         Text(
                             text = "Rate unavailable",
-                            style = MaterialTheme.typography.bodySmall.copy(color = StitchTextSecondary)
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                         TextButton(
                             onClick = onRetryPreview,
                             contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp)
                         ) {
-                            Text("Retry", color = StitchTealDark, fontWeight = FontWeight.SemiBold)
+                            Text("Retry", fontWeight = FontWeight.SemiBold)
                         }
                     }
                 }
@@ -865,9 +785,9 @@ private fun StitchHeroAmountCard(
     }
 }
 
-@OptIn(ExperimentalLayoutApi::class)
+@OptIn(ExperimentalLayoutApi::class, ExperimentalMaterial3Api::class)
 @Composable
-private fun StitchCategorySection(
+private fun TransactionCategorySection(
     transactionType: TransactionType,
     category: String,
     tags: List<String>,
@@ -891,34 +811,30 @@ private fun StitchCategorySection(
 
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 2.dp),
+            modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
                 text = if (transactionType == TransactionType.INCOME) "INCOME CATEGORY" else "EXPENSE CATEGORY",
-                style = MaterialTheme.typography.labelSmall.copy(
-                    fontWeight = FontWeight.Bold,
-                    letterSpacing = 0.8.sp,
-                    color = StitchTextSecondary
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            TextButton(
+                onClick = {
+                    focusManager.clearFocus()
+                    onOpenCreateCategory()
+                },
+                enabled = enabled,
+                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)
+            ) {
+                Text(
+                    text = "+ Custom Tag",
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.Bold
                 )
-            )
-            Text(
-                text = "+ Custom Tag",
-                style = MaterialTheme.typography.labelSmall.copy(
-                    fontWeight = FontWeight.Bold,
-                    color = StitchTealDark
-                ),
-                modifier = Modifier
-                    .clip(RoundedCornerShape(6.dp))
-                    .clickable(enabled = enabled) {
-                        focusManager.clearFocus()
-                        onOpenCreateCategory()
-                    }
-                    .padding(horizontal = 4.dp, vertical = 2.dp)
-            )
+            }
         }
 
         FlowRow(
@@ -928,73 +844,41 @@ private fun StitchCategorySection(
         ) {
             displayTags.forEach { item ->
                 val isSelected = effectiveSelected.equals(item, ignoreCase = true)
-                Surface(
-                    color = if (isSelected) StitchTealDark else Color.White,
-                    shape = CircleShape,
-                    border = if (isSelected) null else BorderStroke(1.dp, StitchBorder),
-                    shadowElevation = if (isSelected) 1.dp else 0.dp,
-                    modifier = Modifier
-                        .clip(CircleShape)
-                        .clickable(enabled = enabled) {
-                            onCategoryChange(item)
-                            focusManager.clearFocus()
-                        }
-                ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 13.dp, vertical = 7.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(5.dp)
-                    ) {
-                        Text(
-                            text = item,
-                            style = MaterialTheme.typography.labelMedium.copy(
-                                fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Medium,
-                                color = if (isSelected) Color.White else StitchTextPrimary
-                            )
-                        )
-                        if (isSelected) {
+                FilterChip(
+                    selected = isSelected,
+                    onClick = {
+                        onCategoryChange(item)
+                        focusManager.clearFocus()
+                    },
+                    enabled = enabled,
+                    label = { Text(item) },
+                    leadingIcon = if (isSelected) {
+                        {
                             Icon(
                                 imageVector = Icons.Default.Check,
                                 contentDescription = null,
-                                tint = Color.White,
-                                modifier = Modifier.size(13.dp)
+                                modifier = Modifier.size(FilterChipDefaults.IconSize)
                             )
                         }
-                    }
-                }
+                    } else null
+                )
             }
 
-            Surface(
-                color = StitchTealLightBg,
-                shape = CircleShape,
-                border = BorderStroke(1.dp, StitchTealDark.copy(alpha = 0.35f)),
-                modifier = Modifier
-                    .clip(CircleShape)
-                    .clickable(enabled = enabled) {
-                        focusManager.clearFocus()
-                        onOpenCreateCategory()
-                    }
-            ) {
-                Row(
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(4.dp)
-                ) {
+            AssistChip(
+                onClick = {
+                    focusManager.clearFocus()
+                    onOpenCreateCategory()
+                },
+                enabled = enabled,
+                leadingIcon = {
                     Icon(
                         imageVector = Icons.Default.Add,
                         contentDescription = null,
-                        tint = StitchTealBadgeText,
-                        modifier = Modifier.size(13.dp)
+                        modifier = Modifier.size(AssistChipDefaults.IconSize)
                     )
-                    Text(
-                        text = "New Tag",
-                        style = MaterialTheme.typography.labelMedium.copy(
-                            fontWeight = FontWeight.SemiBold,
-                            color = StitchTealBadgeText
-                        )
-                    )
-                }
-            }
+                },
+                label = { Text("New Tag") }
+            )
         }
 
         categoryError?.let { err ->
@@ -1008,7 +892,7 @@ private fun StitchCategorySection(
 }
 
 @Composable
-private fun StitchPaymentAccountSection(
+private fun TransactionPaymentAccountSection(
     accounts: List<Account>,
     selectedAccountId: String?,
     isAccountsLoading: Boolean,
@@ -1020,49 +904,48 @@ private fun StitchPaymentAccountSection(
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 2.dp),
+            modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
                 text = "PAYMENT ACCOUNT",
-                style = MaterialTheme.typography.labelSmall.copy(
-                    fontWeight = FontWeight.Bold,
-                    letterSpacing = 0.8.sp,
-                    color = StitchTextSecondary
-                )
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
             )
             if (accounts.isNotEmpty()) {
-                Text(
-                    text = "+ New",
-                    style = MaterialTheme.typography.labelSmall.copy(
-                        fontWeight = FontWeight.Bold,
-                        color = StitchTealPrimary
-                    ),
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(6.dp))
-                        .clickable(enabled = enabled) { onCreateAccount() }
-                        .padding(horizontal = 4.dp, vertical = 2.dp)
-                )
+                TextButton(
+                    onClick = onCreateAccount,
+                    enabled = enabled,
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)
+                ) {
+                    Text(
+                        text = "+ New",
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
             }
         }
 
         accountsError?.let {
-            Text(text = it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+            Text(
+                text = it,
+                color = MaterialTheme.colorScheme.error,
+                style = MaterialTheme.typography.bodySmall
+            )
         }
 
         if (isAccountsLoading) {
-            LinearProgressIndicator(
-                modifier = Modifier.fillMaxWidth(),
-                color = StitchTealDark
-            )
+            LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
         } else if (accounts.isEmpty()) {
-            Surface(
-                color = Color.White,
-                shape = RoundedCornerShape(12.dp),
-                border = BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.5f)),
+            OutlinedCard(
+                shape = MaterialTheme.shapes.medium,
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.error),
+                colors = CardDefaults.outlinedCardColors(
+                    containerColor = MaterialTheme.colorScheme.surface
+                ),
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Column(
@@ -1072,12 +955,13 @@ private fun StitchPaymentAccountSection(
                     Text(
                         text = TransactionMessages.ACCOUNT_REQUIRED,
                         color = MaterialTheme.colorScheme.error,
-                        style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Medium)
+                        style = MaterialTheme.typography.bodySmall,
+                        fontWeight = FontWeight.Medium
                     )
                     OutlinedButton(
                         onClick = onCreateAccount,
                         enabled = enabled,
-                        shape = RoundedCornerShape(10.dp)
+                        shape = MaterialTheme.shapes.small
                     ) {
                         Text("Create bank account")
                     }
@@ -1092,21 +976,31 @@ private fun StitchPaymentAccountSection(
             ) {
                 accounts.forEach { account ->
                     val isSelected = account.id == selectedAccountId
-                    Surface(
-                        color = Color.White,
-                        shape = RoundedCornerShape(12.dp),
+                    OutlinedCard(
+                        shape = MaterialTheme.shapes.medium,
                         border = BorderStroke(
                             width = if (isSelected) 2.dp else 1.dp,
-                            color = if (isSelected) StitchTealDark else StitchBorder
+                            color = if (isSelected) {
+                                MaterialTheme.colorScheme.primary
+                            } else {
+                                MaterialTheme.colorScheme.outlineVariant
+                            }
                         ),
-                        shadowElevation = if (isSelected) 2.dp else 0.dp,
+                        colors = CardDefaults.outlinedCardColors(
+                            containerColor = if (isSelected) {
+                                MaterialTheme.colorScheme.surfaceVariant
+                            } else {
+                                MaterialTheme.colorScheme.surface
+                            }
+                        ),
                         modifier = Modifier
                             .width(164.dp)
-                            .clip(RoundedCornerShape(12.dp))
-                            .clickable(enabled = enabled) { onAccountSelected(account.id) }
+                            .clickable(enabled = enabled, role = Role.RadioButton) {
+                                onAccountSelected(account.id)
+                            }
                     ) {
                         Column(
-                            modifier = Modifier.padding(11.dp),
+                            modifier = Modifier.padding(12.dp),
                             verticalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
                             Row(
@@ -1114,60 +1008,70 @@ private fun StitchPaymentAccountSection(
                                 horizontalArrangement = Arrangement.SpaceBetween,
                                 verticalAlignment = Alignment.Top
                             ) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(30.dp)
-                                        .clip(RoundedCornerShape(8.dp))
-                                        .background(if (isSelected) StitchTealDark.copy(alpha = 0.12f) else StitchSurfaceMuted),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    if (account.isCashWallet) {
-                                        Icon(
-                                            imageVector = AppIcons.Wallet,
-                                            contentDescription = null,
-                                            tint = if (isSelected) StitchTealDark else StitchTextSecondary,
-                                            modifier = Modifier.size(17.dp)
-                                        )
+                                Surface(
+                                    color = if (isSelected) {
+                                        MaterialTheme.colorScheme.primaryContainer
                                     } else {
-                                        Icon(
-                                            painter = painterResource(R.drawable.ic_bank),
-                                            contentDescription = null,
-                                            tint = if (isSelected) StitchTealDark else StitchTextSecondary,
-                                            modifier = Modifier.size(17.dp)
-                                        )
+                                        MaterialTheme.colorScheme.surfaceVariant
+                                    },
+                                    contentColor = if (isSelected) {
+                                        MaterialTheme.colorScheme.onPrimaryContainer
+                                    } else {
+                                        MaterialTheme.colorScheme.onSurfaceVariant
+                                    },
+                                    shape = MaterialTheme.shapes.small,
+                                    modifier = Modifier.size(32.dp)
+                                ) {
+                                    Box(contentAlignment = Alignment.Center) {
+                                        if (account.isCashWallet) {
+                                            Icon(
+                                                imageVector = AppIcons.Wallet,
+                                                contentDescription = null,
+                                                modifier = Modifier.size(18.dp)
+                                            )
+                                        } else {
+                                            Icon(
+                                                painter = painterResource(R.drawable.ic_bank),
+                                                contentDescription = null,
+                                                modifier = Modifier.size(18.dp)
+                                            )
+                                        }
                                     }
                                 }
                                 Surface(
-                                    color = if (account.isDefault) StitchTealLightBg else StitchSurfaceMuted,
-                                    shape = RoundedCornerShape(6.dp)
+                                    color = if (account.isDefault) {
+                                        MaterialTheme.colorScheme.secondaryContainer
+                                    } else {
+                                        MaterialTheme.colorScheme.surfaceVariant
+                                    },
+                                    contentColor = if (account.isDefault) {
+                                        MaterialTheme.colorScheme.onSecondaryContainer
+                                    } else {
+                                        MaterialTheme.colorScheme.onSurfaceVariant
+                                    },
+                                    shape = MaterialTheme.shapes.extraSmall
                                 ) {
                                     Text(
                                         text = if (account.isDefault) "Default" else account.currency,
-                                        style = MaterialTheme.typography.labelSmall.copy(
-                                            fontSize = 10.sp,
-                                            fontWeight = FontWeight.Bold,
-                                            color = if (account.isDefault) StitchTealBadgeText else StitchTextSecondary
-                                        ),
+                                        style = MaterialTheme.typography.labelSmall,
+                                        fontWeight = FontWeight.Bold,
                                         modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                                     )
                                 }
                             }
                             Text(
                                 text = account.name,
-                                style = MaterialTheme.typography.bodySmall.copy(
-                                    fontWeight = FontWeight.Bold,
-                                    color = StitchTextPrimary
-                                ),
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSurface,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis
                             )
                             if (!account.isCashWallet && account.bankName.isNotBlank()) {
                                 Text(
                                     text = account.bankName,
-                                    style = MaterialTheme.typography.labelSmall.copy(
-                                        fontSize = 11.sp,
-                                        color = StitchTextSecondary
-                                    ),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis
                                 )
@@ -1179,7 +1083,7 @@ private fun StitchPaymentAccountSection(
         }
 
         accountError?.let { err ->
-            if (!accounts.isEmpty() || err != TransactionMessages.ACCOUNT_REQUIRED) {
+            if (accounts.isNotEmpty() || err != TransactionMessages.ACCOUNT_REQUIRED) {
                 Text(
                     text = err,
                     color = MaterialTheme.colorScheme.error,
@@ -1191,7 +1095,7 @@ private fun StitchPaymentAccountSection(
 }
 
 @Composable
-private fun StitchReceiptVerificationCard(
+private fun TransactionReceiptSection(
     isEditMode: Boolean,
     proofs: List<TransactionProof>,
     pendingProofs: List<PendingProofDraft>,
@@ -1213,11 +1117,12 @@ private fun StitchReceiptVerificationCard(
     val totalCount = if (isEditMode) proofs.size else pendingProofs.size
     val canAttachMore = enabled && !isProofBusy && totalCount < ProofPolicy.MAX_ATTACHMENTS
 
-    Surface(
-        color = Color.White,
-        shape = RoundedCornerShape(16.dp),
-        border = BorderStroke(1.dp, StitchBorder),
-        shadowElevation = 1.dp,
+    OutlinedCard(
+        shape = MaterialTheme.shapes.large,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+        colors = CardDefaults.outlinedCardColors(
+            containerColor = MaterialTheme.colorScheme.surface
+        ),
         modifier = Modifier.fillMaxWidth()
     ) {
         Column(
@@ -1226,25 +1131,22 @@ private fun StitchReceiptVerificationCard(
         ) {
             Text(
                 text = "RECEIPT SLIP",
-                style = MaterialTheme.typography.labelSmall.copy(
-                    fontWeight = FontWeight.Bold,
-                    letterSpacing = 0.8.sp,
-                    color = StitchTextSecondary
-                )
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
             )
 
             if (isProofBusy) {
-                LinearProgressIndicator(
-                    modifier = Modifier.fillMaxWidth(),
-                    color = StitchTealDark
-                )
+                LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
             }
 
             proofError?.let { warningText ->
-                Surface(
-                    color = Color(0xFFFFF8E1),
-                    shape = RoundedCornerShape(10.dp),
-                    border = BorderStroke(1.dp, Color(0xFFFFCC80)),
+                Card(
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.errorContainer,
+                        contentColor = MaterialTheme.colorScheme.onErrorContainer
+                    ),
+                    shape = MaterialTheme.shapes.small,
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Row(
@@ -1255,16 +1157,12 @@ private fun StitchReceiptVerificationCard(
                         Icon(
                             imageVector = Icons.Outlined.Info,
                             contentDescription = null,
-                            tint = Color(0xFFB26A00),
                             modifier = Modifier.size(16.dp)
                         )
                         Text(
                             text = warningText,
-                            style = MaterialTheme.typography.labelSmall.copy(
-                                color = Color(0xFF663C00),
-                                fontWeight = FontWeight.Medium,
-                                fontSize = 11.sp
-                            )
+                            style = MaterialTheme.typography.bodySmall,
+                            fontWeight = FontWeight.Medium
                         )
                     }
                 }
@@ -1274,9 +1172,12 @@ private fun StitchReceiptVerificationCard(
             if (!isEditMode) {
                 pendingProofs.forEach { draft ->
                     val isPdf = draft.displayName.endsWith(".pdf", ignoreCase = true)
-                    Surface(
-                        color = StitchCardSubtle,
-                        shape = RoundedCornerShape(10.dp),
+                    Card(
+                        colors = CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.surfaceVariant,
+                            contentColor = MaterialTheme.colorScheme.onSurfaceVariant
+                        ),
+                        shape = MaterialTheme.shapes.small,
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Row(
@@ -1284,40 +1185,42 @@ private fun StitchReceiptVerificationCard(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
-                            Box(
+                            Surface(
+                                color = MaterialTheme.colorScheme.surface,
+                                contentColor = MaterialTheme.colorScheme.primary,
+                                shape = MaterialTheme.shapes.small,
+                                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
                                 modifier = Modifier
                                     .size(40.dp)
-                                    .clip(RoundedCornerShape(8.dp))
-                                    .background(StitchSurfaceMuted)
-                                    .border(1.dp, StitchBorder, RoundedCornerShape(8.dp))
-                                    .clickable { onOpenPendingUri(draft.uri) },
-                                contentAlignment = Alignment.Center
+                                    .clickable { onOpenPendingUri(draft.uri) }
                             ) {
-                                Icon(
-                                    painter = painterResource(R.drawable.ic_receipt_verified),
-                                    contentDescription = null,
-                                    tint = StitchTealDark,
-                                    modifier = Modifier.size(20.dp)
-                                )
-                                Box(
-                                    modifier = Modifier
-                                        .align(Alignment.BottomEnd)
-                                        .background(Color.Black.copy(alpha = 0.65f), RoundedCornerShape(topStart = 4.dp))
-                                        .padding(horizontal = 3.dp, vertical = 1.dp)
-                                ) {
-                                    Text(
-                                        text = if (isPdf) "PDF" else "IMG",
-                                        style = TextStyle(color = Color.White, fontSize = 8.sp, fontWeight = FontWeight.Bold)
+                                Box(contentAlignment = Alignment.Center) {
+                                    Icon(
+                                        painter = painterResource(R.drawable.ic_receipt_verified),
+                                        contentDescription = null,
+                                        modifier = Modifier.size(20.dp)
                                     )
+                                    Surface(
+                                        color = MaterialTheme.colorScheme.primaryContainer,
+                                        contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                                        shape = MaterialTheme.shapes.extraSmall,
+                                        modifier = Modifier.align(Alignment.BottomEnd)
+                                    ) {
+                                        Text(
+                                            text = if (isPdf) "PDF" else "IMG",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            fontWeight = FontWeight.Bold,
+                                            modifier = Modifier.padding(horizontal = 3.dp, vertical = 1.dp)
+                                        )
+                                    }
                                 }
                             }
 
                             Text(
                                 text = draft.displayName,
-                                style = MaterialTheme.typography.bodySmall.copy(
-                                    fontWeight = FontWeight.Bold,
-                                    color = StitchTextPrimary
-                                ),
+                                style = MaterialTheme.typography.bodySmall,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSurface,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
                                 modifier = Modifier
@@ -1327,32 +1230,26 @@ private fun StitchReceiptVerificationCard(
 
                             IconButton(
                                 onClick = { onOpenPendingUri(draft.uri) },
-                                modifier = Modifier
-                                    .size(30.dp)
-                                    .clip(RoundedCornerShape(8.dp))
-                                    .background(Color.White)
+                                modifier = Modifier.size(32.dp)
                             ) {
                                 Icon(
                                     imageVector = Icons.Default.Search,
                                     contentDescription = "Preview slip",
-                                    tint = StitchTextSecondary,
-                                    modifier = Modifier.size(16.dp)
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.size(18.dp)
                                 )
                             }
 
                             IconButton(
                                 onClick = { onRemovePendingProof(draft.uri) },
                                 enabled = enabled,
-                                modifier = Modifier
-                                    .size(30.dp)
-                                    .clip(RoundedCornerShape(8.dp))
-                                    .background(Color.White)
+                                modifier = Modifier.size(32.dp)
                             ) {
                                 Icon(
                                     imageVector = Icons.Default.Close,
                                     contentDescription = "Remove slip",
                                     tint = MaterialTheme.colorScheme.error,
-                                    modifier = Modifier.size(16.dp)
+                                    modifier = Modifier.size(18.dp)
                                 )
                             }
                         }
@@ -1363,9 +1260,12 @@ private fun StitchReceiptVerificationCard(
                 proofs.forEach { proof ->
                     val isPdf = proof.mimeType == "application/pdf"
                     val isVerified = amountMinor > 0L && proof.verifies(amountMinor)
-                    Surface(
-                        color = StitchCardSubtle,
-                        shape = RoundedCornerShape(10.dp),
+                    Card(
+                        colors = CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.surfaceVariant,
+                            contentColor = MaterialTheme.colorScheme.onSurfaceVariant
+                        ),
+                        shape = MaterialTheme.shapes.small,
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Column(
@@ -1376,40 +1276,42 @@ private fun StitchReceiptVerificationCard(
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(10.dp)
                             ) {
-                                Box(
+                                Surface(
+                                    color = MaterialTheme.colorScheme.surface,
+                                    contentColor = MaterialTheme.colorScheme.primary,
+                                    shape = MaterialTheme.shapes.small,
+                                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
                                     modifier = Modifier
                                         .size(40.dp)
-                                        .clip(RoundedCornerShape(8.dp))
-                                        .background(StitchSurfaceMuted)
-                                        .border(1.dp, StitchBorder, RoundedCornerShape(8.dp))
-                                        .clickable(enabled = enabled && !proof.unavailable) { onOpenProof(proof.id) },
-                                    contentAlignment = Alignment.Center
+                                        .clickable(enabled = enabled && !proof.unavailable) { onOpenProof(proof.id) }
                                 ) {
-                                    Icon(
-                                        painter = painterResource(R.drawable.ic_receipt_verified),
-                                        contentDescription = null,
-                                        tint = StitchTealDark,
-                                        modifier = Modifier.size(20.dp)
-                                    )
-                                    Box(
-                                        modifier = Modifier
-                                            .align(Alignment.BottomEnd)
-                                            .background(Color.Black.copy(alpha = 0.65f), RoundedCornerShape(topStart = 4.dp))
-                                            .padding(horizontal = 3.dp, vertical = 1.dp)
-                                    ) {
-                                        Text(
-                                            text = if (isPdf) "PDF" else "IMG",
-                                            style = TextStyle(color = Color.White, fontSize = 8.sp, fontWeight = FontWeight.Bold)
+                                    Box(contentAlignment = Alignment.Center) {
+                                        Icon(
+                                            painter = painterResource(R.drawable.ic_receipt_verified),
+                                            contentDescription = null,
+                                            modifier = Modifier.size(20.dp)
                                         )
+                                        Surface(
+                                            color = MaterialTheme.colorScheme.primaryContainer,
+                                            contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                                            shape = MaterialTheme.shapes.extraSmall,
+                                            modifier = Modifier.align(Alignment.BottomEnd)
+                                        ) {
+                                            Text(
+                                                text = if (isPdf) "PDF" else "IMG",
+                                                style = MaterialTheme.typography.labelSmall,
+                                                fontWeight = FontWeight.Bold,
+                                                modifier = Modifier.padding(horizontal = 3.dp, vertical = 1.dp)
+                                            )
+                                        }
                                     }
                                 }
 
                                 Text(
                                     text = proof.displayName,
-                                    style = MaterialTheme.typography.bodySmall.copy(
-                                        fontWeight = FontWeight.Bold,
-                                        color = StitchTextPrimary
-                                    ),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onSurface,
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis,
                                     modifier = Modifier.weight(1f)
@@ -1426,16 +1328,13 @@ private fun StitchReceiptVerificationCard(
                                     IconButton(
                                         onClick = { onOpenProof(proof.id) },
                                         enabled = enabled && !isProofBusy,
-                                        modifier = Modifier
-                                            .size(30.dp)
-                                            .clip(RoundedCornerShape(8.dp))
-                                            .background(Color.White)
+                                        modifier = Modifier.size(32.dp)
                                     ) {
                                         Icon(
                                             imageVector = Icons.Default.Search,
                                             contentDescription = "Open proof",
-                                            tint = StitchTextSecondary,
-                                            modifier = Modifier.size(16.dp)
+                                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            modifier = Modifier.size(18.dp)
                                         )
                                     }
                                 }
@@ -1457,10 +1356,8 @@ private fun StitchReceiptVerificationCard(
                                             } else {
                                                 "Verify ${currencySymbol(currency)}${MoneyUtils.formatMinor(amountMinor, currency)}"
                                             },
-                                            style = MaterialTheme.typography.labelSmall.copy(
-                                                fontWeight = FontWeight.Bold,
-                                                color = StitchTealDark
-                                            )
+                                            style = MaterialTheme.typography.labelSmall,
+                                            fontWeight = FontWeight.Bold
                                         )
                                     }
                                 }
@@ -1475,64 +1372,44 @@ private fun StitchReceiptVerificationCard(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                Surface(
-                    color = StitchSurfaceMuted,
-                    shape = RoundedCornerShape(10.dp),
-                    modifier = Modifier
-                        .weight(1f)
-                        .clip(RoundedCornerShape(10.dp))
-                        .clickable(enabled = canAttachMore) { onCapturePhoto() }
+                OutlinedButton(
+                    onClick = onCapturePhoto,
+                    enabled = canAttachMore,
+                    shape = MaterialTheme.shapes.small,
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
+                    modifier = Modifier.weight(1f)
                 ) {
-                    Row(
-                        modifier = Modifier.padding(vertical = 9.dp, horizontal = 8.dp),
-                        horizontalArrangement = Arrangement.Center,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Add,
-                            contentDescription = null,
-                            tint = StitchTextPrimary,
-                            modifier = Modifier.size(15.dp)
-                        )
-                        Spacer(Modifier.width(6.dp))
-                        Text(
-                            text = if (totalCount > 0) "Retake Photo" else "Take Photo",
-                            style = MaterialTheme.typography.labelMedium.copy(
-                                fontWeight = FontWeight.SemiBold,
-                                color = StitchTextPrimary
-                            )
-                        )
-                    }
+                    Icon(
+                        imageVector = Icons.Default.Add,
+                        contentDescription = null,
+                        modifier = Modifier.size(ButtonDefaults.IconSize)
+                    )
+                    Spacer(Modifier.width(6.dp))
+                    Text(
+                        text = if (totalCount > 0) "Retake Photo" else "Take Photo",
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.SemiBold
+                    )
                 }
 
-                Surface(
-                    color = StitchTealLightBg,
-                    shape = RoundedCornerShape(10.dp),
-                    modifier = Modifier
-                        .weight(1f)
-                        .clip(RoundedCornerShape(10.dp))
-                        .clickable(enabled = canAttachMore) { onUploadSlip() }
+                FilledTonalButton(
+                    onClick = onUploadSlip,
+                    enabled = canAttachMore,
+                    shape = MaterialTheme.shapes.small,
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
+                    modifier = Modifier.weight(1f)
                 ) {
-                    Row(
-                        modifier = Modifier.padding(vertical = 9.dp, horizontal = 8.dp),
-                        horizontalArrangement = Arrangement.Center,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Icon(
-                            painter = painterResource(R.drawable.ic_receipt_verified),
-                            contentDescription = null,
-                            tint = StitchTealBadgeText,
-                            modifier = Modifier.size(15.dp)
-                        )
-                        Spacer(Modifier.width(6.dp))
-                        Text(
-                            text = "Upload Slip / PDF",
-                            style = MaterialTheme.typography.labelMedium.copy(
-                                fontWeight = FontWeight.SemiBold,
-                                color = StitchTealBadgeText
-                            )
-                        )
-                    }
+                    Icon(
+                        painter = painterResource(R.drawable.ic_receipt_verified),
+                        contentDescription = null,
+                        modifier = Modifier.size(ButtonDefaults.IconSize)
+                    )
+                    Spacer(Modifier.width(6.dp))
+                    Text(
+                        text = "Upload Slip / PDF",
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.SemiBold
+                    )
                 }
             }
 
@@ -1545,16 +1422,13 @@ private fun StitchReceiptVerificationCard(
                     Icon(
                         imageVector = Icons.Default.Refresh,
                         contentDescription = null,
-                        tint = StitchTealDark,
-                        modifier = Modifier.size(15.dp)
+                        modifier = Modifier.size(16.dp)
                     )
                     Spacer(Modifier.width(4.dp))
                     Text(
                         text = "Retry Sync",
-                        style = MaterialTheme.typography.labelSmall.copy(
-                            fontWeight = FontWeight.Bold,
-                            color = StitchTealDark
-                        )
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.Bold
                     )
                 }
             }
@@ -1563,7 +1437,7 @@ private fun StitchReceiptVerificationCard(
 }
 
 @Composable
-private fun StitchDateAndNoteSection(
+private fun TransactionDateAndNoteSection(
     dateEpochMillis: Long,
     note: String,
     noteError: String?,
@@ -1572,19 +1446,20 @@ private fun StitchDateAndNoteSection(
     onNoteChange: (String) -> Unit
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        // Date Selector Card
-        Surface(
-            color = Color.White,
-            shape = RoundedCornerShape(12.dp),
-            border = BorderStroke(1.dp, StitchBorder),
-            shadowElevation = 1.dp,
+        OutlinedCard(
+            shape = MaterialTheme.shapes.medium,
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+            colors = CardDefaults.outlinedCardColors(
+                containerColor = MaterialTheme.colorScheme.surface
+            ),
             modifier = Modifier
                 .fillMaxWidth()
-                .clip(RoundedCornerShape(12.dp))
-                .clickable(enabled = enabled) { onOpenDatePicker() }
+                .clickable(enabled = enabled, role = Role.Button) { onOpenDatePicker() }
         ) {
             Row(
-                modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 14.dp, vertical = 12.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
@@ -1595,64 +1470,44 @@ private fun StitchDateAndNoteSection(
                     Icon(
                         imageVector = Icons.Default.DateRange,
                         contentDescription = null,
-                        tint = StitchTealDark,
+                        tint = MaterialTheme.colorScheme.primary,
                         modifier = Modifier.size(18.dp)
                     )
                     Text(
                         text = "Date: ${formatTransactionDate(dateEpochMillis)}",
-                        style = MaterialTheme.typography.bodySmall.copy(
-                            fontWeight = FontWeight.SemiBold,
-                            color = StitchTextPrimary
-                        )
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.onSurface
                     )
                 }
                 Text(
                     text = "Change",
-                    style = MaterialTheme.typography.labelSmall.copy(
-                        fontWeight = FontWeight.Bold,
-                        color = StitchTealDark
-                    )
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.primary
                 )
             }
         }
 
-        // Transaction Note Card
-        Surface(
-            color = Color.White,
-            shape = RoundedCornerShape(12.dp),
-            border = BorderStroke(1.dp, if (noteError != null) MaterialTheme.colorScheme.error else StitchBorder),
-            shadowElevation = 1.dp,
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)) {
-                OutlinedTextField(
-                    value = note,
-                    onValueChange = onNoteChange,
-                    label = { Text("Description (optional)") },
-                    placeholder = { Text("Add note...") },
-                    leadingIcon = {
-                        Icon(
-                            imageVector = Icons.Default.Edit,
-                            contentDescription = null,
-                            tint = StitchTextSecondary
-                        )
-                    },
-                    isError = noteError != null,
-                    supportingText = noteError?.let { err ->
-                        { Text(err, color = MaterialTheme.colorScheme.error) }
-                    },
-                    enabled = enabled,
-                    shape = RoundedCornerShape(10.dp),
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = Color.Transparent,
-                        unfocusedBorderColor = Color.Transparent,
-                        focusedContainerColor = Color.Transparent,
-                        unfocusedContainerColor = Color.Transparent
-                    ),
-                    modifier = Modifier.fillMaxWidth()
+        OutlinedTextField(
+            value = note,
+            onValueChange = onNoteChange,
+            label = { Text("Description (optional)") },
+            placeholder = { Text("Add note...") },
+            leadingIcon = {
+                Icon(
+                    imageVector = Icons.Default.Edit,
+                    contentDescription = null
                 )
-            }
-        }
+            },
+            isError = noteError != null,
+            supportingText = noteError?.let { err ->
+                { Text(err) }
+            },
+            enabled = enabled,
+            shape = MaterialTheme.shapes.medium,
+            modifier = Modifier.fillMaxWidth()
+        )
     }
 }
 
@@ -1699,14 +1554,15 @@ private fun openLocalDraftUri(context: Context, rawUri: String) {
     }
 }
 
-@Preview(showBackground = true)
+@Preview(showBackground = true, name = "Light Mode")
+@Preview(showBackground = true, uiMode = Configuration.UI_MODE_NIGHT_YES, name = "Dark Mode")
 @Composable
 private fun TransactionEditPreview() {
     ClarityTheme {
         TransactionEditContent(
             state = TransactionEditState(
                 accounts = listOf(
-                    Account(name = "Chase Sapphire", bankName = " Chase Bank", isDefault = true),
+                    Account(name = "Chase Sapphire", bankName = "Chase Bank", isDefault = true),
                     Account.defaultCashWallet("USD")
                 ),
                 pendingProofs = listOf(

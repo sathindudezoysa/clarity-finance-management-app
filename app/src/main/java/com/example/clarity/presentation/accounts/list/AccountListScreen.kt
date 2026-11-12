@@ -41,6 +41,7 @@ fun AccountListScreen(
     onBack: () -> Unit = {},
     onAdd: () -> Unit,
     onEdit: (String) -> Unit,
+    onOpenAccount: (String) -> Unit = onEdit,
     onNavigateToProfile: () -> Unit = {},
     topBar: @Composable () -> Unit = {
         ClarityTopBar(
@@ -57,6 +58,7 @@ fun AccountListScreen(
         onBack = onBack,
         onAdd = onAdd,
         onEdit = onEdit,
+        onOpenAccount = onOpenAccount,
         topBar = topBar,
         bottomBar = bottomBar
     )
@@ -68,6 +70,7 @@ internal fun AccountListContent(
     onBack: () -> Unit,
     onAdd: () -> Unit,
     onEdit: (String) -> Unit,
+    onOpenAccount: (String) -> Unit = onEdit,
     onMakeDefault: (String) -> Unit = {},
     topBar: @Composable () -> Unit = {
         ClarityTopBar(
@@ -167,7 +170,7 @@ internal fun AccountListContent(
                     AccountCard(
                         account = account,
                         balance = balance,
-                        onClick = { onEdit(account.id) }
+                        onClick = { onOpenAccount(account.id) }
                     )
                 }
             }

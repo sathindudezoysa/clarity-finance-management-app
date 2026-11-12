@@ -17,9 +17,12 @@ data class CategoryTag(
 object TransactionTags {
     const val CASH_TOP_UP = "Cash Top-Up"
     const val GOAL_CONTRIBUTION = "Goal Contribution"
+    const val MONEY_TRANSFER = "Money Transfer"
 
     fun isExcludedFromIncomeExpenseSummary(category: String): Boolean =
-        category == CASH_TOP_UP || category == GOAL_CONTRIBUTION
+        category == CASH_TOP_UP ||
+            category == GOAL_CONTRIBUTION ||
+            category.equals(MONEY_TRANSFER, ignoreCase = true)
 
     val defaultExpenseCategories: List<String> = listOf(
         "General",

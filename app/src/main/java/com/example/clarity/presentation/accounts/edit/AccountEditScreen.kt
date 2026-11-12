@@ -7,6 +7,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -26,11 +27,25 @@ import com.example.clarity.domain.model.Currencies
 import com.example.clarity.presentation.theme.ClarityTheme
 
 @Composable
-fun AccountEditScreen(onBack: () -> Unit, viewModel: AccountEditViewModel = hiltViewModel()) {
+fun AccountEditScreen(
+    onBack: () -> Unit,
+    onDeleted: () -> Unit = onBack,
+    viewModel: AccountEditViewModel = hiltViewModel()
+) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     LaunchedEffect(state.isSuccess) { if (state.isSuccess) onBack() }
-    AccountEditContent(state, onBack, viewModel::save, viewModel::onNameChange, viewModel::onBankNameChange,
-        viewModel::onTypeChange, viewModel::onCurrencyChange, viewModel::onDefaultChange)
+    LaunchedEffect(state.isDeleted) { if (state.isDeleted) onDeleted() }
+    AccountEditContent(
+        state = state,
+        onBack = onBack,
+        onSave = viewModel::save,
+        onDelete = viewModel::delete,
+        onNameChange = viewModel::onNameChange,
+        onBankNameChange = viewModel::onBankNameChange,
+        onTypeChange = viewModel::onTypeChange,
+        onCurrencyChange = viewModel::onCurrencyChange,
+        onDefaultChange = viewModel::onDefaultChange
+    )
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -39,6 +54,7 @@ internal fun AccountEditContent(
     state: AccountEditState,
     onBack: () -> Unit,
     onSave: () -> Unit,
+    onDelete: () -> Unit = {},
     onNameChange: (String) -> Unit,
     onBankNameChange: (String) -> Unit,
     onTypeChange: (String) -> Unit,
@@ -46,14 +62,14 @@ internal fun AccountEditContent(
     onDefaultChange: (Boolean) -> Unit
 ) {
     val focusManager = LocalFocusManager.current
-    val enabled = state.canSave && !state.isSaving && !state.isLoading
+    val enabled = state.canSave && !state.isSaving && !state.isDeleting && !state.isLoading
     var currencyMenuExpanded by remember { mutableStateOf(false) }
     val selectedCurrency = state.currency.ifBlank { Currencies.supported.first() }
     Scaffold(topBar = {
         TopAppBar(
             title = { Text(if (state.isEditMode) "Edit bank account" else "Add bank account") },
             navigationIcon = {
-                IconButton(onClick = onBack, enabled = !state.isSaving) {
+                IconButton(onClick = onBack, enabled = !state.isSaving && !state.isDeleting) {
                     Icon(Icons.Default.ArrowBack, contentDescription = "Back")
                 }
             }
@@ -143,9 +159,32 @@ internal fun AccountEditContent(
                             }
                         }
                     }
-                    Button(onClick = { focusManager.clearFocus(); onSave() }, enabled = enabled,
-                        modifier = Modifier.fillMaxWidth()) { Text("Save") }
-                    if (state.isSaving) CircularProgressIndicator()
+                    Button(
+                        onClick = { focusManager.clearFocus(); onSave() },
+                        enabled = enabled,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("Save")
+                    }
+                    if (state.isEditMode && state.canDelete) {
+                        OutlinedButton(
+                            onClick = { focusManager.clearFocus(); onDelete() },
+                            enabled = enabled,
+                            colors = ButtonDefaults.outlinedButtonColors(
+                                contentColor = MaterialTheme.colorScheme.error
+                            ),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Delete,
+                                contentDescription = null,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(Modifier.width(8.dp))
+                            Text("Delete account")
+                        }
+                    }
+                    if (state.isSaving || state.isDeleting) CircularProgressIndicator()
                 }
             }
         }
@@ -155,5 +194,5 @@ internal fun AccountEditContent(
 @Preview(showBackground = true)
 @Composable
 private fun AccountEditPreview() {
-    ClarityTheme { AccountEditContent(AccountEditState(), {}, {}, {}, {}, {}, {}, {}) }
+    ClarityTheme { AccountEditContent(AccountEditState(), {}, {}, {}, {}, {}, {}, {}, {}) }
 }

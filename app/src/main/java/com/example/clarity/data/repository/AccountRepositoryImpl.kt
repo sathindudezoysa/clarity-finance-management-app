@@ -74,6 +74,7 @@ class AccountRepositoryImpl internal constructor(
     private val syncState = MutableStateFlow(SyncState(null))
     // Survives auth collector restarts so an old batch cannot overtake a newer one after sign-in.
     private val uploadMutex = Mutex()
+    private val deletedIds = mutableMapOf<String, MutableSet<String>>()
 
     init {
         syncScope.launch {
@@ -199,6 +200,60 @@ class AccountRepositoryImpl internal constructor(
         dao.getDefault(uid)?.toDomain()
     }
 
+    override suspend fun deleteAccount(id: String): Result<Unit> = withContext(ioDispatcher) {
+        try {
+            val uid = authRepository.currentUser.first()?.uid
+                ?: return@withContext Result.failure(AccountException(AccountError.SIGN_IN_REQUIRED, "Please sign in"))
+
+            mutationMutex.withLock {
+                val existing = dao.getById(id)
+                if (existing == null || existing.userId != uid) {
+                    throw AccountException(AccountError.NOT_FOUND, "Account not found")
+                }
+            }
+
+            // Delete remotely before removing the local row so a failed network call never leaves
+            // a remote document that would resurrect on the next snapshot sync.
+            uploadMutex.withLock {
+                if (authRepository.currentUser.first()?.uid != uid) {
+                    throw AccountException(AccountError.SIGN_IN_REQUIRED, "Please sign in")
+                }
+                remote.deleteAccount(uid, id)
+            }
+
+            mutationMutex.withLock {
+                val userDeleted = deletedIds[uid] ?: mutableSetOf<String>().also { deletedIds[uid] = it }
+                userDeleted.add(id)
+                runTransaction {
+                    val existing = dao.getById(id) ?: return@runTransaction
+                    if (existing.userId != uid) {
+                        throw AccountException(AccountError.NOT_FOUND, "Account not found")
+                    }
+                    if (existing.isDefault) {
+                        val allAccounts = dao.getAllForUser(uid)
+                        val candidates = allAccounts.filter {
+                            it.id != id &&
+                                !it.id.startsWith(Account.GOAL_ACCOUNT_PREFIX) &&
+                                !it.accountType.equals("GOAL", ignoreCase = true)
+                        }
+                        val replacement = candidates.firstOrNull { !it.id.startsWith(Account.CASH_WALLET_PREFIX) }
+                            ?: candidates.firstOrNull()
+                        if (replacement != null) {
+                            val latest = allAccounts.maxOfOrNull { it.updatedAt } ?: 0L
+                            val now = maxOf(System.currentTimeMillis(), if (latest < Long.MAX_VALUE) latest + 1 else latest)
+                            dao.upsertAll(listOf(replacement.copy(isDefault = true, updatedAt = now, pendingSync = true)))
+                        }
+                    }
+                    dao.deleteById(id, uid)
+                }
+            }
+            Result.success(Unit)
+        } catch (error: Exception) {
+            if (error is CancellationException) throw error
+            Result.failure(error)
+        }
+    }
+
     private suspend fun saveAccount(entity: AccountEntity, create: Boolean) = runTransaction {
         saveAccountInTransaction(entity, create)
     }
@@ -228,6 +283,7 @@ class AccountRepositoryImpl internal constructor(
         )
         val previousDefaults = if (saved.isDefault) accounts.filter { it.isDefault && it.id != saved.id }
             .map { it.copy(isDefault = false, updatedAt = now, pendingSync = true) } else emptyList()
+        deletedIds[entity.userId]?.remove(saved.id)
         upsertAll(previousDefaults + saved)
     }
 
@@ -266,7 +322,17 @@ class AccountRepositoryImpl internal constructor(
             val invalidTimestampIds = remote.filter { it.userId == userId && it.updatedAt >= Long.MAX_VALUE }.map { it.id }
             if (invalidTimestampIds.isNotEmpty()) warnInvalidTimestamps(invalidTimestampIds)
             val merged = local.associateBy { it.id }.toMutableMap()
-            remote.filter { it.userId == userId && it.updatedAt < Long.MAX_VALUE && it.id !in skippedCashIds }.forEach { incoming ->
+            val userDeletedIds = deletedIds[userId].orEmpty()
+            if (authoritative && userDeletedIds.isNotEmpty()) {
+                deletedIds[userId]?.removeAll { it !in remoteIds }
+            }
+            val activeDeletedIds = deletedIds[userId].orEmpty()
+            remote.filter {
+                it.userId == userId &&
+                    it.updatedAt < Long.MAX_VALUE &&
+                    it.id !in skippedCashIds &&
+                    it.id !in activeDeletedIds
+            }.forEach { incoming ->
                 val existing = getById(incoming.id)
                 if (existing != null && existing.userId != userId) return@forEach
                 val resetLocalCash = incoming.id == canonicalRemoteCash?.id && existing != null && existing.createdAt != incoming.createdAt

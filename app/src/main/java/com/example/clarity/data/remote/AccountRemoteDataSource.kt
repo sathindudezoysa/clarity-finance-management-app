@@ -25,6 +25,7 @@ data class AccountSnapshot(
 interface AccountRemoteDataSource {
     fun observeAccounts(userId: String): Flow<AccountSnapshot>
     suspend fun writeAccounts(userId: String, accounts: List<Account>)
+    suspend fun deleteAccount(userId: String, accountId: String) {}
 }
 
 class FirestoreAccountDataSource @Inject constructor(
@@ -73,5 +74,9 @@ class FirestoreAccountDataSource @Inject constructor(
         }
         accounts.forEach { batch.set(collection.document(it.id), it.toFirestoreMap()) }
         batch.commit().await()
+    }
+
+    override suspend fun deleteAccount(userId: String, accountId: String) {
+        firestore.getCollection("users/$userId/accounts").document(accountId).delete().await()
     }
 }
