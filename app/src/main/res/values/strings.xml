@@ -1,3 +1,4 @@
 <resources>
     <string name="app_name">clarity</string>
+    <string name="widget_quick_entry_description">Quickly add cash wallet expenses and income</string>
 </resources>

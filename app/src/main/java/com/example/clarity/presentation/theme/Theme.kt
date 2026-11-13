@@ -60,6 +60,8 @@ private val LightColorScheme = lightColorScheme(
 fun ClarityTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
     dynamicColor: Boolean = false,
+    // Pop-ups that float over other apps set this to false so the window stays transparent.
+    applyWindowStyling: Boolean = true,
     content: @Composable () -> Unit
 ) {
     val colorScheme = when {
@@ -71,7 +73,7 @@ fun ClarityTheme(
         else -> LightColorScheme
     }
     val view = LocalView.current
-    if (!view.isInEditMode) {
+    if (!view.isInEditMode && applyWindowStyling) {
         SideEffect {
             val window = (view.context as Activity).window
             window.statusBarColor = colorScheme.background.toArgb()
