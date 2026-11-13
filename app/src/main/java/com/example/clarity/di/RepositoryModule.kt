@@ -1,43 +1,41 @@
 package com.example.clarity.di
 
-import com.example.clarity.data.remote.IncomeSourceRemoteDataSource
-import com.example.clarity.data.remote.FirestoreIncomeSourceDataSource
-import com.example.clarity.domain.repository.IncomeSourceRepository
-import com.example.clarity.data.repository.IncomeSourceRepositoryImpl
-import com.example.clarity.domain.repository.TransactionProofRepository
-import com.example.clarity.data.repository.TransactionProofRepositoryImpl
-import com.example.clarity.data.remote.FirebaseProofDataSource
-import com.example.clarity.data.remote.ProofRemoteDataSource
-import com.example.clarity.data.repository.AuthRepositoryImpl
-import com.example.clarity.data.repository.AccountRepositoryImpl
-import com.example.clarity.data.repository.BiometricRepositoryImpl
-import com.example.clarity.data.sync.AccountUploader
 import com.example.clarity.data.remote.AccountRemoteDataSource
+import com.example.clarity.data.remote.FirebaseProofDataSource
 import com.example.clarity.data.remote.FirestoreAccountDataSource
 import com.example.clarity.data.remote.FirestoreGoalContributionDataSource
 import com.example.clarity.data.remote.FirestoreGoalDataSource
 import com.example.clarity.data.remote.GoalContributionRemoteDataSource
 import com.example.clarity.data.remote.GoalRemoteDataSource
+import com.example.clarity.data.remote.ProofRemoteDataSource
+import com.example.clarity.data.repository.AccountRepositoryImpl
+import com.example.clarity.data.repository.AuthRepositoryImpl
+import com.example.clarity.data.repository.BiometricRepositoryImpl
 import com.example.clarity.data.repository.GoalContributionRepositoryImpl
 import com.example.clarity.data.repository.GoalFundingRepositoryImpl
 import com.example.clarity.data.repository.GoalRepositoryImpl
+import com.example.clarity.data.repository.SalaryReminderRepositoryImpl
+import com.example.clarity.data.repository.TransactionProofRepositoryImpl
+import com.example.clarity.data.repository.TransactionRepositoryImpl
+import com.example.clarity.data.repository.TransactionTagRepositoryImpl
+import com.example.clarity.data.sync.AccountUploader
 import com.example.clarity.domain.repository.AccountRepository
 import com.example.clarity.domain.repository.AuthRepository
 import com.example.clarity.domain.repository.BiometricRepository
 import com.example.clarity.domain.repository.GoalContributionRepository
 import com.example.clarity.domain.repository.GoalFundingRepository
 import com.example.clarity.domain.repository.GoalRepository
-import com.example.clarity.data.repository.TransactionRepositoryImpl
+import com.example.clarity.domain.repository.SalaryReminderRepository
+import com.example.clarity.domain.repository.TransactionProofRepository
 import com.example.clarity.domain.repository.TransactionRepository
-import com.example.clarity.data.repository.TransactionTagRepositoryImpl
 import com.example.clarity.domain.repository.TransactionTagRepository
 import dagger.Binds
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
 import dagger.hilt.components.SingletonComponent
-import javax.inject.Singleton
 import javax.inject.Qualifier
+import javax.inject.Singleton
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.SupervisorJob
@@ -70,12 +68,6 @@ abstract class RepositoryModule {
         fun provideApplicationScope(ioDispatcher: CoroutineDispatcher): CoroutineScope =
             CoroutineScope(SupervisorJob() + ioDispatcher)
     }
-
-    @Binds @Singleton
-    abstract fun bindIncomeRemote(impl: FirestoreIncomeSourceDataSource): IncomeSourceRemoteDataSource
-
-    @Binds @Singleton
-    abstract fun bindIncomeSourceRepository(impl: IncomeSourceRepositoryImpl): IncomeSourceRepository
 
     @Binds @Singleton
     abstract fun bindGoalRemote(impl: FirestoreGoalDataSource): GoalRemoteDataSource
@@ -126,13 +118,15 @@ abstract class RepositoryModule {
     @Singleton
     abstract fun bindAccountRemoteDataSource(impl: FirestoreAccountDataSource): AccountRemoteDataSource
 
-
     @Binds
     @Singleton
     abstract fun bindWidgetQuickEntryRepository(impl: com.example.clarity.data.repository.WidgetQuickEntryRepositoryImpl): com.example.clarity.domain.repository.WidgetQuickEntryRepository
 
-    // Inside RepositoryModule.kt
     @Binds
     @Singleton
     abstract fun bindBiometricRepository(impl: BiometricRepositoryImpl): BiometricRepository
+
+    @Binds
+    @Singleton
+    abstract fun bindSalaryReminderRepository(impl: SalaryReminderRepositoryImpl): SalaryReminderRepository
 }

@@ -34,7 +34,6 @@ import com.example.clarity.domain.model.Transaction
 import com.example.clarity.domain.model.TransactionType
 import com.example.clarity.domain.util.MoneyUtils
 import com.example.clarity.presentation.common.AppIcons
-import com.example.clarity.presentation.income.IncomeMonthlyPrompt
 import com.example.clarity.presentation.navigation.BottomNavDestination
 import com.example.clarity.presentation.navigation.ClarityTopBar
 import com.example.clarity.presentation.transactions.TransactionMessages
@@ -48,7 +47,6 @@ fun MainScreen(
     onOpenTransaction: (String) -> Unit = { onNavigateToTransactions() },
     onNavigateToCashWallet: () -> Unit = {},
     onNavigateToSettings: () -> Unit = {},
-    onNavigateToIncome: () -> Unit = {},
     @Suppress("UNUSED_PARAMETER")
     onNavigateToBudgets: (String?) -> Unit = {},
     topBar: @Composable () -> Unit = {
@@ -145,7 +143,7 @@ fun MainScreen(
                                 label = "Income",
                                 amount = if (state.isHidden) "••••••" else "${state.currency} ${state.income}",
                                 subtitle = state.incomeSubtitle,
-                                onClick = onNavigateToIncome
+                                onClick = onNavigateToTransactions
                             )
                             FlowStatBox(
                                 modifier = Modifier.weight(1f),
@@ -159,8 +157,6 @@ fun MainScreen(
                     }
                 }
             }
-
-            IncomeMonthlyPrompt(onReview = onNavigateToIncome)
 
             // Cash Wallet Card
             Surface(

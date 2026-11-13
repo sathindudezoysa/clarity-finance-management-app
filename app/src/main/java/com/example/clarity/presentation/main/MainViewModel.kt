@@ -5,14 +5,12 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.clarity.domain.model.Currencies
 import com.example.clarity.domain.model.CurrencyConversion
-import com.example.clarity.domain.model.IncomeSources
 import com.example.clarity.domain.model.Transaction
 import com.example.clarity.domain.model.TransactionTags
 import com.example.clarity.domain.model.TransactionType
 import com.example.clarity.domain.repository.ExchangeRateRepository
 import com.example.clarity.domain.usecase.account.GetAccountsUseCase
 import com.example.clarity.domain.usecase.currency.ObserveCurrencyPreferenceUseCase
-import com.example.clarity.domain.usecase.income.ObserveIncomeSourcesUseCase
 import com.example.clarity.domain.usecase.transaction.GetTransactionsUseCase
 import com.example.clarity.domain.usecase.transaction.ObserveTransactionProofsUseCase
 import com.example.clarity.domain.util.MoneyUtils
@@ -36,7 +34,6 @@ class MainViewModel @Inject constructor(
     private val rates: ExchangeRateRepository,
     getAccounts: GetAccountsUseCase,
     getTransactions: GetTransactionsUseCase,
-    observeIncomeSources: ObserveIncomeSourcesUseCase,
     observeCurrency: ObserveCurrencyPreferenceUseCase,
     observeProofs: ObserveTransactionProofsUseCase
 ) : ViewModel() {
@@ -54,9 +51,8 @@ class MainViewModel @Inject constructor(
             combine(
                 getAccounts().catch { emit(Resource.Success(emptyList())) },
                 getTransactions().catch { emit(Resource.Success(emptyList())) },
-                observeIncomeSources().catch { emit(IncomeSources(null, emptyList())) },
                 observeCurrency()
-            ) { accountsResult, txResult, incomeSources, pref ->
+            ) { accountsResult, txResult, pref ->
                 val targetCurrency = pref.currency
                 val accounts = accountsResult.data ?: return@combine null
                 val transactions = txResult.data ?: return@combine null
@@ -122,7 +118,12 @@ class MainViewModel @Inject constructor(
                     }
                 }
 
-                val activeSources = incomeSources.sources.filter { it.active }.map { it.name }
+                val activeSources = transactions
+                    .asSequence()
+                    .filter { it.type == TransactionType.INCOME && !TransactionTags.isExcludedFromIncomeExpenseSummary(it.category) }
+                    .map { it.category }
+                    .distinct()
+                    .toList()
                 val incomeSubtitle = when {
                     activeSources.isEmpty() -> "No income sources"
                     activeSources.size <= 2 -> activeSources.joinToString(" & ")
