@@ -12,6 +12,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import javax.inject.Inject
 
 @AndroidEntryPoint
@@ -31,7 +32,9 @@ class SalaryReminderActionReceiver : BroadcastReceiver() {
                         if (result.isSuccess) {
                             dismiss(appContext)
                         } else {
-                            Toast.makeText(appContext, "Couldn't add salary. Open Clarity and try again.", Toast.LENGTH_LONG).show()
+                            withContext(Dispatchers.Main) {
+                                Toast.makeText(appContext, "Couldn't add salary. Open Clarity and try again.", Toast.LENGTH_LONG).show()
+                            }
                         }
                     }
                     ACTION_SNOOZE -> {
