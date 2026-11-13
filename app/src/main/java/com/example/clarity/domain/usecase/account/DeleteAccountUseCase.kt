@@ -19,7 +19,10 @@ class DeleteAccountUseCase @Inject constructor(
     private val transactionRepository: TransactionRepository,
     private val rates: ExchangeRateRepository
 ) {
-    suspend operator fun invoke(accountId: String): Result<Unit> {
+    suspend operator fun invoke(
+        accountId: String,
+        allowGoalAccount: Boolean = false
+    ): Result<Unit> {
         try {
             val cleanId = accountId.trim()
             if (cleanId.isEmpty() || cleanId.length > 128 || cleanId.contains('/')) {
@@ -30,9 +33,15 @@ class DeleteAccountUseCase @Inject constructor(
                 .first { it !is Resource.Loading }
             val account = accountRepository.getAccount(cleanId).getOrNull()
                 ?: accountsResource.data.orEmpty().firstOrNull { it.id == cleanId }
-                ?: return Result.failure(AccountException(AccountError.NOT_FOUND, "Account not found."))
+            if (account == null) {
+                return if (allowGoalAccount) {
+                    Result.success(Unit)
+                } else {
+                    Result.failure(AccountException(AccountError.NOT_FOUND, "Account not found."))
+                }
+            }
 
-            if (account.isCashWallet || account.isGoalAccount) {
+            if (account.isCashWallet || (!allowGoalAccount && account.isGoalAccount)) {
                 return Result.failure(IllegalStateException("This system account cannot be deleted."))
             }
 

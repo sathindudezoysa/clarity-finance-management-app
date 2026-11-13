@@ -1,6 +1,7 @@
 package com.example.clarity.presentation.goals
 
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -12,13 +13,18 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.DateRange
+import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material3.Button
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -48,6 +54,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -59,6 +66,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.clarity.domain.model.Currencies
 import com.example.clarity.domain.util.GoalPolicy
+import com.example.clarity.presentation.common.AppIcons
 import com.example.clarity.presentation.theme.ClarityTheme
 
 @Composable
@@ -194,6 +202,7 @@ internal fun GoalEditContent(
                 }
 
                 else -> {
+                    val colors = MaterialTheme.colorScheme
                     Column(
                         modifier = Modifier
                             .widthIn(max = 600.dp)
@@ -212,8 +221,15 @@ internal fun GoalEditContent(
                         OutlinedTextField(
                             value = state.name,
                             onValueChange = onNameChanged,
-                            label = { Text("Goal Name *") },
-                            placeholder = { Text("e.g., Emergency Fund") },
+                            leadingIcon = {
+                                Icon(
+                                    imageVector = AppIcons.Target,
+                                    contentDescription = null,
+                                    tint = colors.primary
+                                )
+                            },
+                            label = { Text("Goal *") },
+                            placeholder = { Text("Emergency Fund") },
                             singleLine = true,
                             enabled = !state.isSaving,
                             isError = state.nameError != null,
@@ -236,20 +252,18 @@ internal fun GoalEditContent(
                                 value = selectedCurrency,
                                 onValueChange = {},
                                 readOnly = true,
+                                leadingIcon = {
+                                    Icon(
+                                        imageVector = if (state.isEditMode) Icons.Default.Lock else AppIcons.SwapHoriz,
+                                        contentDescription = null,
+                                        tint = colors.primary
+                                    )
+                                },
                                 label = { Text("Currency *") },
                                 trailingIcon = {
                                     ExposedDropdownMenuDefaults.TrailingIcon(expanded = currencyMenuExpanded)
                                 },
                                 enabled = canEditCurrency,
-                                supportingText = {
-                                    Text(
-                                        if (state.isEditMode) {
-                                            "This goal’s currency is fixed after creation."
-                                        } else {
-                                            "Goal account and funding use ${selectedCurrency}."
-                                        }
-                                    )
-                                },
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .menuAnchor()
@@ -273,20 +287,22 @@ internal fun GoalEditContent(
                         OutlinedTextField(
                             value = state.targetAmount,
                             onValueChange = onTargetAmountChanged,
-                            label = { Text("Target Amount (${state.currency}) *") },
-                            placeholder = { Text("Enter amount in ${state.currency}") },
+                            leadingIcon = {
+                                Icon(
+                                    imageVector = AppIcons.Savings,
+                                    contentDescription = null,
+                                    tint = colors.primary
+                                )
+                            },
+                            label = { Text("Target (${state.currency}) *") },
+                            placeholder = { Text("0.00") },
                             prefix = { Text("${state.currency} ") },
                             singleLine = true,
                             enabled = !state.isSaving,
                             isError = state.targetAmountError != null,
                             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                            supportingText = {
-                                val error = state.targetAmountError
-                                if (error != null) {
-                                    Text(error)
-                                } else {
-                                    Text("Exact precision for ${state.currency}: ${Currencies.digits(state.currency)} decimal places")
-                                }
+                            supportingText = state.targetAmountError?.let { error ->
+                                { Text(error) }
                             },
                             modifier = Modifier.fillMaxWidth()
                         )
@@ -296,9 +312,9 @@ internal fun GoalEditContent(
                             verticalArrangement = Arrangement.spacedBy(4.dp)
                         ) {
                             val borderColor = if (state.targetDateError != null) {
-                                MaterialTheme.colorScheme.error
+                                colors.error
                             } else {
-                                MaterialTheme.colorScheme.outline
+                                colors.outline
                             }
                             OutlinedCard(
                                 modifier = Modifier
@@ -315,7 +331,7 @@ internal fun GoalEditContent(
                                     },
                                 border = BorderStroke(1.dp, borderColor),
                                 colors = CardDefaults.outlinedCardColors(
-                                    containerColor = MaterialTheme.colorScheme.surface
+                                    containerColor = colors.surface
                                 )
                             ) {
                                 Row(
@@ -325,28 +341,38 @@ internal fun GoalEditContent(
                                     verticalAlignment = Alignment.CenterVertically,
                                     horizontalArrangement = Arrangement.SpaceBetween
                                 ) {
-                                    Column(
-                                        verticalArrangement = Arrangement.spacedBy(2.dp)
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(12.dp)
                                     ) {
-                                        Text(
-                                            text = "Target Date *",
-                                            style = MaterialTheme.typography.labelMedium,
-                                            color = if (state.targetDateError != null) {
-                                                MaterialTheme.colorScheme.error
-                                            } else {
-                                                MaterialTheme.colorScheme.onSurfaceVariant
-                                            }
+                                        Icon(
+                                            imageVector = AppIcons.Calendar,
+                                            contentDescription = null,
+                                            tint = colors.primary
                                         )
-                                        Text(
-                                            text = state.targetDateFormatted,
-                                            style = MaterialTheme.typography.bodyLarge,
-                                            color = MaterialTheme.colorScheme.onSurface
-                                        )
+                                        Column(
+                                            verticalArrangement = Arrangement.spacedBy(2.dp)
+                                        ) {
+                                            Text(
+                                                text = "Date *",
+                                                style = MaterialTheme.typography.labelMedium,
+                                                color = if (state.targetDateError != null) {
+                                                    colors.error
+                                                } else {
+                                                    colors.onSurfaceVariant
+                                                }
+                                            )
+                                            Text(
+                                                text = state.targetDateFormatted,
+                                                style = MaterialTheme.typography.bodyLarge,
+                                                color = colors.onSurface
+                                            )
+                                        }
                                     }
                                     Icon(
                                         imageVector = Icons.Default.DateRange,
                                         contentDescription = null,
-                                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                        tint = colors.onSurfaceVariant
                                     )
                                 }
                             }
@@ -355,7 +381,7 @@ internal fun GoalEditContent(
                                 Text(
                                     text = dateErr,
                                     style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.error,
+                                    color = colors.error,
                                     modifier = Modifier.padding(horizontal = 16.dp)
                                 )
                             }
@@ -364,8 +390,15 @@ internal fun GoalEditContent(
                         OutlinedTextField(
                             value = state.description,
                             onValueChange = onDescriptionChanged,
-                            label = { Text("Description (optional)") },
-                            placeholder = { Text("Add notes about this financial goal") },
+                            leadingIcon = {
+                                Icon(
+                                    imageVector = AppIcons.Notes,
+                                    contentDescription = null,
+                                    tint = colors.onSurfaceVariant
+                                )
+                            },
+                            label = { Text("Note") },
+                            placeholder = { Text("Optional") },
                             minLines = 2,
                             maxLines = 4,
                             enabled = !state.isSaving,
@@ -401,7 +434,13 @@ internal fun GoalEditContent(
                                     .weight(1f)
                                     .heightIn(min = 48.dp)
                             ) {
-                                Text(if (state.isEditMode) "Save Changes" else "Create Goal")
+                                Icon(
+                                    imageVector = Icons.Default.CheckCircle,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(if (state.isEditMode) "Save" else "Create")
                             }
                         }
 

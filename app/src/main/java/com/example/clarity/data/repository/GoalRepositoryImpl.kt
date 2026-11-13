@@ -136,6 +136,15 @@ class GoalRepositoryImpl @Inject constructor(
             val existingEntity = goalDao.get(uid, goal.id)
                 ?: throw GoalException(GoalError.NOT_FOUND)
             val existing = existingEntity.toDomain()
+            val existingContributions = database.goalContributionDao.observe(uid).first().map { it.toDomain() }
+            val existingProgress = com.example.clarity.domain.util.GoalProgressPolicy.evaluateGoalProgress(
+                existing,
+                existingContributions
+            )
+            val payoutTx = database.transactionDao.getById("goal_payout_${existing.id}")
+            if (existingProgress.isCompleted || (payoutTx != null && !payoutTx.isDeleted)) {
+                throw IllegalStateException("Completed goals are locked and cannot be edited.")
+            }
             val today = GoalPolicy.todayEpochDay(clock)
             val validated = GoalPolicy.validateForEdit(existing, goal, today)
             val now = maxOf(clock.millis(), Math.addExact(existing.updatedAt, 1L))
