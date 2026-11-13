@@ -127,6 +127,10 @@ abstract class RepositoryModule {
     abstract fun bindAccountRemoteDataSource(impl: FirestoreAccountDataSource): AccountRemoteDataSource
 
 
+    @Binds
+    @Singleton
+    abstract fun bindWidgetQuickEntryRepository(impl: com.example.clarity.data.repository.WidgetQuickEntryRepositoryImpl): com.example.clarity.domain.repository.WidgetQuickEntryRepository
+
     // Inside RepositoryModule.kt
     @Binds
     @Singleton

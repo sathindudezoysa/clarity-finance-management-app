@@ -30,6 +30,8 @@ class ClarityApp : Application() {
     @Inject lateinit var goalContributionSyncManager: GoalContributionSyncManager
     @Inject lateinit var walletReminderScheduler: WalletReminderScheduler
 
+    @Inject lateinit var quickEntryWidgetRefresher: com.example.clarity.presentation.widget.QuickEntryWidgetRefresher
+
     override fun onCreate() {
         super.onCreate()
         proofSyncManager.start()
@@ -39,5 +41,6 @@ class ClarityApp : Application() {
         goalSyncManager.start()
         goalContributionSyncManager.start()
         walletReminderScheduler.start()
+        quickEntryWidgetRefresher.start()
     }
 }

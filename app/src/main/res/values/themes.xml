@@ -6,4 +6,15 @@
     </style>
 
     <style name="Theme.Clarity" parent="Base.Theme.Clarity"/>
+
+    <!-- Transparent window so the amount dialog floats over the home screen. -->
+    <style name="Theme.Clarity.QuickAmount" parent="Theme.Material3.DayNight.NoActionBar">
+        <item name="android:windowIsTranslucent">true</item>
+        <item name="android:windowBackground">@android:color/transparent</item>
+        <item name="android:backgroundDimEnabled">false</item>
+        <item name="android:colorBackground">@android:color/transparent</item>
+        <item name="android:windowDisablePreview">true</item>
+        <item name="android:windowNoTitle">true</item>
+        <item name="android:windowAnimationStyle">@android:style/Animation.Translucent</item>
+    </style>
 </resources>
