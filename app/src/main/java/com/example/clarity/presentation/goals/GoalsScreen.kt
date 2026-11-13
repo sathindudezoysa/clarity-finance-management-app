@@ -33,7 +33,7 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.Divider
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -47,24 +47,22 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.SpanStyle
-import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.example.clarity.domain.util.GoalProgressPolicy
 import com.example.clarity.domain.util.GoalStreakSummary
 import com.example.clarity.presentation.common.AppIcons
 import com.example.clarity.presentation.navigation.BottomNavDestination
@@ -193,36 +191,48 @@ internal fun GoalsContent(
                             GoalEmptyState(onAddGoal = onAddGoal)
                         }
                     } else {
-                        if (state.activeGoals.isNotEmpty()) {
+                        if (state.ongoingGoals.isNotEmpty()) {
+                            item(key = "ongoing-goals-header") {
+                                GoalSectionHeader(
+                                    icon = AppIcons.Psychology,
+                                    title = "Ongoing",
+                                    count = state.ongoingGoals.size,
+                                    tint = colors.primary
+                                )
+                            }
                             items(
-                                items = state.activeGoals,
+                                items = state.ongoingGoals,
                                 key = { it.id }
                             ) { goal ->
-                                GoalCard(
+                                OngoingGoalCard(
                                     goal = goal,
                                     onAddProgress = { onAddProgress(goal.id) }
                                 )
                             }
                         }
 
-                        if (state.completedHistoryGoals.isNotEmpty()) {
+                        if (state.completedGoals.isNotEmpty()) {
                             item(key = "completed-goals-history-header") {
-                                Text(
-                                    text = "Completed Goals History",
-                                    style = MaterialTheme.typography.titleMedium,
-                                    fontWeight = FontWeight.SemiBold,
-                                    color = colors.onSurface,
-                                    modifier = Modifier.padding(top = 8.dp)
+                                GoalSectionHeader(
+                                    icon = AppIcons.Trophy,
+                                    title = "Completed",
+                                    count = state.completedGoals.size,
+                                    tint = colors.onSurfaceVariant,
+                                    modifier = Modifier.padding(top = 4.dp)
                                 )
                             }
-                            items(
-                                items = state.completedHistoryGoals,
-                                key = { "history-${it.id}" }
-                            ) { goal ->
-                                GoalCard(
-                                    goal = goal,
-                                    onAddProgress = { onAddProgress(goal.id) }
-                                )
+                            item(key = "completed-goals-compact-list") {
+                                Column(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    state.completedGoals.forEach { goal ->
+                                        CompletedGoalCompactCard(
+                                            goal = goal,
+                                            onClick = { onAddProgress(goal.id) }
+                                        )
+                                    }
+                                }
                             }
                         }
                     }
@@ -233,21 +243,54 @@ internal fun GoalsContent(
 }
 
 @Composable
+private fun GoalSectionHeader(
+    icon: ImageVector,
+    title: String,
+    count: Int,
+    tint: Color,
+    modifier: Modifier = Modifier
+) {
+    val colors = MaterialTheme.colorScheme
+    Row(
+        modifier = modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            tint = tint,
+            modifier = Modifier.size(18.dp)
+        )
+        Text(
+            text = title,
+            style = MaterialTheme.typography.titleSmall,
+            fontWeight = FontWeight.SemiBold,
+            color = colors.onSurface
+        )
+        Surface(
+            shape = CircleShape,
+            color = colors.surfaceVariant,
+            contentColor = colors.onSurfaceVariant
+        ) {
+            Text(
+                text = count.toString(),
+                style = MaterialTheme.typography.labelSmall,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
+            )
+        }
+    }
+}
+
+@Composable
 private fun GoalsHeroSummaryCard(
     summary: GoalsAggregateSummaryUiModel,
     streak: GoalStreakSummary
 ) {
     val colors = MaterialTheme.colorScheme
-    val currentStreakLabel = if (streak.currentStreakDays == 1) {
-        "1 Day"
-    } else {
-        "${streak.currentStreakDays} Days"
-    }
-    val bestStreakLabel = if (streak.longestStreakDays == 1) {
-        "1 Day"
-    } else {
-        "${streak.longestStreakDays} Days"
-    }
+    val currentStreakLabel = "${streak.currentStreakDays}d"
+    val bestStreakLabel = "${streak.longestStreakDays}d"
     val cardDescription = buildString {
         append("Required monthly savings ${summary.monthlyRateFormatted} per month. ")
         append("Saved ${summary.savedFormatted}, ${summary.percentLabel} of ${summary.targetFormatted}. ")
@@ -268,7 +311,6 @@ private fun GoalsHeroSummaryCard(
                 .fillMaxWidth()
                 .clip(RoundedCornerShape(24.dp))
         ) {
-            // Ambient decorative rings styled exclusively with theme colors
             Box(
                 modifier = Modifier
                     .size(176.dp)
@@ -290,19 +332,53 @@ private fun GoalsHeroSummaryCard(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(20.dp),
-                verticalArrangement = Arrangement.spacedBy(16.dp)
+                verticalArrangement = Arrangement.spacedBy(14.dp)
             ) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Icon(
-                        imageVector = AppIcons.DonutLarge,
-                        contentDescription = null,
-                        tint = colors.secondary,
-                        modifier = Modifier.size(20.dp)
-                    )
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Icon(
+                            imageVector = AppIcons.Psychology,
+                            contentDescription = null,
+                            tint = colors.secondary,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Icon(
+                            imageVector = AppIcons.TrendingUp,
+                            contentDescription = null,
+                            tint = colors.onPrimary.copy(alpha = 0.85f),
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+                    Surface(
+                        shape = RoundedCornerShape(50),
+                        color = colors.onPrimary.copy(alpha = 0.14f),
+                        contentColor = colors.onPrimary
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Icon(
+                                imageVector = AppIcons.DonutLarge,
+                                contentDescription = null,
+                                tint = colors.secondary,
+                                modifier = Modifier.size(14.dp)
+                            )
+                            Text(
+                                text = summary.percentLabel,
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
                 }
 
                 Row(
@@ -320,7 +396,7 @@ private fun GoalsHeroSummaryCard(
                         modifier = Modifier.weight(1f, fill = false)
                     )
                     Text(
-                        text = "/ mo",
+                        text = "/mo",
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.SemiBold,
                         color = colors.secondary,
@@ -337,79 +413,71 @@ private fun GoalsHeroSummaryCard(
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text(
-                            text = buildAnnotatedString {
-                                withStyle(SpanStyle(color = colors.secondary)) {
-                                    append("Saved: ")
-                                }
-                                withStyle(
-                                    SpanStyle(
-                                        color = colors.onPrimary,
-                                        fontWeight = FontWeight.SemiBold
-                                    )
-                                ) {
-                                    append(summary.savedFormatted)
-                                }
-                                withStyle(SpanStyle(color = colors.secondary)) {
-                                    append(" (${summary.percentLabel})")
-                                }
-                            },
-                            style = MaterialTheme.typography.labelMedium,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
                             modifier = Modifier.weight(1f)
-                        )
+                        ) {
+                            Icon(
+                                imageVector = AppIcons.Savings,
+                                contentDescription = null,
+                                tint = colors.secondary,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Text(
+                                text = summary.savedFormatted,
+                                style = MaterialTheme.typography.labelLarge,
+                                fontWeight = FontWeight.SemiBold,
+                                color = colors.onPrimary,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
                         Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            text = buildAnnotatedString {
-                                withStyle(SpanStyle(color = colors.secondary)) {
-                                    append("Target: ")
-                                }
-                                withStyle(
-                                    SpanStyle(
-                                        color = colors.onPrimary,
-                                        fontWeight = FontWeight.SemiBold
-                                    )
-                                ) {
-                                    append(summary.targetFormatted)
-                                }
-                            },
-                            style = MaterialTheme.typography.labelMedium,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Icon(
+                                imageVector = AppIcons.Target,
+                                contentDescription = null,
+                                tint = colors.secondary,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Text(
+                                text = summary.targetFormatted,
+                                style = MaterialTheme.typography.labelLarge,
+                                fontWeight = FontWeight.SemiBold,
+                                color = colors.onPrimary,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
                     }
 
                     GoalRoundedProgressBar(
                         progress = summary.progressFraction,
                         trackColor = colors.onPrimary.copy(alpha = 0.20f),
-                        indicatorColor = colors.secondary
+                        indicatorColor = colors.secondary,
+                        height = 10.dp
                     )
                 }
 
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
                     StreakMetricTile(
                         icon = AppIcons.Flame,
-                        label = "Current Streak",
                         value = currentStreakLabel,
+                        trailingBadgeIcon = if (streak.isAtRisk) AppIcons.Lightbulb else null,
                         modifier = Modifier.weight(1f)
                     )
                     StreakMetricTile(
                         icon = AppIcons.Trophy,
-                        label = "Best Streak",
                         value = bestStreakLabel,
                         modifier = Modifier.weight(1f)
-                    )
-                }
-
-                if (streak.isAtRisk) {
-                    Text(
-                        text = GoalProgressPolicy.STREAK_AT_RISK_HINT,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = colors.secondary
                     )
                 }
             }
@@ -420,48 +488,52 @@ private fun GoalsHeroSummaryCard(
 @Composable
 private fun StreakMetricTile(
     icon: ImageVector,
-    label: String,
     value: String,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    trailingBadgeIcon: ImageVector? = null
 ) {
     val colors = MaterialTheme.colorScheme
     Row(
         modifier = modifier
             .clip(RoundedCornerShape(14.dp))
             .background(colors.onPrimary.copy(alpha = 0.12f))
-            .padding(horizontal = 12.dp, vertical = 10.dp),
+            .padding(horizontal = 12.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(10.dp)
+        horizontalArrangement = Arrangement.SpaceBetween
     ) {
-        Box(
-            modifier = Modifier
-                .size(34.dp)
-                .clip(CircleShape)
-                .background(colors.secondary.copy(alpha = 0.18f)),
-            contentAlignment = Alignment.Center
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            Icon(
-                imageVector = icon,
-                contentDescription = null,
-                tint = colors.secondary,
-                modifier = Modifier.size(18.dp)
-            )
-        }
-        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            Text(
-                text = label,
-                style = MaterialTheme.typography.labelSmall,
-                color = colors.secondary,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
+            Box(
+                modifier = Modifier
+                    .size(30.dp)
+                    .clip(CircleShape)
+                    .background(colors.secondary.copy(alpha = 0.18f)),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = icon,
+                    contentDescription = null,
+                    tint = colors.secondary,
+                    modifier = Modifier.size(16.dp)
+                )
+            }
             Text(
                 text = value,
                 style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.SemiBold,
+                fontWeight = FontWeight.Bold,
                 color = colors.onPrimary,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
+            )
+        }
+        if (trailingBadgeIcon != null) {
+            Icon(
+                imageVector = trailingBadgeIcon,
+                contentDescription = "Streak at risk",
+                tint = colors.secondary,
+                modifier = Modifier.size(16.dp)
             )
         }
     }
@@ -470,15 +542,17 @@ private fun StreakMetricTile(
 @Composable
 internal fun GoalRoundedProgressBar(
     progress: Float,
-    trackColor: androidx.compose.ui.graphics.Color,
-    indicatorColor: androidx.compose.ui.graphics.Color,
-    modifier: Modifier = Modifier
+    trackColor: Color,
+    indicatorColor: Color,
+    modifier: Modifier = Modifier,
+    height: Dp = 8.dp,
+    showMilestoneTicks: Boolean = false
 ) {
     val clamped = progress.coerceIn(0f, 1f)
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .height(8.dp)
+            .height(height)
             .clip(RoundedCornerShape(50))
             .background(trackColor)
     ) {
@@ -490,6 +564,22 @@ internal fun GoalRoundedProgressBar(
                     .clip(RoundedCornerShape(50))
                     .background(indicatorColor)
             )
+        }
+        if (showMilestoneTicks) {
+            Row(
+                modifier = Modifier.fillMaxSize(),
+                horizontalArrangement = Arrangement.SpaceEvenly,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                repeat(3) {
+                    Box(
+                        modifier = Modifier
+                            .size(4.dp)
+                            .clip(CircleShape)
+                            .background(Color.White.copy(alpha = 0.55f))
+                    )
+                }
+            }
         }
     }
 }
@@ -531,7 +621,7 @@ private fun GoalEmptyState(onAddGoal: () -> Unit) {
     val colors = MaterialTheme.colorScheme
     Card(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(20.dp),
+        shape = RoundedCornerShape(24.dp),
         border = BorderStroke(1.dp, colors.outlineVariant.copy(alpha = 0.5f)),
         colors = CardDefaults.cardColors(
             containerColor = colors.surface,
@@ -541,28 +631,23 @@ private fun GoalEmptyState(onAddGoal: () -> Unit) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(24.dp),
+                .padding(28.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(12.dp)
+            verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            Box(
-                modifier = Modifier
-                    .size(48.dp)
-                    .clip(CircleShape)
-                    .background(colors.secondaryContainer),
-                contentAlignment = Alignment.Center
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Icon(
-                    imageVector = AppIcons.ShieldPlus,
-                    contentDescription = null,
-                    tint = colors.primary,
-                    modifier = Modifier.size(24.dp)
-                )
+                CognitiveCircleIcon(icon = AppIcons.Psychology, size = 40.dp, iconSize = 20.dp)
+                CognitiveCircleIcon(icon = AppIcons.Target, size = 52.dp, iconSize = 26.dp, emphasized = true)
+                CognitiveCircleIcon(icon = AppIcons.Savings, size = 40.dp, iconSize = 20.dp)
             }
             Text(
-                text = GoalMessages.EMPTY_GOALS,
-                style = MaterialTheme.typography.bodyLarge,
-                color = colors.onSurfaceVariant,
+                text = "New Goal",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold,
+                color = colors.onSurface,
                 textAlign = TextAlign.Center
             )
             Button(
@@ -573,84 +658,163 @@ private fun GoalEmptyState(onAddGoal: () -> Unit) {
                 ),
                 modifier = Modifier.heightIn(min = 48.dp)
             ) {
-                Text("Create Goal")
+                Icon(
+                    imageVector = Icons.Default.Add,
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp)
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+                Text("Create")
             }
         }
     }
 }
 
 @Composable
-private fun GoalCard(
+private fun CognitiveCircleIcon(
+    icon: ImageVector,
+    size: Dp,
+    iconSize: Dp,
+    emphasized: Boolean = false
+) {
+    val colors = MaterialTheme.colorScheme
+    Box(
+        modifier = Modifier
+            .size(size)
+            .clip(CircleShape)
+            .background(if (emphasized) colors.primaryContainer else colors.secondaryContainer),
+        contentAlignment = Alignment.Center
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            tint = if (emphasized) colors.onPrimaryContainer else colors.primary,
+            modifier = Modifier.size(iconSize)
+        )
+    }
+}
+
+@Composable
+private fun OngoingGoalCard(
     goal: GoalCardUiModel,
     onAddProgress: () -> Unit = {}
 ) {
     val colors = MaterialTheme.colorScheme
+    val compactRate = goal.monthlyRateFormatted?.replace(" / month", "/mo")
+    val compactTimeline = goal.timelineRemainingLabel
+        .replace(" weeks left", "w")
+        .replace(" days left", "d")
+        .replace(" day left", "d")
+
     Card(
-        shape = RoundedCornerShape(20.dp),
-        border = BorderStroke(1.dp, colors.outlineVariant.copy(alpha = 0.45f)),
+        shape = RoundedCornerShape(24.dp),
+        border = BorderStroke(1.dp, colors.primary.copy(alpha = 0.25f)),
         colors = CardDefaults.cardColors(
             containerColor = colors.surface,
             contentColor = colors.onSurface
         ),
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(20.dp))
+            .clip(RoundedCornerShape(24.dp))
             .clickable(role = Role.Button, onClick = onAddProgress)
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp)
+                .padding(22.dp),
+            verticalArrangement = Arrangement.spacedBy(18.dp)
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                horizontalArrangement = Arrangement.spacedBy(14.dp)
             ) {
                 Box(
                     modifier = Modifier
-                        .size(44.dp)
+                        .size(52.dp)
                         .clip(CircleShape)
-                        .background(colors.secondaryContainer),
+                        .background(colors.primaryContainer),
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
-                        imageVector = AppIcons.ShieldPlus,
+                        imageVector = AppIcons.Target,
                         contentDescription = null,
-                        tint = colors.primary,
-                        modifier = Modifier.size(22.dp)
+                        tint = colors.onPrimaryContainer,
+                        modifier = Modifier.size(26.dp)
                     )
                 }
 
                 Column(
                     modifier = Modifier.weight(1f),
-                    verticalArrangement = Arrangement.spacedBy(2.dp)
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
-                    Text(
-                        text = goal.name,
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.SemiBold,
-                        color = colors.onSurface,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                    Text(
-                        text = "Target: ${goal.targetFormatted}",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = colors.onSurfaceVariant,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Text(
+                            text = goal.name,
+                            style = MaterialTheme.typography.titleLarge,
+                            fontWeight = FontWeight.Bold,
+                            color = colors.onSurface,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f, fill = false)
+                        )
+                        if (goal.isSyncing) {
+                            Icon(
+                                imageVector = AppIcons.Sync,
+                                contentDescription = "Syncing",
+                                tint = colors.onSurfaceVariant,
+                                modifier = Modifier.size(15.dp)
+                            )
+                        }
+                    }
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Icon(
+                            imageVector = AppIcons.Calendar,
+                            contentDescription = null,
+                            tint = colors.onSurfaceVariant,
+                            modifier = Modifier.size(14.dp)
+                        )
+                        Text(
+                            text = goal.targetDateFormatted,
+                            style = MaterialTheme.typography.labelMedium,
+                            color = colors.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
                 }
 
-                Text(
-                    text = goal.percentValueLabel,
-                    style = MaterialTheme.typography.labelLarge,
-                    fontWeight = FontWeight.SemiBold,
-                    color = colors.primary
-                )
+                Surface(
+                    shape = RoundedCornerShape(50),
+                    color = colors.secondaryContainer,
+                    contentColor = colors.onSecondaryContainer
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Icon(
+                            imageVector = AppIcons.TrendingUp,
+                            contentDescription = null,
+                            tint = colors.primary,
+                            modifier = Modifier.size(15.dp)
+                        )
+                        Text(
+                            text = goal.percentValueLabel,
+                            style = MaterialTheme.typography.labelLarge,
+                            fontWeight = FontWeight.Bold,
+                            color = colors.primary
+                        )
+                    }
+                }
             }
 
             Row(
@@ -658,120 +822,240 @@ private fun GoalCard(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.Bottom
             ) {
-                Text(
-                    text = buildAnnotatedString {
-                        withStyle(
-                            SpanStyle(
-                                color = colors.onSurface,
-                                fontWeight = FontWeight.Bold,
-                                fontSize = MaterialTheme.typography.titleLarge.fontSize
-                            )
-                        ) {
-                            append(goal.savedFormatted)
-                        }
-                        withStyle(
-                            SpanStyle(
-                                color = colors.onSurfaceVariant,
-                                fontWeight = FontWeight.Normal,
-                                fontSize = MaterialTheme.typography.bodySmall.fontSize
-                            )
-                        ) {
-                            append(" / ${goal.targetFormatted}")
-                        }
-                    },
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
                     modifier = Modifier.weight(1f)
-                )
+                ) {
+                    Icon(
+                        imageVector = AppIcons.Savings,
+                        contentDescription = null,
+                        tint = colors.primary,
+                        modifier = Modifier.size(22.dp)
+                    )
+                    Text(
+                        text = goal.savedFormatted,
+                        style = MaterialTheme.typography.headlineSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = colors.onSurface,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
                 Spacer(modifier = Modifier.width(8.dp))
-                Text(
-                    text = goal.timelineRemainingLabel,
-                    style = MaterialTheme.typography.labelMedium,
-                    fontWeight = FontWeight.Medium,
-                    color = if (goal.isOverdue && !goal.isCompleted) colors.error else colors.onSurfaceVariant
-                )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    Icon(
+                        imageVector = AppIcons.Target,
+                        contentDescription = null,
+                        tint = colors.onSurfaceVariant,
+                        modifier = Modifier.size(15.dp)
+                    )
+                    Text(
+                        text = goal.targetFormatted,
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.Medium,
+                        color = colors.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
             }
 
             GoalRoundedProgressBar(
                 progress = goal.progressFraction,
                 trackColor = colors.surfaceVariant,
                 indicatorColor = colors.primary,
+                height = 12.dp,
+                showMilestoneTicks = true,
                 modifier = Modifier.semantics {
                     contentDescription = "Goal progress ${goal.percentValueLabel}, saved ${goal.savedFormatted} of ${goal.targetFormatted}"
                 }
             )
-
-            Divider(color = colors.outlineVariant.copy(alpha = 0.35f))
 
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                val footerText = when {
-                    goal.isClosed -> goal.closedSummaryLabel ?: "Goal completed & closed"
-                    goal.isCompleted -> "Goal reached • Locked — Ready to finish"
-                    goal.isActive && goal.monthlyRateFormatted != null -> goal.monthlyRateFormatted
-                    else -> "Due ${goal.targetDateFormatted}"
-                }
-                Text(
-                    text = footerText,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = colors.onSurfaceVariant,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier.weight(1f)
-                )
-                TextButton(
+                ) {
+                    if (compactRate != null) {
+                        GoalCognitiveMetricChip(
+                            icon = AppIcons.TrendingUp,
+                            text = compactRate,
+                            tint = colors.primary
+                        )
+                    }
+                    GoalCognitiveMetricChip(
+                        icon = AppIcons.Schedule,
+                        text = compactTimeline,
+                        tint = if (goal.isOverdue) colors.error else colors.onSurfaceVariant
+                    )
+                }
+
+                Spacer(modifier = Modifier.width(8.dp))
+
+                FilledTonalButton(
                     onClick = onAddProgress,
+                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
                     modifier = Modifier.heightIn(min = 48.dp)
                 ) {
-                    when {
-                        goal.isClosed -> {
-                            Icon(
-                                imageVector = Icons.Default.CheckCircle,
-                                contentDescription = null,
-                                tint = colors.primary,
-                                modifier = Modifier.size(16.dp)
-                            )
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text(
-                                text = "History",
-                                color = colors.primary,
-                                fontWeight = FontWeight.SemiBold
-                            )
-                        }
+                    Icon(
+                        imageVector = Icons.Default.Add,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Icon(
+                        imageVector = AppIcons.Savings,
+                        contentDescription = "Add Progress",
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
+            }
+        }
+    }
+}
 
-                        goal.isCompleted -> {
-                            Icon(
-                                imageVector = Icons.Default.Lock,
-                                contentDescription = null,
-                                tint = colors.primary,
-                                modifier = Modifier.size(16.dp)
-                            )
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text(
-                                text = "Finish Goal",
-                                color = colors.primary,
-                                fontWeight = FontWeight.SemiBold
-                            )
-                        }
+@Composable
+private fun GoalCognitiveMetricChip(
+    icon: ImageVector,
+    text: String,
+    tint: Color,
+    modifier: Modifier = Modifier
+) {
+    val colors = MaterialTheme.colorScheme
+    Surface(
+        shape = RoundedCornerShape(10.dp),
+        color = colors.surfaceVariant.copy(alpha = 0.65f),
+        modifier = modifier
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(5.dp)
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                tint = tint,
+                modifier = Modifier.size(14.dp)
+            )
+            Text(
+                text = text,
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.Medium,
+                color = tint,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+    }
+}
 
-                        else -> {
-                            Icon(
-                                imageVector = Icons.Default.Add,
-                                contentDescription = null,
-                                tint = colors.primary,
-                                modifier = Modifier.size(16.dp)
-                            )
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text(
-                                text = "Add Progress",
-                                color = colors.primary,
-                                fontWeight = FontWeight.SemiBold
-                            )
-                        }
-                    }
+@Composable
+private fun CompletedGoalCompactCard(
+    goal: GoalCardUiModel,
+    onClick: () -> Unit = {}
+) {
+    val colors = MaterialTheme.colorScheme
+    val isLockedReadyToFinish = goal.isCompleted && !goal.isClosed
+    Surface(
+        shape = RoundedCornerShape(14.dp),
+        color = colors.surfaceVariant.copy(alpha = 0.45f),
+        contentColor = colors.onSurface,
+        border = BorderStroke(
+            width = 1.dp,
+            color = if (isLockedReadyToFinish) {
+                colors.primary.copy(alpha = 0.4f)
+            } else {
+                colors.outlineVariant.copy(alpha = 0.35f)
+            }
+        ),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(14.dp))
+            .clickable(role = Role.Button, onClick = onClick)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 12.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(30.dp)
+                    .clip(CircleShape)
+                    .background(
+                        if (isLockedReadyToFinish) colors.primaryContainer else colors.secondaryContainer
+                    ),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = if (isLockedReadyToFinish) Icons.Default.Lock else Icons.Default.CheckCircle,
+                    contentDescription = null,
+                    tint = if (isLockedReadyToFinish) colors.onPrimaryContainer else colors.primary,
+                    modifier = Modifier.size(16.dp)
+                )
+            }
+
+            Text(
+                text = goal.name,
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.SemiBold,
+                color = colors.onSurface,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f)
+            )
+
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                Icon(
+                    imageVector = AppIcons.Savings,
+                    contentDescription = null,
+                    tint = colors.onSurfaceVariant,
+                    modifier = Modifier.size(14.dp)
+                )
+                Text(
+                    text = goal.savedFormatted,
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.Medium,
+                    color = colors.onSurfaceVariant,
+                    maxLines = 1
+                )
+            }
+
+            Surface(
+                shape = RoundedCornerShape(50),
+                color = if (isLockedReadyToFinish) colors.primary else colors.secondaryContainer,
+                contentColor = if (isLockedReadyToFinish) colors.onPrimary else colors.primary
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    Icon(
+                        imageVector = if (isLockedReadyToFinish) AppIcons.SwapHoriz else AppIcons.Trophy,
+                        contentDescription = if (isLockedReadyToFinish) "Finish Goal" else "Completed",
+                        modifier = Modifier.size(13.dp)
+                    )
+                    Text(
+                        text = if (isLockedReadyToFinish) "Finish" else "100%",
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.Bold
+                    )
                 }
             }
         }

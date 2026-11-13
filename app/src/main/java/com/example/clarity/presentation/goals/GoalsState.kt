@@ -75,6 +75,12 @@ data class GoalsState(
 
     val completedHistoryGoals: List<GoalCardUiModel>
         get() = goals.filter { it.isClosed }
+
+    val ongoingGoals: List<GoalCardUiModel>
+        get() = goals.filter { !it.isCompleted && !it.isClosed }
+
+    val completedGoals: List<GoalCardUiModel>
+        get() = goals.filter { it.isCompleted || it.isClosed }
 }
 
 object GoalMessages {
