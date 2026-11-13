@@ -128,11 +128,6 @@ class CashWalletViewModel @Inject constructor(
         }
     }
 
-    fun selectMode(mode: WalletActionMode) {
-        if (_uiState.value.isSaving) return
-        _uiState.update { it.copy(mode = mode, amount = "") }
-    }
-
     fun selectSourceAccount(accountId: String) {
         val current = _uiState.value
         if (current.isSaving) return
@@ -153,79 +148,44 @@ class CashWalletViewModel @Inject constructor(
         val amountMinor = MoneyUtils.parseMinor(state.amount, defaultCurrency).getOrNull() ?: return
         if (amountMinor <= 0L) return
 
-        val availableCashMinor = MoneyUtils.parseMinor(state.balance, defaultCurrency).getOrDefault(0L)
-        if (state.mode == WalletActionMode.EXPENSE && amountMinor > availableCashMinor) return
-
-        val sourceAccount = if (state.mode == WalletActionMode.TOP_UP) {
-            state.sourceAccounts
-                .firstOrNull { it.id == state.selectedSourceAccountId }
-                ?.takeIf { CashTopUpPolicy.canTopUpFrom(it, defaultCurrency) }
-                ?: return
-        } else null
+        val sourceAccount = state.sourceAccounts
+            .firstOrNull { it.id == state.selectedSourceAccountId }
+            ?.takeIf { CashTopUpPolicy.canTopUpFrom(it, defaultCurrency) }
+            ?: return
 
         _uiState.update { it.copy(isSaving = true) }
         viewModelScope.launch {
             try {
                 val now = System.currentTimeMillis()
-                when (state.mode) {
-                    WalletActionMode.TOP_UP -> {
-                        val source = requireNotNull(sourceAccount)
-                        if (!CashTopUpPolicy.canTopUpFrom(source, defaultCurrency)) {
-                            _uiState.update { it.copy(isSaving = false) }
-                            return@launch
-                        }
-
-                        val debitTx = Transaction(
-                            id = UUID.randomUUID().toString(),
-                            amountMinor = amountMinor,
-                            type = TransactionType.EXPENSE,
-                            category = TransactionTags.CASH_TOP_UP,
-                            dateEpochMillis = now,
-                            note = "Top up to ${cashAccount.name}",
-                            accountId = source.id,
-                            currency = defaultCurrency
-                        )
-                        val creditTx = Transaction(
-                            id = UUID.randomUUID().toString(),
-                            amountMinor = amountMinor,
-                            type = TransactionType.INCOME,
-                            category = TransactionTags.CASH_TOP_UP,
-                            dateEpochMillis = now,
-                            note = "Top up from ${source.displayLabel}",
-                            accountId = cashAccount.id,
-                            currency = defaultCurrency
-                        )
-                        val debitRes = addTransaction(debitTx)
-                        if (debitRes.isSuccess) {
-                            val creditRes = addTransaction(creditTx)
-                            if (creditRes.isSuccess) {
-                                _uiState.update { it.copy(amount = "", isSaving = false) }
-                                return@launch
-                            }
-                        }
-                        _uiState.update { it.copy(isSaving = false) }
-                    }
-
-                    WalletActionMode.EXPENSE, WalletActionMode.INCOME -> {
-                        val isExpense = state.mode == WalletActionMode.EXPENSE
-                        val tx = Transaction(
-                            id = UUID.randomUUID().toString(),
-                            amountMinor = amountMinor,
-                            type = if (isExpense) TransactionType.EXPENSE else TransactionType.INCOME,
-                            category = if (isExpense) "Cash Expense" else "Cash Income",
-                            dateEpochMillis = now,
-                            note = "",
-                            accountId = cashAccount.id,
-                            currency = cashAccount.currency
-                        )
-                        val res = addTransaction(tx)
-                        if (res.isSuccess) {
-                            _uiState.update { it.copy(amount = "", isSaving = false) }
-                        } else {
-                            _uiState.update { it.copy(isSaving = false) }
-                        }
+                val debitTx = Transaction(
+                    id = UUID.randomUUID().toString(),
+                    amountMinor = amountMinor,
+                    type = TransactionType.EXPENSE,
+                    category = TransactionTags.CASH_TOP_UP,
+                    dateEpochMillis = now,
+                    note = "Top up to ${cashAccount.name}",
+                    accountId = sourceAccount.id,
+                    currency = defaultCurrency
+                )
+                val creditTx = Transaction(
+                    id = UUID.randomUUID().toString(),
+                    amountMinor = amountMinor,
+                    type = TransactionType.INCOME,
+                    category = TransactionTags.CASH_TOP_UP,
+                    dateEpochMillis = now,
+                    note = "Top up from ${sourceAccount.displayLabel}",
+                    accountId = cashAccount.id,
+                    currency = defaultCurrency
+                )
+                val debitRes = addTransaction(debitTx)
+                if (debitRes.isSuccess) {
+                    val creditRes = addTransaction(creditTx)
+                    if (creditRes.isSuccess) {
+                        _uiState.update { it.copy(amount = "", isSaving = false, isSaved = true) }
+                        return@launch
                     }
                 }
+                _uiState.update { it.copy(isSaving = false) }
             } catch (_: Exception) {
                 _uiState.update { it.copy(isSaving = false) }
             }

@@ -2,7 +2,6 @@ package com.example.clarity.presentation.wallet
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -21,7 +20,6 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.ExposedDropdownMenuDefaults
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -31,6 +29,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -51,11 +50,17 @@ fun CashWalletScreen(
     viewModel: CashWalletViewModel = hiltViewModel()
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
+
+    LaunchedEffect(state.isSaved) {
+        if (state.isSaved) {
+            onBack()
+        }
+    }
+
     CashWalletContent(
         state = state,
         onBack = onBack,
         onAddAccount = onAddAccount,
-        onSelectMode = viewModel::selectMode,
         onSelectSourceAccount = viewModel::selectSourceAccount,
         onAmountChange = viewModel::setAmount,
         onSubmit = viewModel::submit
@@ -68,7 +73,6 @@ fun CashWalletContent(
     state: CashWalletState,
     onBack: () -> Unit,
     onAddAccount: () -> Unit,
-    onSelectMode: (WalletActionMode) -> Unit,
     onSelectSourceAccount: (String) -> Unit,
     onAmountChange: (String) -> Unit,
     onSubmit: () -> Unit
@@ -124,98 +128,67 @@ fun CashWalletContent(
                 }
             }
 
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                FilterChip(
-                    selected = state.mode == WalletActionMode.TOP_UP,
-                    onClick = { onSelectMode(WalletActionMode.TOP_UP) },
-                    label = { Text("Top Up") },
-                    modifier = Modifier.weight(1f)
-                )
-                FilterChip(
-                    selected = state.mode == WalletActionMode.EXPENSE,
-                    onClick = { onSelectMode(WalletActionMode.EXPENSE) },
-                    label = { Text("Expense") },
-                    modifier = Modifier.weight(1f)
-                )
-                FilterChip(
-                    selected = state.mode == WalletActionMode.INCOME,
-                    onClick = { onSelectMode(WalletActionMode.INCOME) },
-                    label = { Text("Income") },
-                    modifier = Modifier.weight(1f)
-                )
-            }
-
-            if (state.mode == WalletActionMode.TOP_UP) {
-                if (eligibleSourceAccounts.isEmpty()) {
-                    Column(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
+            if (eligibleSourceAccounts.isEmpty()) {
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text(
+                        text = if (state.hasOtherCurrencyAccounts) {
+                            "Cash Wallet top-ups are restricted to ${state.currency} accounts matching your default currency."
+                        } else {
+                            "Add a ${state.currency} account matching your default currency to top up Cash Wallet."
+                        },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    OutlinedButton(
+                        onClick = onAddAccount,
+                        modifier = Modifier.fillMaxWidth()
                     ) {
-                        Text(
-                            text = if (state.hasOtherCurrencyAccounts) {
-                                "Cash Wallet top-ups are restricted to ${state.currency} accounts matching your default currency."
-                            } else {
-                                "Add a ${state.currency} account matching your default currency to top up Cash Wallet."
-                            },
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        OutlinedButton(
-                            onClick = onAddAccount,
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Text("Add ${state.currency} Account to Top Up From")
-                        }
+                        Text("Add ${state.currency} Account to Top Up From")
                     }
-                } else {
-                    ExposedDropdownMenuBox(
+                }
+            } else {
+                ExposedDropdownMenuBox(
+                    expanded = accountMenuExpanded,
+                    onExpandedChange = { accountMenuExpanded = !accountMenuExpanded }
+                ) {
+                    OutlinedTextField(
+                        value = selectedSource?.displayLabel ?: "Select Source Account",
+                        onValueChange = {},
+                        readOnly = true,
+                        label = { Text("From Account (${state.currency})") },
+                        supportingText = {
+                            Text("Only ${state.currency} accounts matching your default currency can be used")
+                        },
+                        trailingIcon = {
+                            ExposedDropdownMenuDefaults.TrailingIcon(expanded = accountMenuExpanded)
+                        },
+                        modifier = Modifier
+                            .menuAnchor()
+                            .fillMaxWidth()
+                    )
+                    ExposedDropdownMenu(
                         expanded = accountMenuExpanded,
-                        onExpandedChange = { accountMenuExpanded = !accountMenuExpanded }
+                        onDismissRequest = { accountMenuExpanded = false }
                     ) {
-                        OutlinedTextField(
-                            value = selectedSource?.displayLabel ?: "Select Source Account",
-                            onValueChange = {},
-                            readOnly = true,
-                            label = { Text("From Account (${state.currency})") },
-                            supportingText = {
-                                Text("Only ${state.currency} accounts matching your default currency can be used")
-                            },
-                            trailingIcon = {
-                                ExposedDropdownMenuDefaults.TrailingIcon(expanded = accountMenuExpanded)
-                            },
-                            modifier = Modifier
-                                .menuAnchor()
-                                .fillMaxWidth()
-                        )
-                        ExposedDropdownMenu(
-                            expanded = accountMenuExpanded,
-                            onDismissRequest = { accountMenuExpanded = false }
-                        ) {
-                            eligibleSourceAccounts.forEach { account ->
-                                DropdownMenuItem(
-                                    text = { Text("${account.displayLabel} (${account.currency})") },
-                                    onClick = {
-                                        onSelectSourceAccount(account.id)
-                                        accountMenuExpanded = false
-                                    }
-                                )
-                            }
+                        eligibleSourceAccounts.forEach { account ->
+                            DropdownMenuItem(
+                                text = { Text("${account.displayLabel} (${account.currency})") },
+                                onClick = {
+                                    onSelectSourceAccount(account.id)
+                                    accountMenuExpanded = false
+                                }
+                            )
                         }
                     }
                 }
             }
 
             val enteredMinor = MoneyUtils.parseMinor(state.amount, state.currency).getOrNull()
-            val availableMinor = MoneyUtils.parseMinor(state.balance, state.currency).getOrDefault(0L)
             val isAmountInvalid = state.amount.isNotBlank() && (enteredMinor == null || enteredMinor <= 0L)
-            val isInsufficientBalance = state.mode == WalletActionMode.EXPENSE &&
-                enteredMinor != null && enteredMinor > availableMinor
-            val hasValidationError = isAmountInvalid || isInsufficientBalance
-            val canEnterAmount = !state.isSaving &&
-                (state.mode != WalletActionMode.TOP_UP || eligibleSourceAccounts.isNotEmpty())
+            val canEnterAmount = !state.isSaving && eligibleSourceAccounts.isNotEmpty()
 
             OutlinedTextField(
                 value = state.amount,
@@ -223,11 +196,11 @@ fun CashWalletContent(
                 label = { Text("Amount (${state.currency})") },
                 singleLine = true,
                 enabled = canEnterAmount,
-                isError = hasValidationError,
-                supportingText = when {
-                    isInsufficientBalance -> ({ Text("Insufficient cash wallet balance") })
-                    isAmountInvalid -> ({ Text("Enter a valid amount greater than zero") })
-                    else -> null
+                isError = isAmountInvalid,
+                supportingText = if (isAmountInvalid) {
+                    { Text("Enter a valid amount greater than zero") }
+                } else {
+                    null
                 },
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                 modifier = Modifier.fillMaxWidth()
@@ -238,20 +211,15 @@ fun CashWalletContent(
             val canSubmit = !state.isSaving &&
                 enteredMinor != null &&
                 enteredMinor > 0L &&
-                !hasValidationError &&
-                (state.mode != WalletActionMode.TOP_UP || CashTopUpPolicy.canTopUpFrom(selectedSource, state.currency))
+                !isAmountInvalid &&
+                CashTopUpPolicy.canTopUpFrom(selectedSource, state.currency)
 
             Button(
                 onClick = onSubmit,
                 enabled = canSubmit,
                 modifier = Modifier.fillMaxWidth()
             ) {
-                val buttonLabel = when (state.mode) {
-                    WalletActionMode.TOP_UP -> "Top Up Cash Wallet"
-                    WalletActionMode.EXPENSE -> "Save Cash Expense"
-                    WalletActionMode.INCOME -> "Save Cash Income"
-                }
-                Text(if (state.isSaving) "Saving..." else buttonLabel)
+                Text(if (state.isSaving) "Saving..." else "Top Up Cash Wallet")
             }
         }
     }
