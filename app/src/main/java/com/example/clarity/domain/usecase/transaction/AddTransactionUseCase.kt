@@ -3,15 +3,22 @@ package com.example.clarity.domain.usecase.transaction
 import com.example.clarity.domain.model.Transaction
 import com.example.clarity.domain.model.TransactionError
 import com.example.clarity.domain.model.TransactionException
-import com.example.clarity.domain.repository.TransactionRepository
 import com.example.clarity.domain.repository.AccountRepository
+import com.example.clarity.domain.repository.TransactionRepository
+import com.example.clarity.domain.usecase.salary.RecordSalaryReminderUseCase
 import kotlinx.coroutines.CancellationException
 import javax.inject.Inject
 
 class AddTransactionUseCase @Inject constructor(
     private val repository: TransactionRepository,
-    private val accountRepository: AccountRepository
+    private val accountRepository: AccountRepository,
+    private val recordSalaryReminder: RecordSalaryReminderUseCase?
 ) {
+    constructor(
+        repository: TransactionRepository,
+        accountRepository: AccountRepository
+    ) : this(repository, accountRepository, null)
+
     suspend operator fun invoke(transaction: Transaction): Result<Unit> {
         if (transaction.amountMinor <= 0) {
             return Result.failure(IllegalArgumentException("Amount must be greater than zero"))
@@ -34,6 +41,10 @@ class AddTransactionUseCase @Inject constructor(
         if (account == null) {
             return Result.failure(TransactionException(TransactionError.ACCOUNT_NOT_FOUND, "Bank account not found"))
         }
-        return repository.addTransaction(normalized)
+        val result = repository.addTransaction(normalized)
+        if (result.isSuccess) {
+            recordSalaryReminder?.invoke(normalized, account)
+        }
+        return result
     }
 }

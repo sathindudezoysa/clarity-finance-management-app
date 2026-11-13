@@ -41,6 +41,9 @@
                 android:theme="@style/Theme.Clarity.QuickAmount"
                 android:windowSoftInputMode="stateVisible|adjustResize"/>
         <receiver
+                android:name=".data.notifications.SalaryReminderActionReceiver"
+                android:exported="false"/>
+        <receiver
                 android:name=".presentation.widget.QuickEntryWidgetReceiver"
                 android:exported="true"
                 android:label="Clarity Quick Entry">

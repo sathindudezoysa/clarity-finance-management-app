@@ -20,7 +20,6 @@ import com.example.clarity.presentation.auth.register.RegisterScreen
 import com.example.clarity.presentation.goals.GoalEditScreen
 import com.example.clarity.presentation.goals.GoalProgressScreen
 import com.example.clarity.presentation.goals.GoalsScreen
-import com.example.clarity.presentation.income.IncomeScreen
 import com.example.clarity.presentation.main.MainScreen
 import com.example.clarity.presentation.settings.SettingsScreen
 import com.example.clarity.presentation.transactions.detail.TransactionDetailScreen
@@ -88,7 +87,6 @@ fun SetupNavGraph(
                 onOpenTransaction = { id ->
                     navController.navigate(Screen.TransactionDetail.createRoute(id))
                 },
-                onNavigateToIncome = { navController.navigate(Screen.IncomeSources.route) },
                 onNavigateToCashWallet = { navController.navigate(Screen.CashWallet.route) },
                 onNavigateToSettings = {
                     navController.navigate(Screen.Settings.route) {
@@ -220,11 +218,6 @@ fun SetupNavGraph(
                 },
                 viewModel = hiltViewModel()
             )
-        }
-        composable(Screen.IncomeSources.route) {
-            IncomeScreen(onBack = { navController.popBackStack() },
-                onAddAccount = { navController.navigate(Screen.AccountEdit.createRoute()) },
-                onOpenTransaction = { id -> navController.navigate(Screen.TransactionDetail.createRoute(id)) })
         }
         composable(route = Screen.CashWallet.route) {
             com.example.clarity.presentation.wallet.CashWalletScreen(
