@@ -82,6 +82,27 @@ class GoalFundingRepositoryImpl @Inject internal constructor(
                 throw GoalContributionException(GoalContributionError.SIGN_IN_REQUIRED)
             }
 
+            val activeTransactions = transactionDao.getActiveForUser(uid).map { it.toDomain() }
+            val activeTxIds = activeTransactions.mapTo(hashSetOf()) { it.id }
+            val existingGoalContributions = contributionDao.observe(uid).first()
+                .map { it.toDomain() }
+                .filter { it.id in activeTxIds }
+            val existingProgress = GoalProgressPolicy.evaluateGoalProgress(goal, existingGoalContributions)
+            val payoutTx = transactionDao.getById("goal_payout_${goal.id}")
+            if (existingProgress.isCompleted || (payoutTx != null && !payoutTx.isDeleted)) {
+                throw IllegalStateException("This goal has already reached 100% and is locked.")
+            }
+
+            val remainingGoalMinor = java.math.BigInteger.valueOf(goal.targetMinor.coerceAtLeast(0L))
+                .subtract(existingProgress.savedMinor)
+                .coerceAtLeast(java.math.BigInteger.ZERO)
+            if (java.math.BigInteger.valueOf(amountMinor) > remainingGoalMinor) {
+                throw GoalContributionException(
+                    GoalContributionError.INVALID_AMOUNT,
+                    "Contribution exceeds remaining goal target."
+                )
+            }
+
             val sourceAccount = accountDao.getById(sourceAccountId)
                 ?.takeIf { it.userId == uid }
                 ?.toDomain()
@@ -93,7 +114,6 @@ class GoalFundingRepositoryImpl @Inject internal constructor(
             }
 
             val userAccounts = accountDao.getAllForUser(uid).map { it.toDomain() }
-            val activeTransactions = transactionDao.getActiveForUser(uid).map { it.toDomain() }
             val availability = GoalFundingPolicy.evaluate(
                 transactions = activeTransactions,
                 accounts = userAccounts,

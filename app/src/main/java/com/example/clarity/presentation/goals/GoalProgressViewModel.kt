@@ -4,6 +4,7 @@ import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.clarity.domain.model.Account
+import com.example.clarity.domain.model.ConversionSnapshot
 import com.example.clarity.domain.model.FinancialGoal
 import com.example.clarity.domain.model.GoalContribution
 import com.example.clarity.domain.model.GoalContributionError
@@ -11,10 +12,13 @@ import com.example.clarity.domain.model.GoalContributionException
 import com.example.clarity.domain.model.Transaction
 import com.example.clarity.domain.usecase.account.GetAccountsUseCase
 import com.example.clarity.domain.usecase.goal.ContributeToGoalUseCase
+import com.example.clarity.domain.usecase.goal.FinishGoalUseCase
 import com.example.clarity.domain.usecase.goal.GetGoalUseCase
 import com.example.clarity.domain.usecase.goal.ObserveGoalContributionsUseCase
 import com.example.clarity.domain.usecase.goal.ObserveGoalsUseCase
 import com.example.clarity.domain.usecase.transaction.GetTransactionsUseCase
+import com.example.clarity.domain.usecase.transaction.PreviewConversionUseCase
+import com.example.clarity.domain.util.AccountBalancePolicy
 import com.example.clarity.domain.util.GoalFundingAvailability
 import com.example.clarity.domain.util.GoalFundingLimitFactor
 import com.example.clarity.domain.util.GoalFundingPolicy
@@ -33,6 +37,8 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import java.math.BigInteger
 import java.time.Clock
+import java.time.Instant
+import java.time.ZoneOffset
 import java.util.UUID
 import javax.inject.Inject
 
@@ -43,6 +49,8 @@ class GoalProgressViewModel @Inject constructor(
     private val observeGoals: ObserveGoalsUseCase,
     private val observeGoalContributions: ObserveGoalContributionsUseCase,
     private val contributeToGoal: ContributeToGoalUseCase,
+    private val finishGoalUseCase: FinishGoalUseCase,
+    private val previewConversion: PreviewConversionUseCase,
     private val getAccounts: GetAccountsUseCase,
     private val getTransactions: GetTransactionsUseCase,
     private val clock: Clock
@@ -50,6 +58,7 @@ class GoalProgressViewModel @Inject constructor(
 
     private val goalIdArg: String? = savedStateHandle.get<String>("goalId")?.takeIf { it.isNotBlank() }
     private var observeJob: Job? = null
+    private var payoutPreviewJob: Job? = null
     private var currentGoal: FinancialGoal? = null
     private var currentSavedMinor: BigInteger = BigInteger.ZERO
     private var latestAccounts: List<Account> = emptyList()
@@ -139,8 +148,14 @@ class GoalProgressViewModel @Inject constructor(
                     latestAccounts = input.accounts
                     latestTransactions = input.transactions
 
+                    val txIds = input.transactions.mapTo(hashSetOf()) { it.id }
                     val goalContributions = input.contributionsSnapshot.contributions
-                        .filter { it.goalId == goal.id && it.amountMinor > 0L && it.currency == goal.currency }
+                        .filter {
+                            it.goalId == goal.id &&
+                                it.amountMinor > 0L &&
+                                it.currency == goal.currency &&
+                                it.id in txIds
+                        }
                         .sortedWith(
                             compareByDescending<GoalContribution> { it.dateEpochDay }
                                 .thenByDescending { it.createdAt }
@@ -188,14 +203,28 @@ class GoalProgressViewModel @Inject constructor(
     ) {
         val today = GoalPolicy.todayEpochDay(clock)
         val summary = GoalProgressPolicy.evaluateGoalProgress(goal, goalContributions)
+        val payoutSourceMinor = summary.savedMinor
+            .min(BigInteger.valueOf(goal.targetMinor.coerceAtLeast(0L)))
         currentSavedMinor = summary.savedMinor
-        val overdue = goal.isOverdue(today)
+
+        val txById = transactions.associateBy { it.id }
+        val accountsById = accounts.associateBy { it.id }
+        val payoutTx = txById[FinishGoalUseCase.payoutTransactionId(goal.id)]
+        val isClosed = payoutTx != null
+        val isCompleted = summary.isCompleted || isClosed
+
+        val overdue = goal.isOverdue(today) && !isCompleted
         val daysLeft = goal.daysRemaining(today)
-        val daysLabel = if (overdue) "Overdue" else "$daysLeft days left"
-        val percentLabel = if (summary.isCompleted) {
-            "100% — Goal Reached"
-        } else {
-            "${summary.displayPercent}% saved"
+        val daysLabel = when {
+            isClosed -> "Goal completed & closed"
+            isCompleted -> "Goal reached — Ready to finish"
+            overdue -> "Overdue"
+            else -> "$daysLeft days left"
+        }
+        val percentLabel = when {
+            isClosed -> "100% — Completed & Closed"
+            isCompleted -> "100% — Goal Reached (Locked)"
+            else -> "${summary.displayPercent}% saved"
         }
         val milestonesUi = summary.milestones.map { m ->
             GoalMilestoneUiModel(
@@ -207,8 +236,6 @@ class GoalProgressViewModel @Inject constructor(
             )
         }
 
-        val txById = transactions.associateBy { it.id }
-        val accountsById = accounts.associateBy { it.id }
         val contributionsUi = goalContributions.map { c ->
             val sourceAccountId = txById[c.id]?.accountId
             val sourceLabel = sourceAccountId?.let { accId ->
@@ -234,6 +261,39 @@ class GoalProgressViewModel @Inject constructor(
             )
         }
 
+        val visiblePayoutAccounts = GoalFundingPolicy.filterVisibleAccounts(accounts)
+        val payoutAccountsUi = visiblePayoutAccounts.map { account ->
+            val balMinor = AccountBalancePolicy.calculateBalanceMinorSync(account, transactions)
+            GoalFundingAccountUiModel(
+                id = account.id,
+                label = account.displayLabel,
+                currency = account.currency,
+                balanceFormatted = AccountBalancePolicy.formatAccountBalance(account, balMinor),
+                isDefault = account.isDefault
+            )
+        }
+
+        val currentPayoutId = _uiState.value.selectedPayoutAccountId
+        val selectedPayoutAccount = visiblePayoutAccounts.firstOrNull { it.id == currentPayoutId }
+            ?: visiblePayoutAccounts.firstOrNull { it.isDefault && it.currency.equals(goal.currency, ignoreCase = true) }
+            ?: visiblePayoutAccounts.firstOrNull { it.currency.equals(goal.currency, ignoreCase = true) }
+            ?: visiblePayoutAccounts.firstOrNull { it.isDefault }
+            ?: visiblePayoutAccounts.firstOrNull()
+
+        val selectedPayoutCurrency = selectedPayoutAccount?.currency ?: goal.currency
+        val isCrossCurrencyPayout = selectedPayoutAccount != null &&
+            !selectedPayoutCurrency.equals(goal.currency, ignoreCase = true)
+
+        val closedPayoutFormatted = payoutTx?.let { formatGoalMoney(it.amountMinor, it.currency) }
+        val closedDestinationAccountLabel = payoutTx?.accountId?.let { accId ->
+            accountsById[accId]?.displayLabel
+                ?: if (accId.startsWith(Account.CASH_WALLET_PREFIX)) "Cash Wallet" else "Bank Account"
+        }
+        val closedDateFormatted = payoutTx?.dateEpochMillis?.let { millis ->
+            val epochDay = Instant.ofEpochMilli(millis).atZone(ZoneOffset.UTC).toLocalDate().toEpochDay()
+            formatGoalEpochDay(epochDay)
+        }
+
         val selectedAccount = availability.selectedAccount
         val availableFormatted = if (selectedAccount != null) {
             formatGoalMoney(availability.availableToContributeMinor, goal.currency)
@@ -243,6 +303,7 @@ class GoalProgressViewModel @Inject constructor(
         val limitLabel = buildAvailabilityLimitLabel(goal.currency, availability)
 
         val fundingError = when {
+            isCompleted || isClosed -> null
             accountsLoading && availability.eligibleAccounts.isEmpty() -> null
             availability.matchingCurrencyAccounts.isEmpty() ->
                 GoalMessages.noCurrencyAccounts(goal.currency)
@@ -252,6 +313,9 @@ class GoalProgressViewModel @Inject constructor(
         }
 
         val goalAccountLabel = "${goal.name} (${goal.currency})"
+
+        val previousPayoutId = _uiState.value.selectedPayoutAccountId
+        val previousPayoutCurrency = _uiState.value.selectedPayoutAccountCurrency
 
         _uiState.update { old ->
             val (revalidatedError, isValid) = validateAmountInput(
@@ -266,14 +330,26 @@ class GoalProgressViewModel @Inject constructor(
                 description = goal.description,
                 currency = goal.currency,
                 goalAccountLabel = goalAccountLabel,
-                savedFormatted = formatGoalMoney(summary.savedMinor, goal.currency),
+                savedFormatted = formatGoalMoney(
+                    if (isCompleted) payoutSourceMinor else summary.savedMinor,
+                    goal.currency
+                ),
                 targetFormatted = formatGoalMoney(goal.targetMinor, goal.currency),
                 targetDateFormatted = formatGoalEpochDay(goal.targetDateEpochDay),
                 daysRemainingLabel = daysLabel,
                 isOverdue = overdue,
                 progressFraction = summary.progressFraction,
                 percentLabel = percentLabel,
-                isCompleted = summary.isCompleted,
+                isCompleted = isCompleted,
+                isClosed = isClosed,
+                closedPayoutFormatted = closedPayoutFormatted,
+                closedDestinationAccountLabel = closedDestinationAccountLabel,
+                closedDateFormatted = closedDateFormatted,
+                payoutAccounts = payoutAccountsUi,
+                selectedPayoutAccountId = selectedPayoutAccount?.id,
+                selectedPayoutAccountLabel = selectedPayoutAccount?.displayLabel,
+                selectedPayoutAccountCurrency = selectedPayoutCurrency,
+                isCrossCurrencyPayout = isCrossCurrencyPayout,
                 fundingAccounts = fundingAccountsUi,
                 selectedAccountId = selectedAccount?.id,
                 selectedAccountLabel = selectedAccount?.displayLabel,
@@ -285,6 +361,173 @@ class GoalProgressViewModel @Inject constructor(
                 isAmountValid = isValid,
                 milestones = milestonesUi,
                 contributions = contributionsUi
+            )
+        }
+
+        if (isCompleted && !isClosed && selectedPayoutAccount != null) {
+            val needsRefresh = previousPayoutId != selectedPayoutAccount.id ||
+                !previousPayoutCurrency.equals(selectedPayoutCurrency, ignoreCase = true) ||
+                (isCrossCurrencyPayout && _uiState.value.payoutPreview == null && !_uiState.value.payoutPreviewLoading)
+            if (needsRefresh) {
+                refreshPayoutPreview(goal, payoutSourceMinor, selectedPayoutCurrency)
+            }
+        }
+    }
+
+    private fun refreshPayoutPreview(
+        goal: FinancialGoal,
+        savedMinor: BigInteger,
+        destinationCurrency: String
+    ) {
+        payoutPreviewJob?.cancel()
+        val sourceCurrency = goal.currency.uppercase()
+        val targetCurrency = destinationCurrency.uppercase()
+        val boundedSavedMinor = savedMinor.min(BigInteger.valueOf(goal.targetMinor.coerceAtLeast(0L)))
+        val amountMinorLong = runCatching { boundedSavedMinor.longValueExact() }
+            .getOrElse { goal.targetMinor.coerceAtLeast(0L) }
+        if (amountMinorLong <= 0L) return
+
+        if (sourceCurrency == targetCurrency) {
+            val identity = ConversionSnapshot.identity(amountMinorLong)
+            _uiState.update {
+                it.copy(
+                    isCrossCurrencyPayout = false,
+                    payoutPreview = identity,
+                    payoutPreviewFormatted = formatGoalMoney(amountMinorLong, targetCurrency),
+                    payoutPreviewLoading = false,
+                    payoutPreviewError = false
+                )
+            }
+            return
+        }
+
+        payoutPreviewJob = viewModelScope.launch {
+            _uiState.update {
+                it.copy(
+                    isCrossCurrencyPayout = true,
+                    payoutPreview = null,
+                    payoutPreviewFormatted = null,
+                    payoutPreviewLoading = true,
+                    payoutPreviewError = false,
+                    formError = null
+                )
+            }
+            try {
+                val snapshot = previewConversion(amountMinorLong, sourceCurrency, targetCurrency)
+                _uiState.update {
+                    it.copy(
+                        payoutPreview = snapshot,
+                        payoutPreviewFormatted = formatGoalMoney(snapshot.amountMinor, targetCurrency),
+                        payoutPreviewLoading = false,
+                        payoutPreviewError = false
+                    )
+                }
+            } catch (error: Exception) {
+                if (error is CancellationException) throw error
+                _uiState.update {
+                    it.copy(
+                        payoutPreview = null,
+                        payoutPreviewFormatted = null,
+                        payoutPreviewLoading = false,
+                        payoutPreviewError = true,
+                        formError = "Transfer blocked: Unable to convert $sourceCurrency to $targetCurrency because there is no network service. Please connect to the internet and try again."
+                    )
+                }
+            }
+        }
+    }
+
+    fun onPayoutAccountSelected(accountId: String) {
+        val state = _uiState.value
+        val goal = currentGoal ?: return
+        if (state.isLoading || state.isFinishing || state.isClosed) return
+        val account = latestAccounts.firstOrNull { it.id == accountId && !it.isGoalAccount } ?: return
+        val crossCurrency = !account.currency.equals(goal.currency, ignoreCase = true)
+        _uiState.update {
+            it.copy(
+                selectedPayoutAccountId = account.id,
+                selectedPayoutAccountLabel = account.displayLabel,
+                selectedPayoutAccountCurrency = account.currency,
+                payoutAccountError = null,
+                isCrossCurrencyPayout = crossCurrency,
+                formError = null
+            )
+        }
+        refreshPayoutPreview(goal, currentSavedMinor, account.currency)
+    }
+
+    fun retryPayoutPreview() {
+        val goal = currentGoal ?: return
+        val targetCurrency = _uiState.value.selectedPayoutAccountCurrency
+        refreshPayoutPreview(goal, currentSavedMinor, targetCurrency)
+    }
+
+    fun finishGoal() {
+        val state = _uiState.value
+        val goal = currentGoal ?: return
+        if (state.isLoading || state.isFinishing || state.isClosed || !state.isCompleted) return
+
+        val destinationAccountId = state.selectedPayoutAccountId
+        if (destinationAccountId.isNullOrBlank()) {
+            _uiState.update {
+                it.copy(payoutAccountError = "Select a destination account to receive your goal funds.")
+            }
+            return
+        }
+
+        if (state.isCrossCurrencyPayout && (state.payoutPreviewError || state.payoutPreview == null)) {
+            _uiState.update {
+                it.copy(
+                    formError = "Transfer blocked: Unable to convert ${goal.currency} to ${state.selectedPayoutAccountCurrency} because there is no network service. Please connect to the internet and try again."
+                )
+            }
+            return
+        }
+
+        viewModelScope.launch {
+            _uiState.update {
+                it.copy(
+                    isFinishing = true,
+                    payoutAccountError = null,
+                    formError = null,
+                    celebrationTitle = null,
+                    celebrationMessage = null
+                )
+            }
+            val result = finishGoalUseCase(
+                goalId = goal.id,
+                destinationAccountId = destinationAccountId
+            )
+            result.fold(
+                onSuccess = { finished ->
+                    val payoutFormatted = formatGoalMoney(
+                        finished.payoutTransaction.amountMinor,
+                        finished.payoutTransaction.currency
+                    )
+                    val closedDate = formatGoalEpochDay(GoalPolicy.todayEpochDay(clock))
+                    _uiState.update {
+                        it.copy(
+                            isFinishing = false,
+                            isClosed = true,
+                            closedPayoutFormatted = payoutFormatted,
+                            closedDestinationAccountLabel = finished.destinationAccount.displayLabel,
+                            closedDateFormatted = closedDate,
+                            formError = null,
+                            celebrationTitle = "Goal Completed & Closed",
+                            celebrationMessage = "Transferred $payoutFormatted to ${finished.destinationAccount.displayLabel} and closed the goal account."
+                        )
+                    }
+                },
+                onFailure = { error ->
+                    val message = error.message?.takeIf { it.isNotBlank() }
+                        ?: "Could not finish and close this goal. Please try again."
+                    _uiState.update {
+                        it.copy(
+                            isFinishing = false,
+                            formError = message
+                        )
+                    }
+                }
             )
         }
     }
@@ -327,13 +570,22 @@ class GoalProgressViewModel @Inject constructor(
         if (availability != null && !availability.canAfford(parsedMinor)) {
             return GoalMessages.INSUFFICIENT_FUNDS to false
         }
+        if (goal != null && goal.targetMinor > 0L) {
+            val remainingMinor = BigInteger.valueOf(goal.targetMinor)
+                .subtract(currentSavedMinor)
+                .coerceAtLeast(BigInteger.ZERO)
+            if (BigInteger.valueOf(parsedMinor) > remainingMinor) {
+                val remainingFormatted = formatGoalMoney(remainingMinor, currency)
+                return "Amount cannot exceed remaining goal target ($remainingFormatted)." to false
+            }
+        }
         return null to true
     }
 
     fun onAccountSelected(accountId: String) {
         val state = _uiState.value
         val goal = currentGoal ?: return
-        if (state.isLoading || state.isSaving || state.fatalError != null) return
+        if (state.isLoading || state.isSaving || state.isCompleted || state.isClosed || state.fatalError != null) return
         val currentAvailability = latestAvailability ?: return
         if (currentAvailability.eligibleAccounts.none { it.account.id == accountId }) return
 
@@ -372,6 +624,7 @@ class GoalProgressViewModel @Inject constructor(
     }
 
     fun onAmountChanged(value: String) {
+        if (_uiState.value.isCompleted || _uiState.value.isClosed) return
         val (amountErr, isValid) = validateAmountInput(
             rawInput = value,
             goal = currentGoal,
@@ -390,7 +643,7 @@ class GoalProgressViewModel @Inject constructor(
     fun addContribution() {
         val state = _uiState.value
         val goal = currentGoal ?: return
-        if (state.isLoading || state.isSaving || state.fatalError != null) return
+        if (state.isLoading || state.isSaving || state.isCompleted || state.isClosed || state.fatalError != null) return
 
         if (state.fundingError != null) {
             _uiState.update { it.copy(formError = state.fundingError) }

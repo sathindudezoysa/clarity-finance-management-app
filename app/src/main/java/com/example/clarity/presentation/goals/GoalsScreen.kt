@@ -26,6 +26,8 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -191,14 +193,37 @@ internal fun GoalsContent(
                             GoalEmptyState(onAddGoal = onAddGoal)
                         }
                     } else {
-                        items(
-                            items = state.goals,
-                            key = { it.id }
-                        ) { goal ->
-                            GoalCard(
-                                goal = goal,
-                                onAddProgress = { onAddProgress(goal.id) }
-                            )
+                        if (state.activeGoals.isNotEmpty()) {
+                            items(
+                                items = state.activeGoals,
+                                key = { it.id }
+                            ) { goal ->
+                                GoalCard(
+                                    goal = goal,
+                                    onAddProgress = { onAddProgress(goal.id) }
+                                )
+                            }
+                        }
+
+                        if (state.completedHistoryGoals.isNotEmpty()) {
+                            item(key = "completed-goals-history-header") {
+                                Text(
+                                    text = "Completed Goals History",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = colors.onSurface,
+                                    modifier = Modifier.padding(top = 8.dp)
+                                )
+                            }
+                            items(
+                                items = state.completedHistoryGoals,
+                                key = { "history-${it.id}" }
+                            ) { goal ->
+                                GoalCard(
+                                    goal = goal,
+                                    onAddProgress = { onAddProgress(goal.id) }
+                                )
+                            }
                         }
                     }
                 }
@@ -683,16 +708,17 @@ private fun GoalCard(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                val footerText = if (goal.isActive && goal.monthlyRateFormatted != null) {
-                    goal.monthlyRateFormatted
-                } else {
-                    "Due ${goal.targetDateFormatted}"
+                val footerText = when {
+                    goal.isClosed -> goal.closedSummaryLabel ?: "Goal completed & closed"
+                    goal.isCompleted -> "Goal reached • Locked — Ready to finish"
+                    goal.isActive && goal.monthlyRateFormatted != null -> goal.monthlyRateFormatted
+                    else -> "Due ${goal.targetDateFormatted}"
                 }
                 Text(
                     text = footerText,
                     style = MaterialTheme.typography.bodySmall,
                     color = colors.onSurfaceVariant,
-                    maxLines = 1,
+                    maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f)
                 )
@@ -700,18 +726,52 @@ private fun GoalCard(
                     onClick = onAddProgress,
                     modifier = Modifier.heightIn(min = 48.dp)
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.Add,
-                        contentDescription = null,
-                        tint = colors.primary,
-                        modifier = Modifier.size(16.dp)
-                    )
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text(
-                        text = "Add Progress",
-                        color = colors.primary,
-                        fontWeight = FontWeight.SemiBold
-                    )
+                    when {
+                        goal.isClosed -> {
+                            Icon(
+                                imageVector = Icons.Default.CheckCircle,
+                                contentDescription = null,
+                                tint = colors.primary,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                text = "History",
+                                color = colors.primary,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        }
+
+                        goal.isCompleted -> {
+                            Icon(
+                                imageVector = Icons.Default.Lock,
+                                contentDescription = null,
+                                tint = colors.primary,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                text = "Finish Goal",
+                                color = colors.primary,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        }
+
+                        else -> {
+                            Icon(
+                                imageVector = Icons.Default.Add,
+                                contentDescription = null,
+                                tint = colors.primary,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                text = "Add Progress",
+                                color = colors.primary,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        }
+                    }
                 }
             }
         }

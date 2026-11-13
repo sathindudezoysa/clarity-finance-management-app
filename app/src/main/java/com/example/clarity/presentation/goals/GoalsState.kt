@@ -38,7 +38,9 @@ data class GoalCardUiModel(
     val percentValueLabel: String = "0%",
     val timelineRemainingLabel: String = daysRemainingLabel,
     val nextMilestoneLabel: String = "Next milestone: 25%",
-    val isCompleted: Boolean = false
+    val isCompleted: Boolean = false,
+    val isClosed: Boolean = false,
+    val closedSummaryLabel: String? = null
 )
 
 data class MonthlyRateTotalUiModel(
@@ -67,6 +69,12 @@ data class GoalsState(
 ) {
     val isEmpty: Boolean
         get() = goals.isEmpty()
+
+    val activeGoals: List<GoalCardUiModel>
+        get() = goals.filterNot { it.isClosed }
+
+    val completedHistoryGoals: List<GoalCardUiModel>
+        get() = goals.filter { it.isClosed }
 }
 
 object GoalMessages {
@@ -249,37 +257,53 @@ fun buildGoalsAggregateSummary(
 
 fun FinancialGoal.toCardUiModel(
     todayEpochDay: Long,
-    contributions: List<GoalContribution> = emptyList()
+    contributions: List<GoalContribution> = emptyList(),
+    isClosed: Boolean = false,
+    closedSummaryLabel: String? = null
 ): GoalCardUiModel {
-    val overdue = isOverdue(todayEpochDay)
-    val active = isActive(todayEpochDay)
+    val overdue = isOverdue(todayEpochDay) && !isClosed
+    val active = isActive(todayEpochDay) && !isClosed
     val daysLeft = daysRemaining(todayEpochDay)
     val daysLabel = if (overdue) {
         "Overdue"
     } else {
         "$daysLeft days left"
     }
-    val monthlyRate = requiredMonthlySavingsMinor(todayEpochDay)?.let { rateMinor ->
-        formatGoalMonthlyRate(rateMinor, currency)
-    }
     val progress = GoalProgressPolicy.evaluateGoalProgress(this, contributions)
-    val savedFormatted = formatGoalMoney(progress.savedMinor, currency)
-    val percentLabel = if (progress.isCompleted) {
-        "100% — Goal Reached"
+    val completed = progress.isCompleted || isClosed
+    val boundedSavedMinor = if (completed) {
+        progress.savedMinor.min(BigInteger.valueOf(targetMinor.coerceAtLeast(0L)))
     } else {
-        "${progress.displayPercent}% saved"
+        progress.savedMinor
+    }
+    val monthlyRate = if (completed) {
+        null
+    } else {
+        requiredMonthlySavingsMinor(todayEpochDay)?.let { rateMinor ->
+            formatGoalMonthlyRate(rateMinor, currency)
+        }
+    }
+    val savedFormatted = formatGoalMoney(boundedSavedMinor, currency)
+    val percentLabel = when {
+        isClosed -> "100% — Completed & Closed"
+        completed -> "100% — Goal Reached"
+        else -> "${progress.displayPercent}% saved"
     }
     val percentValueLabel = formatCompactPercent(
         savedMinor = progress.savedMinor,
         targetMinor = BigInteger.valueOf(targetMinor.coerceAtLeast(0L)),
-        isCompleted = progress.isCompleted
+        isCompleted = completed
     )
-    val timelineRemainingLabel = formatTimelineRemaining(
-        daysLeft = daysLeft,
-        isOverdue = overdue,
-        isCompleted = progress.isCompleted
-    )
-    val nextMilestoneLabel = if (progress.isCompleted) {
+    val timelineRemainingLabel = when {
+        isClosed -> "Completed & Closed"
+        completed -> "Goal reached • Locked"
+        else -> formatTimelineRemaining(
+            daysLeft = daysLeft,
+            isOverdue = overdue,
+            isCompleted = false
+        )
+    }
+    val nextMilestoneLabel = if (completed) {
         GoalMilestoneThreshold.COMPLETE.motivationText
     } else {
         val next = progress.nextMilestone
@@ -298,16 +322,18 @@ fun FinancialGoal.toCardUiModel(
         targetFormatted = formatGoalMoney(targetMinor, currency),
         targetDateFormatted = formatGoalEpochDay(targetDateEpochDay),
         daysRemainingLabel = daysLabel,
-        isOverdue = overdue,
+        isOverdue = overdue && !completed,
         isSyncing = pendingSync || anyContributionSyncing,
-        isActive = active,
+        isActive = active && !completed,
         monthlyRateFormatted = monthlyRate,
-        progressFraction = progress.progressFraction,
+        progressFraction = if (isClosed) 1f else progress.progressFraction,
         savedFormatted = savedFormatted,
         percentLabel = percentLabel,
         percentValueLabel = percentValueLabel,
         timelineRemainingLabel = timelineRemainingLabel,
         nextMilestoneLabel = nextMilestoneLabel,
-        isCompleted = progress.isCompleted
+        isCompleted = completed,
+        isClosed = isClosed,
+        closedSummaryLabel = closedSummaryLabel
     )
 }
